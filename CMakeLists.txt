@@ -6,7 +6,12 @@ option(MODE_release "ON: release mode; OFF: debug mode" OFF)
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
         MESSAGE(STATUS "compilation model : release")
-        set(CMAKE_CXX_FLAGS "-O3")
+        # Aggressive optimization flags for maximum performance
+        # Note: Using -fno-finite-math-only to maintain IEEE compliance for JSON library
+        set(CMAKE_CXX_FLAGS "-O3 -march=native -mtune=native -funroll-loops -ftree-vectorize -fno-math-errno")
+        # Enable link-time optimization for cross-file inlining
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
         set(FLUXOS_EXEC_name "fluxos")
 ELSE(MODE_release MATCHES OFF)
         MESSAGE(STATUS "compilation model : debug")
