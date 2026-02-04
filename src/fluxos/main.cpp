@@ -297,30 +297,56 @@ int main(int argc, char* argv[])
                 ds);
         }
         
-        for(icol=1;icol<=ds.NCOLS;icol++)
-        {
-            for(irow=1;irow<=ds.NROWS;irow++)
-            {
-                hp = (*ds.h).at(irow,icol);
-                (*ds.h0)(irow,icol) = hp; // adesolver
-                (*ds.ldry_prev).at(irow,icol) = (*ds.ldry).at(irow,icol); // adesolver
+        // Parallelized Courant condition calculation with OpenMP reduction
+        double dtfl_local = 9.e10;
+        double hpall_local = 0.0;
 
-                if(hp>ds.hdry) 
+        // Cache frequently accessed values
+        const double hdry_local = ds.hdry;
+        const double gacc_local = ds.gacc;
+        const double cfl_local = ds.cfl;
+        const size_t dxy_local = ds.dxy;
+        const unsigned int NCOLS_local = ds.NCOLS;
+        const unsigned int NROWS_local = ds.NROWS;
+
+        // Get raw references to avoid repeated unique_ptr dereference
+        arma::Mat<double>& h_ref = *ds.h;
+        arma::Mat<double>& h0_ref = *ds.h0;
+        arma::Mat<float>& ldry_ref = *ds.ldry;
+        arma::Mat<float>& ldry_prev_ref = *ds.ldry_prev;
+        arma::Mat<double>& qx_ref = *ds.qx;
+        arma::Mat<double>& qy_ref = *ds.qy;
+
+        #pragma omp parallel for collapse(2) reduction(min:dtfl_local) reduction(max:hpall_local) schedule(static)
+        for(icol=1;icol<=NCOLS_local;icol++)
+        {
+            for(irow=1;irow<=NROWS_local;irow++)
+            {
+                double hp_local = h_ref(irow,icol);
+                h0_ref(irow,icol) = hp_local; // adesolver
+                ldry_prev_ref(irow,icol) = ldry_ref(irow,icol); // adesolver
+
+                if(hp_local > hdry_local)
                 {
-                    (*ds.ldry).at(irow,icol)=0.0f;
-                    hp=std::fmax((*ds.h).at(irow,icol),ds.hdry);
-                    hpall = std::fmax(hpall,(*ds.h).at(irow,icol));
-                    c0=sqrt(ds.gacc*(*ds.h).at(irow,icol));
-                    u0=std::fmax(.000001,fabs((*ds.qx).at(irow,icol)/hp));
-                    v0=std::fmax(.000001,fabs((*ds.qy).at(irow,icol)/hp));
-                    ds.dtfl=fmin(fmin(ds.cfl*ds.dxy/(u0+c0),ds.cfl*ds.dxy/(v0+c0)),ds.dtfl);
-                }else 
+                    ldry_ref(irow,icol) = 0.0f;
+                    hp_local = std::fmax(hp_local, hdry_local);
+                    hpall_local = std::fmax(hpall_local, h_ref(irow,icol));
+                    double c0_local = sqrt(gacc_local * h_ref(irow,icol));
+                    double u0_local = std::fmax(.000001, fabs(qx_ref(irow,icol) / hp_local));
+                    double v0_local = std::fmax(.000001, fabs(qy_ref(irow,icol) / hp_local));
+                    double dt_candidate = fmin(cfl_local * dxy_local / (u0_local + c0_local),
+                                               cfl_local * dxy_local / (v0_local + c0_local));
+                    dtfl_local = fmin(dt_candidate, dtfl_local);
+                } else
                 {
-                    (*ds.ldry).at(irow,icol)=1.0f;
+                    ldry_ref(irow,icol) = 1.0f;
                 }
-                ds.dtfl=fmin(print_next - ds.tim, ds.dtfl);
             }
         }
+
+        // Apply reduction results and time constraint
+        ds.dtfl = fmin(dtfl_local, print_next - ds.tim);
+        hpall = hpall_local;
                 
         ds.tim = ds.tim + ds.dtfl;
           
