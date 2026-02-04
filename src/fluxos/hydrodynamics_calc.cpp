@@ -24,6 +24,7 @@
 #include "hydrodynamics_calc.h"
 #include "solver_drydomain.h"
 #include "solver_wetdomain.h"
+#include "mpi_domain.h"
 
 void hydrodynamics_calc(
     GlobVar& ds)
@@ -37,6 +38,11 @@ void hydrodynamics_calc(
 // fw1= mass flux per unit width
 // fw2= momentum flux per unit width in x-direction
 // fw3= momentum flux per unit width in y-direction
+//
+// MPI+OpenMP hybrid parallelization:
+// - Domain is decomposed across MPI processes
+// - Each process uses OpenMP for local parallelism
+// - Ghost cells are exchanged between MPI neighbors
 //-----------------------------------------------------------------------
 
     // Cache frequently used values for faster access
@@ -72,6 +78,17 @@ void hydrodynamics_calc(
     const double dtl_div_3600 = dtl / 3600.0;
     const double inv_dxy = 1.0 / dxy;
 
+#ifdef USE_MPI
+    // Exchange ghost cells for input fields before computation
+    // This ensures each process has up-to-date boundary data from neighbors
+    mpi_domain.exchange_ghost_cells(z_ref);
+    mpi_domain.exchange_ghost_cells(zb_ref);
+    mpi_domain.exchange_ghost_cells(qx_ref);
+    mpi_domain.exchange_ghost_cells(qy_ref);
+    mpi_domain.exchange_ghost_cells(h_ref);
+    mpi_domain.exchange_ghost_cells(ldry_ref);
+#endif
+
     // Begin OpenMP parallel region
     #pragma omp parallel
     {
@@ -103,6 +120,15 @@ void hydrodynamics_calc(
             }
         }
 
+#ifdef USE_MPI
+        // Single-threaded ghost exchange after ldry update
+        #pragma omp single
+        {
+            mpi_domain.exchange_ghost_cells(ldry_ref);
+            mpi_domain.exchange_ghost_cells(h_ref);
+        }
+#endif
+
         // CALL FLOW SOLVERS (compute mass and momentum fluxes)
         #pragma omp for schedule(static) collapse(2)
         for(icol = 1; icol <= NCOLS; icol++)
@@ -120,6 +146,19 @@ void hydrodynamics_calc(
                 }
             }
         }
+
+#ifdef USE_MPI
+        // Exchange flux ghost cells before derivative computation
+        #pragma omp single
+        {
+            mpi_domain.exchange_ghost_cells(fe_1_ref);
+            mpi_domain.exchange_ghost_cells(fe_2_ref);
+            mpi_domain.exchange_ghost_cells(fe_3_ref);
+            mpi_domain.exchange_ghost_cells(fn_1_ref);
+            mpi_domain.exchange_ghost_cells(fn_2_ref);
+            mpi_domain.exchange_ghost_cells(fn_3_ref);
+        }
+#endif
 
         // CALCULATE TOTAL MASS AND MOMENTUM DERIVATIVE
         #pragma omp for schedule(static) collapse(2)
@@ -166,6 +205,15 @@ void hydrodynamics_calc(
             }
         }
 
+#ifdef USE_MPI
+        // Exchange qxf/qyf ghost cells for smoothing step
+        #pragma omp single
+        {
+            mpi_domain.exchange_ghost_cells(qxf_ref);
+            mpi_domain.exchange_ghost_cells(qyf_ref);
+        }
+#endif
+
         // CALCULATE NEW VALUES
         #pragma omp for schedule(static) collapse(2)
         for(icol = 1; icol <= NCOLS; icol++)
@@ -205,4 +253,13 @@ void hydrodynamics_calc(
         }
 
     } // end of OpenMP parallel region
+
+#ifdef USE_MPI
+    // Final ghost exchange for updated state variables
+    mpi_domain.exchange_ghost_cells(z_ref);
+    mpi_domain.exchange_ghost_cells(h_ref);
+    mpi_domain.exchange_ghost_cells(qx_ref);
+    mpi_domain.exchange_ghost_cells(qy_ref);
+    mpi_domain.exchange_ghost_cells(ldry_ref);
+#endif
 }

@@ -1,7 +1,39 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Define compilaton mode
-option(MODE_release "ON: release mode; OFF: debug mode" OFF) 
+# ============================================================================
+# FLUXOS-OVERLAND CMake Configuration
+# Hybrid MPI+OpenMP parallelization for HPC clusters
+# ============================================================================
+#
+# Build Options:
+#   -DMODE_release=ON     Enable release mode with optimizations (default: OFF)
+#   -DUSE_MPI=ON          Enable MPI for distributed computing (default: OFF)
+#
+# Build Examples:
+#   cmake -DMODE_release=ON ..                    # OpenMP only (single node)
+#   cmake -DMODE_release=ON -DUSE_MPI=ON ..       # MPI+OpenMP (multi-node HPC)
+#
+# ============================================================================
+# Scalability Guidelines
+# ============================================================================
+#
+#   Domain Size         Recommended Configuration
+#   ---------------     --------------------------------------------------
+#   < 1000 x 1000       OpenMP only (single node)
+#   1000 - 5000²        4-16 MPI processes
+#   5000 - 10000²       16-64 MPI processes
+#   > 10000²            64+ MPI processes
+#
+# For hybrid MPI+OpenMP, use 2-4 OpenMP threads per MPI process.
+# Example for 64 cores: 16 MPI processes x 4 OpenMP threads
+#
+# ============================================================================
+
+# Define compilation mode
+option(MODE_release "ON: release mode; OFF: debug mode" OFF)
+
+# Define MPI option for HPC clusters
+option(USE_MPI "ON: Enable MPI for distributed computing; OFF: Single node only" OFF)
 
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
@@ -32,12 +64,30 @@ IF (UNIX)
 	file(GLOB SOURCES "src/fluxos/*.cpp")
 
 	set(CMAKE_CXX_STANDARD 17)
-	
+
 	# Packages
 	find_package(Armadillo REQUIRED)
 	FIND_PACKAGE(HDF5 REQUIRED)
 	find_package(OpenMP)
 
+	# MPI support for HPC clusters
+	IF(USE_MPI MATCHES ON)
+		find_package(MPI REQUIRED)
+		MESSAGE(STATUS "MPI support : ENABLED")
+		MESSAGE(STATUS "MPI C compiler: ${MPI_C_COMPILER}")
+		MESSAGE(STATUS "MPI CXX compiler: ${MPI_CXX_COMPILER}")
+		add_definitions(-DUSE_MPI)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILE_FLAGS}")
+		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
+		# Update executable name to indicate MPI version
+		IF(MODE_release MATCHES ON)
+			set(FLUXOS_EXEC_name "fluxos_mpi")
+		ELSE()
+			set(FLUXOS_EXEC_name "fluxos_mpi_debug")
+		ENDIF()
+	ELSE()
+		MESSAGE(STATUS "MPI support : DISABLED (use -DUSE_MPI=ON to enable)")
+	ENDIF()
 
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
@@ -47,22 +97,36 @@ IF (UNIX)
 
 	# Create Results folder if non-existant
 	file(MAKE_DIRECTORY Results)
-	
+
 	add_executable(${FLUXOS_EXEC_name}
 			${SOURCES})
-	
+
 	target_include_directories(
 		${FLUXOS_EXEC_name} PUBLIC
 		${HDF5_INCLUDE_DIRS}
 		${ARMADILLO_INCLUDE_DIR})
+
+	# Add MPI include directories if enabled
+	IF(USE_MPI MATCHES ON)
+		target_include_directories(
+			${FLUXOS_EXEC_name} PUBLIC
+			${MPI_CXX_INCLUDE_DIRS})
+	ENDIF()
 
 	target_link_libraries(
 		${FLUXOS_EXEC_name}
 		${HDF5_C_LIBRARY_hdf5}
 		${ARMADILLO_LIBRARIES})
 
+	# Add MPI libraries if enabled
+	IF(USE_MPI MATCHES ON)
+		target_link_libraries(
+			${FLUXOS_EXEC_name}
+			${MPI_CXX_LIBRARIES})
+	ENDIF()
 
-ELSE()	
+
+ELSE()
 	MESSAGE(STATUS "curent platform : windows")
 	project(fluxos)
 	file(GLOB SOURCES "src/*.cpp")
@@ -73,12 +137,32 @@ ELSE()
 
 	# Packages
 	find_package(OpenMP)
+
+	# MPI support for Windows HPC
+	IF(USE_MPI MATCHES ON)
+		find_package(MPI REQUIRED)
+		MESSAGE(STATUS "MPI support : ENABLED")
+		add_definitions(-DUSE_MPI)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILE_FLAGS}")
+	ELSE()
+		MESSAGE(STATUS "MPI support : DISABLED")
+	ENDIF()
+
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Results)
 	add_executable(${FLUXOS_EXEC_name}, ${SOURCES})
 	target_include_directories(
-		${FLUXOS_EXEC_name} PUBLIC 
-		${HDF5_INCLUDE_DIRS}  
+		${FLUXOS_EXEC_name} PUBLIC
+		${HDF5_INCLUDE_DIRS}
 		"/usr/include/")
+
+	IF(USE_MPI MATCHES ON)
+		target_include_directories(
+			${FLUXOS_EXEC_name} PUBLIC
+			${MPI_CXX_INCLUDE_DIRS})
+		target_link_libraries(
+			${FLUXOS_EXEC_name}
+			${MPI_CXX_LIBRARIES})
+	ENDIF()
 
 ENDIF()

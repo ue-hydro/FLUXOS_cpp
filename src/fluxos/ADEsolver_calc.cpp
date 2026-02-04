@@ -22,8 +22,9 @@
 
 #include "GlobVar.h"
 #include "ADEsolver_calc.h"
+#include "mpi_domain.h"
 
-// ADE solver - optimized version
+// ADE solver - optimized version with MPI+OpenMP hybrid parallelization
 void adesolver_calc(
     GlobVar& ds,
     int it,
@@ -53,6 +54,11 @@ void adesolver_calc(
     // Local matrices for bounds calculation
     arma::mat cmaxr(ds.MROWS, ds.MCOLS);
     arma::mat cminr(ds.MROWS, ds.MCOLS);
+
+#ifdef USE_MPI
+    // Exchange ghost cells for concentration field before computation
+    mpi_domain.exchange_ghost_cells(conc);
+#endif
 
     if(it > 1) {
         // ADJUST CONCENTRATION TO NEW DEPTH - parallelized
@@ -279,4 +285,9 @@ void adesolver_calc(
             }
         }
     }
+
+#ifdef USE_MPI
+    // Exchange ghost cells for updated concentration field
+    mpi_domain.exchange_ghost_cells(conc);
+#endif
 }

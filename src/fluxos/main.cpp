@@ -42,6 +42,7 @@ using json = nlohmann::json;
 #include "ADEsolver_calc.h"
 #include "WINTRAsolver_calc.h"
 #include "write_results.h"
+#include "mpi_domain.h"
 
 // Openwq objects
 #include "../openwq/OpenWQ_hydrolink.h"
@@ -67,12 +68,12 @@ openwq_hydrolink openwq_hydrolink;
 // SW id in openwq
 int openwq_cmp_sw_id = 0;
 
-int main(int argc, char* argv[]) 
-{   
+int main(int argc, char* argv[])
+{
     unsigned int NROWSl, NCOLSl, it = 0;
     unsigned int irow, icol, print_next, timstart;
     int ntim_meteo, ntim_inflow;
-    double c0,hp,v0,u0, hpall, ks_input; 
+    double c0,hp,v0,u0, hpall, ks_input;
     bool outwritestatus;
     int nchem;
     std::vector<unsigned int> chem_mobile;
@@ -86,12 +87,32 @@ int main(int argc, char* argv[])
 
     std::string modset_flname (argv[1]);
     std::string dirpath = SplitFilename (modset_flname);
-    
+
+#ifdef USE_MPI
+    // Initialize MPI early (domain size will be set later after reading DEM)
+    // Note: Full initialization happens after we know the domain size
+    int mpi_initialized = 0;
+    MPI_Initialized(&mpi_initialized);
+    if (!mpi_initialized) {
+        int provided;
+        MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    }
+    int world_rank, world_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    bool is_root = (world_rank == 0);
+#else
+    bool is_root = true;
+#endif
+
     // #######################################################
-    // create/Open Log file
+    // create/Open Log file (only on root process)
     // #######################################################
-    std::ofstream logFLUXOSfile (dirpath + "/fluxos_run.log");
-    std::cout << "FLUXOS"  << std::endl;
+    std::ofstream logFLUXOSfile;
+    if (is_root) {
+        logFLUXOSfile.open(dirpath + "/fluxos_run.log");
+    }
+    if (is_root) std::cout << "FLUXOS"  << std::endl;
     logFLUXOSfile << "FLUXOS \n";
     logFLUXOSfile << "\n-----------------------------------------------\n" << std::endl;
     std::time_t start_time = std::chrono::system_clock::to_time_t(start);
@@ -345,6 +366,11 @@ int main(int argc, char* argv[])
         }
 
         // Apply reduction results and time constraint
+#ifdef USE_MPI
+        // Global reduction across all MPI processes for Courant condition
+        dtfl_local = mpi_domain.global_min(dtfl_local);
+        hpall_local = mpi_domain.global_max(hpall_local);
+#endif
         ds.dtfl = fmin(dtfl_local, print_next - ds.tim);
         hpall = hpall_local;
                 
@@ -498,12 +524,19 @@ int main(int argc, char* argv[])
     // #######################################################
     // Simulation complete
     // #######################################################
-    std::cout << "-----------------------------------------------" << std::endl;
-    logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
-    std::cout << "Simulation complete (" << std::chrono::system_clock::now << ")"  << std::endl;
-    logFLUXOSfile << "Simulation complete (" << std::chrono::system_clock::now;
-    logFLUXOSfile.close(); 
-      
+    if (is_root) {
+        std::cout << "-----------------------------------------------" << std::endl;
+        logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
+        std::cout << "Simulation complete (" << std::chrono::system_clock::now << ")"  << std::endl;
+        logFLUXOSfile << "Simulation complete (" << std::chrono::system_clock::now;
+        logFLUXOSfile.close();
+    }
+
+#ifdef USE_MPI
+    // Finalize MPI
+    MPI_Finalize();
+#endif
+
     return 0;
 }
 
