@@ -68,6 +68,46 @@ bool read_modset(
             ds.SWEmax = ds.master_MODSET["EXTERNAL_MODULES"]["WINTRA"]["SWE_MAX"];
         }
 
+        // Mesh type (regular or triangular)
+        auto exist_mesh_type = ds.master_MODSET.find("MESH_TYPE");
+        if (exist_mesh_type != ds.master_MODSET.end()) {
+            ds.mesh_type = ds.master_MODSET["MESH_TYPE"];
+        }
+
+#ifdef USE_TRIMESH
+        // Triangular mesh settings
+        if (ds.mesh_type == "triangular") {
+            auto exist_mesh_file = ds.master_MODSET.find("MESH_FILE");
+            if (exist_mesh_file != ds.master_MODSET.end()) {
+                ds.mesh_file = ds.master_MODSET["MESH_FILE"];
+            } else {
+                msg = "MESH_FILE must be provided when MESH_TYPE is 'triangular'";
+                errflag = true;
+                std::cout << msg << std::endl;
+                logFLUXOSfile << msg + "\n";
+                return errflag;
+            }
+
+            auto exist_mesh_format = ds.master_MODSET.find("MESH_FORMAT");
+            if (exist_mesh_format != ds.master_MODSET.end()) {
+                ds.mesh_format = ds.master_MODSET["MESH_FORMAT"];
+            } else {
+                ds.mesh_format = "gmsh";  // default
+            }
+
+            auto exist_bc = ds.master_MODSET.find("BOUNDARY_CONDITIONS");
+            if (exist_bc != ds.master_MODSET.end()) {
+                ds.boundary_conditions_json = ds.master_MODSET["BOUNDARY_CONDITIONS"];
+            }
+
+            logFLUXOSfile << "Mesh type: triangular\n";
+            logFLUXOSfile << "Mesh file: " + ds.mesh_file + "\n";
+            logFLUXOSfile << "Mesh format: " + ds.mesh_format + "\n";
+        } else {
+            logFLUXOSfile << "Mesh type: regular (Cartesian)\n";
+        }
+#endif
+
         // Forcing
         // Only requires one of these forcing files to be provided
         auto exist_meteo = ds.master_MODSET.find("METEO_FILE");
