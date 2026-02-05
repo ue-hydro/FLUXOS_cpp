@@ -34,38 +34,75 @@ Key Capabilities
      - Description
    * - **Hydrodynamics**
      - 2D shallow water equations with wetting/drying, Roe's approximate Riemann solver
+   * - **Unstructured Mesh**
+     - Triangular mesh support with edge-based rotated Roe/HLL solver, MUSCL + Barth-Jespersen limiter, and hydrostatic reconstruction for well-balanced property
    * - **Solute Transport**
-     - 2D Advection-Dispersion-Reaction (ADE) equation with source/sink terms
+     - 2D Advection-Dispersion-Reaction (ADE) equation with source/sink terms (both Cartesian and edge-based formulations)
    * - **Numerical Scheme**
-     - Finite volume method with MUSCL reconstruction for second-order accuracy
+     - Finite volume method with MUSCL reconstruction for second-order accuracy; least-squares gradient on unstructured meshes
    * - **Time Stepping**
-     - Adaptive time stepping based on CFL (Courant-Friedrichs-Lewy) condition
+     - Adaptive time stepping based on CFL (Courant-Friedrichs-Lewy) condition; inradius-based CFL for triangular meshes
+   * - **GPU Acceleration**
+     - CUDA GPU offloading for both regular and triangular mesh solvers with 1-thread-per-cell/edge kernel design
    * - **Parallel Computing**
-     - Hybrid MPI+OpenMP for HPC clusters, OpenMP for workstations
+     - Hybrid MPI+OpenMP for HPC clusters, OpenMP for workstations; METIS graph partitioning for unstructured mesh decomposition
    * - **Boundary Conditions**
-     - Dirichlet, Neumann, and internal weir boundary conditions
+     - Dirichlet, Neumann, and internal weir boundary conditions; tag-based boundary conditions for triangular meshes (wall, outflow)
+   * - **Output Formats**
+     - ASCII text output for regular mesh; VTK XML Unstructured Grid (.vtu) with ParaView time series (.pvd) for triangular mesh
+
+Mesh Types
+----------
+
+FLUXOS-OVERLAND supports two mesh types, selectable at runtime via the JSON configuration:
+
+**Regular Cartesian Mesh (default)**
+
+* Traditional structured grid with uniform cell size (``dxy``)
+* Efficient row-column indexing with ``(irow, icol)``
+* Input: ASCII-ESRI DEM files
+* Output: ASCII text files
+
+**Unstructured Triangular Mesh** (requires ``USE_TRIMESH`` build option)
+
+* Arbitrary triangular elements for complex geometries
+* Edge-based finite volume formulation (3 faces per cell, rotated Roe solver)
+* Input: Gmsh ``.msh`` v2.2 or Triangle ``.node/.ele`` format
+* Output: VTK XML UnstructuredGrid (``.vtu``) with ParaView time series (``.pvd``)
+* Ideal for irregular domains, refined regions, and natural channel geometries
 
 Computational Features
 ----------------------
 
 FLUXOS-OVERLAND is optimized for high-performance computing:
 
+**CUDA GPU Acceleration**
+
+* Full GPU offloading of hydrodynamics, ADE, and WINTRA solvers
+* Regular mesh: Cartesian 2D thread grid (1 thread per cell)
+* Triangular mesh: 1D thread indexing with 7 specialized kernels (wet/dry, gradient, limiter, edge flux, accumulate, update, Courant)
+* Race-free flux accumulation via ``atomicAdd``
+* Block-level parallel reduction for global CFL computation
+* Typical speedup: 10-50x over single-core CPU for large domains
+
 **Shared-Memory Parallelism (OpenMP)**
 
 * Multi-threaded execution on multi-core workstations
 * Automatic load balancing with static scheduling
 * Loop collapse optimization for nested iterations
+* Edge-parallel and cell-parallel loops for triangular mesh
 
 **Distributed-Memory Parallelism (MPI)**
 
-* 2D Cartesian domain decomposition
-* Efficient ghost cell exchange for inter-process communication
+* Regular mesh: 2D Cartesian domain decomposition with ghost cell exchange
+* Triangular mesh: graph-based partitioning (METIS optional, naive block fallback)
+* Halo exchange for unstructured mesh neighbor cells
 * Scalable to hundreds of processors on HPC clusters
 
-**Hybrid MPI+OpenMP**
+**Hybrid MPI+OpenMP+CUDA**
 
-* Combines distributed and shared memory parallelism
-* Optimal for modern HPC architectures
+* Combines distributed, shared memory, and GPU parallelism
+* Optimal for modern HPC architectures with GPU nodes
 * Reduces memory overhead compared to pure MPI
 
 Scalability Guidelines
@@ -74,36 +111,41 @@ Scalability Guidelines
 The following table provides recommended configurations based on domain size:
 
 .. list-table::
-   :widths: 25 25 25 25
+   :widths: 20 20 15 15 30
    :header-rows: 1
 
    * - Domain Size
      - Recommended Mode
      - MPI Processes
      - OpenMP Threads
-   * - < 500x500
-     - OpenMP only
+     - Notes
+   * - < 500x500 / < 100K cells
+     - OpenMP or CUDA
      - 1
      - 4-8
+     - GPU provides best speedup even at small scale
    * - 500x500 - 2000x2000
-     - Hybrid
+     - Hybrid or CUDA
      - 4-16
      - 2-4
+     - Good balance of communication/computation
    * - 2000x2000 - 5000x5000
-     - Hybrid
+     - Hybrid+CUDA
      - 16-64
      - 2-4
-   * - > 5000x5000
-     - Hybrid
+     - Multi-GPU recommended
+   * - > 5000x5000 / > 1M cells
+     - Hybrid+CUDA
      - 64-256
      - 2-4
+     - Large-scale HPC with GPU nodes
 
 Target Environments
 -------------------
 
-* **Workstations**: Multi-core systems with 8-64 cores
-* **HPC Clusters**: SLURM, PBS, or LSF job schedulers
-* **Cloud Computing**: AWS, Azure, or GCP HPC instances
+* **Workstations**: Multi-core systems with 8-64 cores; NVIDIA GPU (Compute Capability 6.0+)
+* **HPC Clusters**: SLURM, PBS, or LSF job schedulers; multi-GPU nodes
+* **Cloud Computing**: AWS (P3/P4 instances), Azure (NC series), or GCP (A2 instances)
 
 Typical Use Cases
 -----------------

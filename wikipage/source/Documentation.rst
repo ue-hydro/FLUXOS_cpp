@@ -5,6 +5,8 @@ Documentation
    :maxdepth: 2
 
    Theoretical
+   TriangularMesh
+   CUDA
    HPC
    Example
    Software
