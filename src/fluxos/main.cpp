@@ -44,6 +44,11 @@ using json = nlohmann::json;
 #include "write_results.h"
 #include "mpi_domain.h"
 
+#ifdef USE_CUDA
+#include "cuda_memory.h"
+#include "cuda_kernels.h"
+#endif
+
 // Openwq objects
 #include "../openwq/OpenWQ_hydrolink.h"
 
@@ -282,6 +287,14 @@ int main(int argc, char* argv[])
     print_next = print_next + ds.print_step;
     if(ds.wintra==true){ds.SWEstd = ds.SWEstd/100;}
 
+#ifdef USE_CUDA
+    // Initialize CUDA GPU memory and copy all fields to device
+    CudaMemoryManager cuda_mem;
+    cuda_mem.allocate(ds.MROWS, ds.MCOLS);
+    cuda_mem.copy_all_to_device(ds);
+    logFLUXOSfile << "\n > CUDA GPU acceleration enabled\n";
+#endif
+
     std::cout << "-----------------------------------------------\n" << std::endl;
     logFLUXOSfile << "\n-----------------------------------------------\n" << std::endl;
     
@@ -318,52 +331,59 @@ int main(int argc, char* argv[])
                 ds);
         }
         
-        // Parallelized Courant condition calculation with OpenMP reduction
+        // Courant condition calculation
         double dtfl_local = 9.e10;
         double hpall_local = 0.0;
 
-        // Cache frequently accessed values
-        const double hdry_local = ds.hdry;
-        const double gacc_local = ds.gacc;
-        const double cfl_local = ds.cfl;
-        const size_t dxy_local = ds.dxy;
-        const unsigned int NCOLS_local = ds.NCOLS;
-        const unsigned int NROWS_local = ds.NROWS;
-
-        // Get raw references to avoid repeated unique_ptr dereference
-        arma::Mat<double>& h_ref = *ds.h;
-        arma::Mat<double>& h0_ref = *ds.h0;
-        arma::Mat<float>& ldry_ref = *ds.ldry;
-        arma::Mat<float>& ldry_prev_ref = *ds.ldry_prev;
-        arma::Mat<double>& qx_ref = *ds.qx;
-        arma::Mat<double>& qy_ref = *ds.qy;
-
-        #pragma omp parallel for collapse(2) reduction(min:dtfl_local) reduction(max:hpall_local) schedule(static)
-        for(icol=1;icol<=NCOLS_local;icol++)
+#ifdef USE_CUDA
+        // GPU Courant condition
+        cuda_mem.update_scalars(ds);
+        cuda_courant_condition(cuda_mem, dtfl_local, hpall_local);
+#else
+        // CPU: Parallelized Courant condition with OpenMP reduction
         {
-            for(irow=1;irow<=NROWS_local;irow++)
-            {
-                double hp_local = h_ref(irow,icol);
-                h0_ref(irow,icol) = hp_local; // adesolver
-                ldry_prev_ref(irow,icol) = ldry_ref(irow,icol); // adesolver
+            const double hdry_local = ds.hdry;
+            const double gacc_local = ds.gacc;
+            const double cfl_local = ds.cfl;
+            const size_t dxy_local = ds.dxy;
+            const unsigned int NCOLS_local = ds.NCOLS;
+            const unsigned int NROWS_local = ds.NROWS;
 
-                if(hp_local > hdry_local)
+            arma::Mat<double>& h_ref = *ds.h;
+            arma::Mat<double>& h0_ref = *ds.h0;
+            arma::Mat<float>& ldry_ref = *ds.ldry;
+            arma::Mat<float>& ldry_prev_ref = *ds.ldry_prev;
+            arma::Mat<double>& qx_ref = *ds.qx;
+            arma::Mat<double>& qy_ref = *ds.qy;
+
+            #pragma omp parallel for collapse(2) reduction(min:dtfl_local) reduction(max:hpall_local) schedule(static)
+            for(icol=1;icol<=NCOLS_local;icol++)
+            {
+                for(irow=1;irow<=NROWS_local;irow++)
                 {
-                    ldry_ref(irow,icol) = 0.0f;
-                    hp_local = std::fmax(hp_local, hdry_local);
-                    hpall_local = std::fmax(hpall_local, h_ref(irow,icol));
-                    double c0_local = sqrt(gacc_local * h_ref(irow,icol));
-                    double u0_local = std::fmax(.000001, fabs(qx_ref(irow,icol) / hp_local));
-                    double v0_local = std::fmax(.000001, fabs(qy_ref(irow,icol) / hp_local));
-                    double dt_candidate = fmin(cfl_local * dxy_local / (u0_local + c0_local),
-                                               cfl_local * dxy_local / (v0_local + c0_local));
-                    dtfl_local = fmin(dt_candidate, dtfl_local);
-                } else
-                {
-                    ldry_ref(irow,icol) = 1.0f;
+                    double hp_local = h_ref(irow,icol);
+                    h0_ref(irow,icol) = hp_local; // adesolver
+                    ldry_prev_ref(irow,icol) = ldry_ref(irow,icol); // adesolver
+
+                    if(hp_local > hdry_local)
+                    {
+                        ldry_ref(irow,icol) = 0.0f;
+                        hp_local = std::fmax(hp_local, hdry_local);
+                        hpall_local = std::fmax(hpall_local, h_ref(irow,icol));
+                        double c0_local = sqrt(gacc_local * h_ref(irow,icol));
+                        double u0_local = std::fmax(.000001, fabs(qx_ref(irow,icol) / hp_local));
+                        double v0_local = std::fmax(.000001, fabs(qy_ref(irow,icol) / hp_local));
+                        double dt_candidate = fmin(cfl_local * dxy_local / (u0_local + c0_local),
+                                                   cfl_local * dxy_local / (v0_local + c0_local));
+                        dtfl_local = fmin(dt_candidate, dtfl_local);
+                    } else
+                    {
+                        ldry_ref(irow,icol) = 1.0f;
+                    }
                 }
             }
         }
+#endif
 
         // Apply reduction results and time constraint
 #ifdef USE_MPI
@@ -379,6 +399,11 @@ int main(int argc, char* argv[])
         // #######################################################
         // Add forcing: meteo and inflow
         // #######################################################
+#ifdef USE_CUDA
+        // Copy fields from GPU to host for CPU-based forcing
+        cuda_mem.update_scalars(ds);
+        cuda_mem.copy_output_fields_to_host(ds);
+#endif
         errflag = add_meteo(
             ds,
             openwq_hydrolink,
@@ -431,29 +456,62 @@ int main(int argc, char* argv[])
             }
         }
 
-        // #######################################################        
+#ifdef USE_CUDA
+        // Copy forcing-modified fields back to GPU
+        cuda_mem.copy_all_to_device(ds);
+#endif
+
+        // #######################################################
         // CALL FLOW SOLVERS
         // #######################################################
-        if (hpall!=0) 
+        if (hpall!=0)
         {
             it++;
 
-            // Dynamic wave solver
+#ifdef USE_CUDA
+            // GPU: Dynamic wave solver
+            cuda_mem.update_scalars(ds);
+            cuda_hydrodynamics_calc(cuda_mem);
+
+            // ADE solver: concentration adjustment on GPU, flux sweep on CPU
+            if(ds.ade_solver==true){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
+                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
+                    cuda_ade_adjust(cuda_mem, it);
+                    cuda_mem.copy_conc_to_host(ds, chem_mobile[ichem]);
+                    // Copy fields needed by CPU ADE sweep
+                    cuda_mem.copy_output_fields_to_host(ds);
+                    adesolver_calc(ds, it, chem_mobile[ichem]);
+                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
+                };
+            }
+
+            // Wintra module on GPU
+            if(ds.wintra==true){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
+                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
+                    cuda_wintra_solver(cuda_mem, ds.soil_release_rate, ds.NODATA_VALUE);
+                    cuda_mem.copy_conc_to_host(ds, chem_mobile[ichem]);
+                };
+            }
+#else
+            // CPU: Dynamic wave solver
             hydrodynamics_calc(ds);
 
             // ADE solver (that is used also by openwq)
             if(ds.ade_solver==true){
-                for(int ichem=0;ichem<chem_mobile.size();ichem++){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
                     adesolver_calc(ds, it, chem_mobile[ichem]);
-                };  
+                };
             }
 
             // Wintra module
             if(ds.wintra==true){
-                for(int ichem=0;ichem<chem_mobile.size();ichem++){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
                     wintrasolver_calc(ds, chem_mobile[ichem]);
                 };
             }
+#endif
 
         }
 
@@ -495,9 +553,13 @@ int main(int argc, char* argv[])
         // #######################################################
         if (ds.tim>=print_next)
         {
+#ifdef USE_CUDA
+            // Copy output fields from GPU to host for writing
+            cuda_mem.copy_output_fields_to_host(ds);
+#endif
             end = std::chrono::system_clock::now();
             elapsed_seconds = end-start;
-            
+
             outwritestatus = write_results(
                 ds,
                 std::round(print_next),
@@ -531,6 +593,10 @@ int main(int argc, char* argv[])
         logFLUXOSfile << "Simulation complete (" << std::chrono::system_clock::now;
         logFLUXOSfile.close();
     }
+
+#ifdef USE_CUDA
+    cuda_mem.deallocate();
+#endif
 
 #ifdef USE_MPI
     // Finalize MPI

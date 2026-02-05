@@ -1,17 +1,20 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 
 # ============================================================================
 # FLUXOS-OVERLAND CMake Configuration
 # Hybrid MPI+OpenMP parallelization for HPC clusters
+# Optional CUDA GPU acceleration
 # ============================================================================
 #
 # Build Options:
 #   -DMODE_release=ON     Enable release mode with optimizations (default: OFF)
 #   -DUSE_MPI=ON          Enable MPI for distributed computing (default: OFF)
+#   -DUSE_CUDA=ON         Enable CUDA GPU acceleration (default: OFF)
 #
 # Build Examples:
 #   cmake -DMODE_release=ON ..                    # OpenMP only (single node)
 #   cmake -DMODE_release=ON -DUSE_MPI=ON ..       # MPI+OpenMP (multi-node HPC)
+#   cmake -DMODE_release=ON -DUSE_CUDA=ON ..      # OpenMP+CUDA (single GPU)
 #
 # ============================================================================
 # Scalability Guidelines
@@ -34,6 +37,9 @@ option(MODE_release "ON: release mode; OFF: debug mode" OFF)
 
 # Define MPI option for HPC clusters
 option(USE_MPI "ON: Enable MPI for distributed computing; OFF: Single node only" OFF)
+
+# Define CUDA option for GPU acceleration
+option(USE_CUDA "ON: Enable CUDA GPU acceleration; OFF: CPU only" OFF)
 
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
@@ -89,6 +95,43 @@ IF (UNIX)
 		MESSAGE(STATUS "MPI support : DISABLED (use -DUSE_MPI=ON to enable)")
 	ENDIF()
 
+	# CUDA GPU acceleration support
+	IF(USE_CUDA MATCHES ON)
+		enable_language(CUDA)
+		find_package(CUDAToolkit REQUIRED)
+		MESSAGE(STATUS "CUDA support : ENABLED")
+		MESSAGE(STATUS "CUDA compiler: ${CMAKE_CUDA_COMPILER}")
+		MESSAGE(STATUS "CUDA toolkit : ${CUDAToolkit_VERSION}")
+		add_definitions(-DUSE_CUDA)
+
+		# Set CUDA architectures (user can override with -DCMAKE_CUDA_ARCHITECTURES=xx)
+		if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+			set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 90)
+		endif()
+
+		set(CMAKE_CUDA_STANDARD 17)
+
+		# CUDA compile flags
+		IF(MODE_release MATCHES ON)
+			set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 --use_fast_math --expt-relaxed-constexpr")
+		ELSE()
+			set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -g -G --expt-relaxed-constexpr")
+		ENDIF()
+
+		# Collect CUDA source files
+		file(GLOB CUDA_SOURCES "src/fluxos/*.cu")
+
+		# Update executable name
+		IF(MODE_release MATCHES ON)
+			set(FLUXOS_EXEC_name "fluxos_cuda")
+		ELSE()
+			set(FLUXOS_EXEC_name "fluxos_cuda_debug")
+		ENDIF()
+	ELSE()
+		MESSAGE(STATUS "CUDA support : DISABLED (use -DUSE_CUDA=ON to enable)")
+		set(CUDA_SOURCES "")
+	ENDIF()
+
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 	include_directories(${AMRADILLO_INCLUDE_DIR} ${PROJECT_SOURCE_DIR})
@@ -99,7 +142,8 @@ IF (UNIX)
 	file(MAKE_DIRECTORY Results)
 
 	add_executable(${FLUXOS_EXEC_name}
-			${SOURCES})
+			${SOURCES}
+			${CUDA_SOURCES})
 
 	target_include_directories(
 		${FLUXOS_EXEC_name} PUBLIC
@@ -123,6 +167,15 @@ IF (UNIX)
 		target_link_libraries(
 			${FLUXOS_EXEC_name}
 			${MPI_CXX_LIBRARIES})
+	ENDIF()
+
+	# Add CUDA libraries if enabled
+	IF(USE_CUDA MATCHES ON)
+		target_link_libraries(
+			${FLUXOS_EXEC_name}
+			CUDA::cudart)
+		set_target_properties(${FLUXOS_EXEC_name} PROPERTIES
+			CUDA_SEPARABLE_COMPILATION ON)
 	ENDIF()
 
 
