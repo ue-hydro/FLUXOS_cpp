@@ -44,9 +44,25 @@ The master configuration is JSON file that provides FLUXOS-OVERLAND with informa
     *   - ``EXTERNAL_MODULES`` => ``WINTRA`` => ``SWE_STD``
         - standard-deviation of snow water equivalent for wintra calculations
 
+Triangular Mesh Configuration (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When built with ``USE_TRIMESH``, the following additional variables are available for configuring unstructured triangular mesh simulations:
+
+.. list-table:: Triangular Mesh Variables/Keywords
+
+    *   - ``MESH_TYPE``
+        - Mesh type selector: ``"regular"`` (default) or ``"triangular"``
+    *   - ``MESH_FILE``
+        - Full path to the triangular mesh file (e.g., ``"domain.msh"`` for Gmsh format)
+    *   - ``MESH_FORMAT``
+        - Mesh file format: ``"gmsh"`` (Gmsh .msh v2.2) or ``"triangle"`` (Triangle .node/.ele)
+    *   - ``BOUNDARY_CONDITIONS``
+        - JSON object mapping physical group tags to boundary condition types
+
 The JSON file supports C/C++ syntax for comments: single-line comment (``//``) or comment blocks (``/*`` and ``*/``).
 
-Example:
+Example (Regular Mesh):
 
 .. code-block:: json
 
@@ -90,6 +106,62 @@ Example:
         "SOIL_CONC_BACKGROUND": 0.0
 
     }
+
+Example (Triangular Mesh):
+
+.. code-block:: json
+
+    {
+        "COMMNET": "Triangular mesh simulation",
+        "DEM_FILE": "domain_dem.asc",
+        "SIM_DATETIME_START": "2017SEP01 12:15:00",
+        "RESTART": false,
+
+        "MESH_TYPE": "triangular",
+        "MESH_FILE": "domain.msh",
+        "MESH_FORMAT": "gmsh",
+        "BOUNDARY_CONDITIONS": {
+            "1": {"type": "wall"},
+            "2": {"type": "outflow"}
+        },
+
+        "INFLOW_FILE": {
+            "FILENAME": "Flow_forcing.csv",
+            "DISCHARGE_LOCATION":{
+                "X_COORDINATE": 425894,
+                "Y_COORDINATE": 5785553
+            }
+        },
+
+        "EXTERNAL_MODULES":{
+            "ADE_TRANSPORT":{
+                "STATUS": true,
+                "D_COEF": 0.01
+            },
+            "WINTRA":{
+                "STATUS": false,
+                "SWE_STD": 9.5,
+                "SWE_MAX": 9.5
+            },
+            "OPENWQ": {
+                "STATUS": false,
+                "MASTERFILE_DIR": ""
+            }
+        },
+        "METEO_FILE": "Qmelt_synthetic.fluxos",
+        "OUTPUT": {
+            "OUTPUT_FOLDER": "../fluxos_out",
+            "PRINT_STEP": 3600,
+            "H_MIN_TO_PRINT": 0.005
+        },
+        "ROUGNESS_HEIGHT": 0.005,
+        "SOIL_RELEASE_RATE": 0.0,
+        "SOIL_CONC_BACKGROUND": 0.0
+    }
+
+.. note::
+
+   When ``MESH_TYPE`` is set to ``"triangular"``, the DEM file is still required for interpolating bed elevation to cell centroids. The ``MESH_FILE`` provides the mesh topology (nodes and triangles), while the DEM provides the topographic data. Boundary conditions are defined by physical group tags in the mesh file (e.g., Gmsh physical groups) and mapped to boundary types via the ``BOUNDARY_CONDITIONS`` JSON object.
 
 
 

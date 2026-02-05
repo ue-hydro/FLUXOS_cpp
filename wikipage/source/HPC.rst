@@ -6,13 +6,15 @@ This section describes how to build and run FLUXOS-OVERLAND on HPC clusters usin
 Overview
 --------
 
-FLUXOS-OVERLAND supports three parallelization modes:
+FLUXOS-OVERLAND supports five parallelization modes:
 
 1. **OpenMP only**: For workstations and small domains
 2. **MPI only**: For distributed memory systems
-3. **Hybrid MPI+OpenMP**: For maximum scalability on HPC clusters (recommended)
+3. **Hybrid MPI+OpenMP**: For scalability on HPC clusters
+4. **CUDA GPU**: For maximum single-node performance with NVIDIA GPUs (recommended for large domains)
+5. **Hybrid MPI+OpenMP+CUDA**: For maximum scalability on GPU-equipped HPC clusters (recommended)
 
-The hybrid approach uses MPI for communication between nodes and OpenMP for parallelism within each node, providing optimal performance for large-scale simulations.
+The hybrid approach uses MPI for communication between nodes, OpenMP for parallelism within each node, and CUDA for GPU offloading of compute-intensive kernels.
 
 Building for HPC
 ----------------
@@ -41,6 +43,20 @@ Build Commands
    make -j8
 
    # The executable will be: build/bin/fluxos_mpi
+
+**With CUDA GPU acceleration:**
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON ..
+   make -j8
+
+**With triangular mesh + GPU + MPI:**
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON -DUSE_TRIMESH=ON ..
+   make -j8
 
 For module-based HPC systems:
 
@@ -92,6 +108,36 @@ Example SLURM script for running FLUXOS on a cluster:
    # Run FLUXOS
    srun --mpi=pmix ./build/bin/fluxos_mpi ./input/modset.json
 
+SLURM GPU Job Script
+^^^^^^^^^^^^^^^^^^^^
+
+Example SLURM script for GPU-accelerated runs:
+
+.. code-block:: bash
+
+   #!/bin/bash
+   #SBATCH --job-name=fluxos_gpu
+   #SBATCH --output=fluxos_%j.out
+   #SBATCH --error=fluxos_%j.err
+   #SBATCH --nodes=2
+   #SBATCH --ntasks-per-node=4
+   #SBATCH --gres=gpu:4
+   #SBATCH --cpus-per-task=2
+   #SBATCH --time=24:00:00
+   #SBATCH --partition=gpu
+
+   # Load modules
+   module purge
+   module load gcc/11.2.0
+   module load cuda/11.8
+   module load openmpi/4.1.1
+   module load armadillo/11.0
+
+   export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+
+   # Run (each MPI rank uses one GPU)
+   srun --mpi=pmix ./build/bin/fluxos_mpi ./input/modset.json
+
 PBS Job Script
 ^^^^^^^^^^^^^^
 
@@ -132,28 +178,34 @@ Use this table to select appropriate parallelization for your domain:
      - OMP Threads
      - Notes
    * - < 500x500
-     - OpenMP
+     - OpenMP or CUDA
      - 1
      - 4-8
-     - MPI overhead not justified
+     - Single GPU provides best speedup
    * - 500x500 - 2000x2000
-     - Hybrid
+     - CUDA or Hybrid
+     - 1-4
+     - 2-4
+     - GPU recommended; MPI for multi-GPU
+   * - 2000x2000 - 5000x5000
+     - Hybrid+CUDA
      - 4-16
      - 2-4
-     - Good balance of communication/computation
-   * - 2000x2000 - 5000x5000
-     - Hybrid
+     - Multi-GPU nodes recommended
+   * - > 5000x5000
+     - Hybrid+CUDA
      - 16-64
      - 2-4
-     - Scales well to multi-node
-   * - > 5000x5000
-     - Hybrid
-     - 64-256
-     - 2-4
-     - Large-scale HPC required
+     - Large-scale HPC with GPU nodes
+
+**Triangular mesh considerations:**
+
+For unstructured triangular meshes, the domain decomposition uses graph-based partitioning rather than 2D Cartesian decomposition. This provides better load balance on irregular domains but requires METIS for optimal partitioning. Without METIS, naive block partitioning is used as a fallback.
 
 Domain Decomposition
 --------------------
+
+**Regular Mesh:**
 
 FLUXOS uses 2D Cartesian domain decomposition:
 
@@ -191,6 +243,25 @@ Each subdomain maintains ghost cells (halo regions) from neighboring processes:
    ├───┴───────────────────┴─────┤
    │  Ghost cells (from south)   │
    └─────────────────────────────┘
+
+**Triangular Mesh Decomposition:**
+
+For unstructured triangular meshes, domain decomposition uses graph-based partitioning:
+
+* **METIS partitioning** (preferred): ``METIS_PartGraphKway`` on the cell adjacency graph
+* **Naive block partitioning** (fallback): Sequential cell IDs divided among ranks
+* **Halo cells**: Cells across partition-boundary edges are exchanged
+* **Communication**: ``MPI_Isend``/``MPI_Irecv`` per neighbor rank
+
+CUDA GPU on HPC Clusters
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When using CUDA on HPC clusters:
+
+* Each MPI rank is assigned one GPU
+* Host-device transfers occur at forcing and output steps
+* CFL reduction uses device-side block reduction followed by host-side MPI reduction
+* For multi-GPU nodes, use ``CUDA_VISIBLE_DEVICES`` or let MPI rank assignment handle GPU selection
 
 Performance Optimization
 ------------------------

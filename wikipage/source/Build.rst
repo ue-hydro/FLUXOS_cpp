@@ -39,6 +39,12 @@ Optional Dependencies
    * - MPI
      - 3.0+
      - Required for distributed computing (OpenMPI, MPICH, or Intel MPI)
+   * - CUDA Toolkit
+     - 11.0+
+     - Required for GPU acceleration (NVIDIA GPUs, Compute Capability 6.0+)
+   * - METIS
+     - 5.0+
+     - Optional graph partitioning for triangular mesh MPI decomposition
    * - HDF5
      - 1.10+
      - Optional parallel I/O support
@@ -63,6 +69,27 @@ FLUXOS-OVERLAND supports several build configurations:
 .. code-block:: bash
 
    cmake -DMODE_release=ON -DUSE_MPI=ON ..
+   make
+
+**CUDA GPU Build**
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_CUDA=ON ..
+   make
+
+**Triangular Mesh Build**
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   make
+
+**Full-Feature Build (Triangular Mesh + GPU + MPI)**
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON -DUSE_MPI=ON ..
    make
 
 **Debug Build**
@@ -91,9 +118,19 @@ CMake Options
    * - USE_MPI
      - OFF
      - Enable MPI for distributed computing
+   * - USE_CUDA
+     - OFF
+     - Enable CUDA GPU acceleration (requires NVIDIA GPU and CUDA Toolkit 11.0+)
+   * - USE_TRIMESH
+     - OFF
+     - Enable unstructured triangular mesh support (Gmsh/Triangle mesh formats)
    * - USE_OPENWQ
      - OFF
      - Enable OpenWQ water quality coupling
+
+.. note::
+
+   ``USE_CUDA`` and ``USE_TRIMESH`` can be combined. When both are enabled, the triangular mesh solver uses GPU acceleration with 7 specialized CUDA kernels.
 
 Compiler Optimization Flags
 ---------------------------
@@ -205,3 +242,26 @@ If LTO causes issues, disable it:
 .. code-block:: bash
 
    cmake -DMODE_release=ON -DCMAKE_CXX_FLAGS="-O3 -march=native" ..
+
+**CUDA not found:**
+
+Ensure CUDA Toolkit is installed and ``nvcc`` is in your PATH:
+
+.. code-block:: bash
+
+   # Check CUDA installation
+   nvcc --version
+   nvidia-smi
+
+   # Set CUDA path if needed
+   export CUDA_HOME=/usr/local/cuda
+   export PATH=$CUDA_HOME/bin:$PATH
+
+**CUDA compute capability mismatch:**
+
+If you get architecture-related errors, specify your GPU's compute capability:
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_CUDA=ON -DCUDA_ARCH=75 ..  # For RTX 2080
+   cmake -DMODE_release=ON -DUSE_CUDA=ON -DCUDA_ARCH=86 ..  # For RTX 3090

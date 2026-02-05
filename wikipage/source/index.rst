@@ -12,8 +12,10 @@ Key Features
 ------------
 
 * **2D Shallow Water Equations** - Roe's approximate Riemann solver with MUSCL reconstruction
+* **Unstructured Triangular Mesh** - Edge-based finite volume solver with rotated Roe/HLL flux, MUSCL + Barth-Jespersen limiter, and hydrostatic reconstruction
 * **Solute Transport** - Advection-Dispersion-Reaction equation for contaminant tracking
 * **Adaptive Time Stepping** - CFL-based automatic time step control
+* **CUDA GPU Acceleration** - Full GPU offloading for both regular and triangular mesh solvers
 * **Parallel Computing** - Hybrid MPI+OpenMP for HPC clusters
 * **Wetting/Drying** - Robust handling of dynamic wet/dry fronts
 
@@ -26,7 +28,7 @@ Quick Start
    git clone https://github.com/DiogoCostaPT/FLUXOS_cpp.git
    cd FLUXOS_cpp
 
-   # Build (OpenMP only)
+   # Build (OpenMP only, regular mesh)
    mkdir build && cd build
    cmake -DMODE_release=ON ..
    make -j$(nproc)
@@ -41,6 +43,20 @@ For HPC clusters with MPI:
    cmake -DMODE_release=ON -DUSE_MPI=ON ..
    make -j$(nproc)
    mpirun -np 4 ./bin/fluxos_mpi ../input/modset.json
+
+For GPU acceleration with CUDA:
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_CUDA=ON ..
+   make -j$(nproc)
+
+For triangular mesh support (with optional GPU):
+
+.. code-block:: bash
+
+   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..
+   make -j$(nproc)
 
 Contents
 --------
