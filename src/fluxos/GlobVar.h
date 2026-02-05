@@ -112,8 +112,19 @@ public:
 
     // Restart option
     bool restart_opt;
-    
-    
+
+    // Mesh type: "regular" (default) or "triangular"
+    std::string mesh_type = "regular";
+
+#ifdef USE_TRIMESH
+    // Triangular mesh configuration
+    std::string mesh_file;          // path to mesh file (e.g., .msh)
+    std::string mesh_format;        // "gmsh" or "triangle"
+    json boundary_conditions_json;  // boundary condition config from JSON
+#endif
+
 };
+
+#endif
 
 #endif

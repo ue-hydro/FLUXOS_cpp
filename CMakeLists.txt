@@ -10,11 +10,14 @@ cmake_minimum_required(VERSION 3.18)
 #   -DMODE_release=ON     Enable release mode with optimizations (default: OFF)
 #   -DUSE_MPI=ON          Enable MPI for distributed computing (default: OFF)
 #   -DUSE_CUDA=ON         Enable CUDA GPU acceleration (default: OFF)
+#   -DUSE_TRIMESH=ON      Enable triangular mesh support (default: OFF)
 #
 # Build Examples:
-#   cmake -DMODE_release=ON ..                    # OpenMP only (single node)
-#   cmake -DMODE_release=ON -DUSE_MPI=ON ..       # MPI+OpenMP (multi-node HPC)
-#   cmake -DMODE_release=ON -DUSE_CUDA=ON ..      # OpenMP+CUDA (single GPU)
+#   cmake -DMODE_release=ON ..                              # OpenMP only (single node)
+#   cmake -DMODE_release=ON -DUSE_MPI=ON ..                 # MPI+OpenMP (multi-node HPC)
+#   cmake -DMODE_release=ON -DUSE_CUDA=ON ..                # OpenMP+CUDA (single GPU)
+#   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..             # OpenMP + triangular mesh
+#   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..  # Triangular + CUDA
 #
 # ============================================================================
 # Scalability Guidelines
@@ -40,6 +43,9 @@ option(USE_MPI "ON: Enable MPI for distributed computing; OFF: Single node only"
 
 # Define CUDA option for GPU acceleration
 option(USE_CUDA "ON: Enable CUDA GPU acceleration; OFF: CPU only" OFF)
+
+# Define triangular mesh option
+option(USE_TRIMESH "ON: Enable unstructured triangular mesh support; OFF: Regular mesh only" OFF)
 
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
@@ -132,6 +138,26 @@ IF (UNIX)
 		set(CUDA_SOURCES "")
 	ENDIF()
 
+	# Triangular mesh support
+	IF(USE_TRIMESH MATCHES ON)
+		MESSAGE(STATUS "TriMesh support: ENABLED")
+		add_definitions(-DUSE_TRIMESH)
+
+		# Collect triangular mesh C++ sources
+		file(GLOB TRIMESH_SOURCES "src/fluxos/trimesh/*.cpp")
+
+		# Collect triangular mesh CUDA sources if CUDA is enabled
+		IF(USE_CUDA MATCHES ON)
+			file(GLOB TRIMESH_CUDA_SOURCES "src/fluxos/trimesh/*.cu")
+		ELSE()
+			set(TRIMESH_CUDA_SOURCES "")
+		ENDIF()
+	ELSE()
+		MESSAGE(STATUS "TriMesh support: DISABLED (use -DUSE_TRIMESH=ON to enable)")
+		set(TRIMESH_SOURCES "")
+		set(TRIMESH_CUDA_SOURCES "")
+	ENDIF()
+
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 	include_directories(${AMRADILLO_INCLUDE_DIR} ${PROJECT_SOURCE_DIR})
@@ -143,7 +169,9 @@ IF (UNIX)
 
 	add_executable(${FLUXOS_EXEC_name}
 			${SOURCES}
-			${CUDA_SOURCES})
+			${CUDA_SOURCES}
+			${TRIMESH_SOURCES}
+			${TRIMESH_CUDA_SOURCES})
 
 	target_include_directories(
 		${FLUXOS_EXEC_name} PUBLIC

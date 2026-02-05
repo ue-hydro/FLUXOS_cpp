@@ -49,6 +49,23 @@ using json = nlohmann::json;
 #include "cuda_kernels.h"
 #endif
 
+#ifdef USE_TRIMESH
+#include "trimesh/TriMesh.h"
+#include "trimesh/TriSolution.h"
+#include "trimesh/tri_mesh_io.h"
+#include "trimesh/tri_initiate.h"
+#include "trimesh/tri_hydrodynamics.h"
+#include "trimesh/tri_ade_solver.h"
+#include "trimesh/tri_wintra_solver.h"
+#include "trimesh/tri_forcing.h"
+#include "trimesh/tri_write_results.h"
+#include "trimesh/tri_mpi_domain.h"
+#ifdef USE_CUDA
+#include "trimesh/tri_cuda_memory.h"
+#include "trimesh/tri_cuda_kernels.h"
+#endif
+#endif // USE_TRIMESH
+
 // Openwq objects
 #include "../openwq/OpenWQ_hydrolink.h"
 
@@ -283,16 +300,97 @@ int main(int argc, char* argv[])
         nchem,
         logFLUXOSfile);
     ds.hdry = (*ds.ks).at(1,1);  // temporary but basically saying that nothing will move until it reaches roughness height
-    print_next = timstart;  
+    print_next = timstart;
     print_next = print_next + ds.print_step;
     if(ds.wintra==true){ds.SWEstd = ds.SWEstd/100;}
 
 #ifdef USE_CUDA
-    // Initialize CUDA GPU memory and copy all fields to device
+    // Initialize CUDA GPU memory and copy all fields to device (regular mesh)
     CudaMemoryManager cuda_mem;
-    cuda_mem.allocate(ds.MROWS, ds.MCOLS);
-    cuda_mem.copy_all_to_device(ds);
-    logFLUXOSfile << "\n > CUDA GPU acceleration enabled\n";
+#endif
+
+#ifdef USE_TRIMESH
+    // #######################################################
+    // Triangular mesh initialization (when USE_TRIMESH is compiled)
+    // #######################################################
+    TriMesh tri_mesh;
+    TriSolution tri_sol;
+    bool use_trimesh = (ds.mesh_type == "triangular");
+#ifdef USE_MPI
+    TriMPIDomain tri_mpi_domain;
+#endif
+#ifdef USE_CUDA
+    TriCudaMemoryManager tri_cuda_mem;
+#endif
+    // PVD time series tracker for VTK output
+    std::vector<std::pair<double, std::string>> tri_pvd_entries;
+
+    if (use_trimesh) {
+        logFLUXOSfile << "\n > Triangular mesh mode activated\n";
+        logFLUXOSfile << "   Mesh file: " + ds.mesh_file + "\n";
+        logFLUXOSfile << "   Mesh format: " + ds.mesh_format + "\n";
+
+        // Read triangular mesh
+        if (!read_mesh_file(ds.mesh_file, ds.mesh_format, tri_mesh)) {
+            logFLUXOSfile << "ERROR: Failed to read triangular mesh file: " + ds.mesh_file + "\n";
+            exit(EXIT_FAILURE);
+        }
+
+        // Compute geometry (areas, normals, edge lengths, LSQ matrices)
+        tri_mesh.compute_geometry();
+        tri_mesh.build_edges();
+        tri_mesh.compute_lsq_matrices();
+
+        if (!tri_mesh.validate()) {
+            logFLUXOSfile << "ERROR: Triangular mesh validation failed\n";
+            exit(EXIT_FAILURE);
+        }
+
+        logFLUXOSfile << "   Mesh cells: " + std::to_string(tri_mesh.num_cells) + "\n";
+        logFLUXOSfile << "   Mesh edges: " + std::to_string(tri_mesh.num_edges) + "\n";
+        logFLUXOSfile << "   Mesh vertices: " + std::to_string(tri_mesh.num_vertices) + "\n";
+
+        // Allocate solution arrays
+        tri_sol.allocate(tri_mesh.num_cells, tri_mesh.num_edges, nchem);
+
+        // Initialize solution: interpolate DEM, find inflow cell, set BCs
+        tri_initiation(ds, tri_mesh, tri_sol, nchem, logFLUXOSfile);
+
+        // Apply boundary conditions from mesh tags
+        tri_apply_boundary_conditions(ds, tri_mesh, tri_sol);
+
+        // Set hdry from ks (consistent with regular mesh)
+        ds.hdry = tri_sol.ks[0]; // use first cell ks as hdry
+
+#ifdef USE_MPI
+        // MPI domain decomposition for triangular mesh
+        tri_mpi_domain.init();
+        tri_mpi_domain.partition_mesh(tri_mesh);
+        logFLUXOSfile << "   MPI partitions: " + std::to_string(tri_mpi_domain.size) + "\n";
+#endif
+
+#ifdef USE_CUDA
+        // GPU memory for triangular mesh
+        tri_cuda_mem.allocate(tri_mesh, tri_sol);
+        tri_cuda_mem.copy_solution_to_device(tri_sol);
+        tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+        logFLUXOSfile << "   CUDA GPU acceleration enabled for triangular mesh\n";
+#endif
+
+        logFLUXOSfile << "   Triangular mesh initialization complete\n";
+
+    } else {
+#endif // USE_TRIMESH
+
+        // Regular mesh CUDA initialization (only when not using trimesh)
+#ifdef USE_CUDA
+        cuda_mem.allocate(ds.MROWS, ds.MCOLS);
+        cuda_mem.copy_all_to_device(ds);
+        logFLUXOSfile << "\n > CUDA GPU acceleration enabled\n";
+#endif
+
+#ifdef USE_TRIMESH
+    } // end if (use_trimesh) else
 #endif
 
     std::cout << "-----------------------------------------------\n" << std::endl;
@@ -335,6 +433,19 @@ int main(int argc, char* argv[])
         double dtfl_local = 9.e10;
         double hpall_local = 0.0;
 
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            // ---- Triangular mesh Courant condition ----
+#ifdef USE_CUDA
+            tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+            tri_cuda_courant_condition(tri_cuda_mem, dtfl_local, hpall_local);
+#else
+            tri_courant_condition(ds, tri_mesh, tri_sol, dtfl_local, hpall_local);
+#endif
+        } else {
+#endif // USE_TRIMESH
+
+        // ---- Regular mesh Courant condition ----
 #ifdef USE_CUDA
         // GPU Courant condition
         cuda_mem.update_scalars(ds);
@@ -385,20 +496,51 @@ int main(int argc, char* argv[])
         }
 #endif
 
+#ifdef USE_TRIMESH
+        } // end regular mesh Courant condition
+#endif
+
         // Apply reduction results and time constraint
 #ifdef USE_MPI
         // Global reduction across all MPI processes for Courant condition
-        dtfl_local = mpi_domain.global_min(dtfl_local);
-        hpall_local = mpi_domain.global_max(hpall_local);
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            dtfl_local = tri_mpi_domain.global_min(dtfl_local);
+            hpall_local = tri_mpi_domain.global_max(hpall_local);
+        } else {
+#endif
+            dtfl_local = mpi_domain.global_min(dtfl_local);
+            hpall_local = mpi_domain.global_max(hpall_local);
+#ifdef USE_TRIMESH
+        }
+#endif
 #endif
         ds.dtfl = fmin(dtfl_local, print_next - ds.tim);
         hpall = hpall_local;
-                
+
         ds.tim = ds.tim + ds.dtfl;
-          
+
         // #######################################################
         // Add forcing: meteo and inflow
         // #######################################################
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            // ---- Triangular mesh forcing ----
+            errflag = tri_add_meteo(ds, tri_mesh, tri_sol, nchem);
+            if (errflag) exit(EXIT_FAILURE);
+
+            errflag = tri_add_inflow(ds, tri_mesh, tri_sol, nchem);
+            if (errflag) exit(EXIT_FAILURE);
+
+#ifdef USE_CUDA
+            // Sync forcing-modified fields to GPU
+            tri_cuda_mem.copy_solution_to_device(tri_sol);
+            tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+#endif
+        } else {
+#endif // USE_TRIMESH
+
+        // ---- Regular mesh forcing ----
 #ifdef USE_CUDA
         // Copy fields from GPU to host for CPU-based forcing
         cuda_mem.update_scalars(ds);
@@ -461,6 +603,10 @@ int main(int argc, char* argv[])
         cuda_mem.copy_all_to_device(ds);
 #endif
 
+#ifdef USE_TRIMESH
+        } // end regular mesh forcing
+#endif
+
         // #######################################################
         // CALL FLOW SOLVERS
         // #######################################################
@@ -468,6 +614,57 @@ int main(int argc, char* argv[])
         {
             it++;
 
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                // ============================================================
+                // TRIANGULAR MESH SOLVERS
+                // ============================================================
+#ifdef USE_CUDA
+                // GPU: Triangular mesh hydrodynamics
+                tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+                tri_cuda_hydrodynamics_calc(tri_cuda_mem);
+
+                // ADE solver on triangular mesh (edge-based, runs on CPU with GPU sync)
+                if (ds.ade_solver == true) {
+                    tri_cuda_mem.copy_solution_to_host(tri_sol);
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_adesolver_calc(ds, tri_mesh, tri_sol, it, chem_mobile[ichem]);
+                    }
+                    tri_cuda_mem.copy_solution_to_device(tri_sol);
+                }
+
+                // Wintra module on GPU
+                if (ds.wintra == true) {
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_cuda_mem.copy_conc_to_device(tri_sol, chem_mobile[ichem]);
+                        tri_cuda_wintra_solver(tri_cuda_mem, ds.soil_release_rate, ds.NODATA_VALUE);
+                        tri_cuda_mem.copy_conc_to_host(tri_sol, chem_mobile[ichem]);
+                    }
+                }
+#else
+                // CPU: Triangular mesh hydrodynamics
+                tri_hydrodynamics_calc(ds, tri_mesh, tri_sol);
+
+                // ADE solver (edge-based advection + dispersion)
+                if (ds.ade_solver == true) {
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_adesolver_calc(ds, tri_mesh, tri_sol, it, chem_mobile[ichem]);
+                    }
+                }
+
+                // Wintra module (cell-based soil release with per-cell area)
+                if (ds.wintra == true) {
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_wintrasolver_calc(ds, tri_mesh, tri_sol, chem_mobile[ichem]);
+                    }
+                }
+#endif
+            } else {
+#endif // USE_TRIMESH
+
+            // ============================================================
+            // REGULAR MESH SOLVERS (original code, unchanged)
+            // ============================================================
 #ifdef USE_CUDA
             // GPU: Dynamic wave solver
             cuda_mem.update_scalars(ds);
@@ -513,6 +710,10 @@ int main(int argc, char* argv[])
             }
 #endif
 
+#ifdef USE_TRIMESH
+            } // end regular mesh solvers
+#endif
+
         }
 
         // #######################################################
@@ -553,19 +754,48 @@ int main(int argc, char* argv[])
         // #######################################################
         if (ds.tim>=print_next)
         {
+            end = std::chrono::system_clock::now();
+            elapsed_seconds = end-start;
+
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                // ---- Triangular mesh VTK output ----
+#ifdef USE_CUDA
+                tri_cuda_mem.copy_output_to_host(tri_sol);
+#endif
+                outwritestatus = tri_write_results(
+                    ds, tri_mesh, tri_sol,
+                    std::round(print_next),
+                    elapsed_seconds);
+
+                if (outwritestatus == true) {
+                    // Track for PVD time series
+                    std::string vtu_filename = std::to_string((int)std::round(print_next)) + ".vtu";
+                    tri_pvd_entries.push_back(std::make_pair(ds.tim, vtu_filename));
+
+                    std::cout << "Saved: '" << print_next << ".vtu' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << elapsed_seconds.count()/60 << std::endl;
+                    logFLUXOSfile << "Saved: '" << print_next << ".vtu' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << std::to_string(elapsed_seconds.count()/60) + "\n";
+                    print_next = print_next + ds.print_step;
+                    start = std::chrono::system_clock::now();
+                } else {
+                    std::cout << "Problem when saving the results:" + print_next << std::endl;
+                    logFLUXOSfile << "Problem when saving the results:" + print_next;
+                    return 0;
+                }
+            } else {
+#endif // USE_TRIMESH
+
+            // ---- Regular mesh CSV output ----
 #ifdef USE_CUDA
             // Copy output fields from GPU to host for writing
             cuda_mem.copy_output_fields_to_host(ds);
 #endif
-            end = std::chrono::system_clock::now();
-            elapsed_seconds = end-start;
-
             outwritestatus = write_results(
                 ds,
                 std::round(print_next),
                 elapsed_seconds);
-             
-            if(outwritestatus == true) 
+
+            if(outwritestatus == true)
             {
                 std::cout << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << elapsed_seconds.count()/60 << std::endl;
                 logFLUXOSfile << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << std::to_string(elapsed_seconds.count()/60) + "\n";
@@ -578,7 +808,11 @@ int main(int argc, char* argv[])
                 logFLUXOSfile << "Problem when saving the results:" + print_next;
                 return 0;
             }
-             
+
+#ifdef USE_TRIMESH
+            } // end regular mesh output
+#endif
+
          }
 
     }
@@ -586,6 +820,15 @@ int main(int argc, char* argv[])
     // #######################################################
     // Simulation complete
     // #######################################################
+
+#ifdef USE_TRIMESH
+    // Write PVD time series file for ParaView (triangular mesh only)
+    if (use_trimesh && !tri_pvd_entries.empty()) {
+        tri_write_pvd(ds.output_folder, tri_pvd_entries);
+        logFLUXOSfile << "\nPVD time series file written to: " + ds.output_folder + "/fluxos_timeseries.pvd\n";
+    }
+#endif
+
     if (is_root) {
         std::cout << "-----------------------------------------------" << std::endl;
         logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
@@ -595,10 +838,23 @@ int main(int argc, char* argv[])
     }
 
 #ifdef USE_CUDA
-    cuda_mem.deallocate();
+#ifdef USE_TRIMESH
+    if (use_trimesh) {
+        tri_cuda_mem.deallocate();
+    } else {
+#endif
+        cuda_mem.deallocate();
+#ifdef USE_TRIMESH
+    }
+#endif
 #endif
 
 #ifdef USE_MPI
+#ifdef USE_TRIMESH
+    if (use_trimesh) {
+        tri_mpi_domain.finalize();
+    }
+#endif
     // Finalize MPI
     MPI_Finalize();
 #endif
