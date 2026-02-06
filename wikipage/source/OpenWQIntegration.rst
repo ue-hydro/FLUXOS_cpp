@@ -57,7 +57,7 @@ OpenWQ results are included in the standard FLUXOS output:
 * **Regular mesh**: The ``conc_SW [mg/l]`` column in the ``.txt`` output files contains the concentration of the primary tracked species
 * **Triangular mesh**: The ``conc_SW`` cell data array in ``.vtu`` files contains species concentrations
 
-Multiple species concentrations can be visualized using the 3D Flood Viewer:
+Multiple species concentrations can be exported for Google Earth visualization:
 
 .. code-block:: bash
 

@@ -49,11 +49,11 @@ Key Capabilities
    * - **Boundary Conditions**
      - Dirichlet, Neumann, and internal weir boundary conditions; tag-based boundary conditions for triangular meshes (wall, outflow)
    * - **Output Formats**
-     - ASCII text output for regular mesh; VTK XML Unstructured Grid (.vtu) with ParaView time series (.pvd) for triangular mesh; built-in 3D Flood Viewer for interactive visualization
+     - ASCII text output for regular mesh; VTK XML Unstructured Grid (.vtu) with ParaView time series (.pvd) for triangular mesh; KMZ export for Google Earth animation
    * - **GeoTIFF Preprocessing**
      - Python CLI tool (``fluxos_setup.py``) for GeoTIFF DEM import, downscaling, slope-based adaptive triangular mesh generation (via Gmsh), and JSON config creation
-   * - **3D Flood Viewer**
-     - Interactive 3D visualization tool (``fluxos_viewer.py``) for animating simulation results on terrain with zoom, orbit, and timestep scrubbing (supports both regular and triangular mesh output)
+   * - **Google Earth Export**
+     - KML/KMZ exporter (``fluxos_viewer.py``) for animated time-series visualization in Google Earth (supports both regular and triangular mesh output)
 
 Mesh Types
 ----------

@@ -19,6 +19,11 @@
 #ifndef GLOBVARH_INCLUDED
 #define GLOBVARH_INCLUDED
 
+#include <armadillo>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "jnlohmann/json.hpp"
 using json = nlohmann::json;
 
@@ -122,7 +127,5 @@ public:
 #endif
 
 };
-
-#endif
 
 #endif

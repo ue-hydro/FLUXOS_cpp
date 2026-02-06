@@ -65,7 +65,7 @@ def build_domain_boundary(elevation, transform, nodata_value):
     from shapely.ops import unary_union
 
     # Create binary mask: 1 = valid data, 0 = nodata
-    valid_mask = (~np.isclose(elevation, nodata_value) & (elevation != 0.0)).astype(np.uint8)
+    valid_mask = (~np.isclose(elevation, nodata_value)).astype(np.uint8)
 
     # Vectorize the mask to polygons
     shapes_gen = rasterio.features.shapes(valid_mask, transform=transform)
@@ -73,7 +73,9 @@ def build_domain_boundary(elevation, transform, nodata_value):
     for geom, value in shapes_gen:
         if value == 1:
             poly = shape(geom)
-            if poly.is_valid:
+            if not poly.is_valid:
+                poly = poly.buffer(0)  # fix invalid geometry
+            if poly.is_valid and not poly.is_empty:
                 polygons.append(poly)
 
     if not polygons:
@@ -309,7 +311,7 @@ def generate_adaptive_mesh(boundary_coords, size_field, transform, elevation,
     # y_coords goes from top to bottom (decreasing), so reverse both
     elev_clean = elevation.astype(np.float64).copy()
     elev_clean[np.isclose(elev_clean, nodata_value)] = np.nan
-    elev_clean[elev_clean == 0.0] = np.nan
+    # Do not exclude zero-elevation cells (they can be valid coastal/valley cells)
 
     # Reverse y so it's increasing
     y_increasing = y_coords[::-1]
@@ -332,7 +334,7 @@ def generate_adaptive_mesh(boundary_coords, size_field, transform, elevation,
         y = node_coords_array[i, 1]
         z = float(interp((y, x)))
 
-        if np.isnan(z) or z == 0.0:
+        if np.isnan(z):
             # Try nearest neighbor for boundary/edge vertices
             # Find nearest valid cell
             col = int((x - transform.c) / transform.a)
@@ -340,20 +342,20 @@ def generate_adaptive_mesh(boundary_coords, size_field, transform, elevation,
             col = max(0, min(col, ncols - 1))
             row = max(0, min(row, nrows - 1))
             z_nn = elevation[row, col]
-            if not np.isclose(z_nn, nodata_value) and z_nn != 0.0:
+            if not np.isclose(z_nn, nodata_value):
                 z = abs(float(z_nn))
             else:
                 z = 0.0  # will be handled by C++ NODATA logic
 
         node_coords_array[i, 2] = abs(z)
 
-    # Update gmsh node coordinates with z values
-    gmsh.model.mesh.setNodes(
-        dim=2,
-        tag=surface,
-        nodeTags=node_tags,
-        coord=node_coords_array.flatten()
-    )
+    # Update gmsh node coordinates with z values (one by one for API compatibility)
+    for i in range(num_nodes):
+        gmsh.model.mesh.set_node(
+            int(node_tags[i]),
+            list(node_coords_array[i]),
+            []
+        )
 
     # 5. Write .msh v2.2
     gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)

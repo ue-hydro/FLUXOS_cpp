@@ -34,7 +34,7 @@ Regular Mesh Output (ASCII Text)
 |twetimetracer [sec]  |wet time for each cell                                                                                                                                     |
 +---------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
 
-See :doc:`SupportingScripts` for visualization tools including the interactive 3D Flood Viewer, VTK conversion, Google Earth KML export, and more.
+See :doc:`SupportingScripts` for visualization tools including the Google Earth KML exporter, VTK conversion, and more.
 
 Triangular Mesh Output (VTK XML Unstructured Grid)
 ---------------------------------------------------
@@ -117,4 +117,4 @@ The ``.pvd`` file is a ParaView Data collection file that links all timestep ``.
 
 Open the ``.pvd`` file in ParaView to load all timesteps as an animation.
 
-See :doc:`SupportingScripts` for visualization tools including the interactive 3D Flood Viewer, ParaView workflows, and more.
+See :doc:`SupportingScripts` for visualization tools including the Google Earth KML exporter, ParaView workflows, and more.
