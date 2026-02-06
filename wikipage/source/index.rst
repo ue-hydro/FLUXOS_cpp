@@ -70,8 +70,7 @@ Contents
    Documentation
    Installation
    Input
-   CouplingOpenWQ
-   OpenWQIO
+   OpenWQIntegration
    SupportingScripts
    Calibration
    Developer
