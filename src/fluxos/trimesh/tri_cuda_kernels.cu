@@ -500,27 +500,6 @@ __global__ void kernel_tri_courant(
 }
 
 // ============================================================================
-// Kernel: WINTRA soil release (1 thread per cell)
-// ============================================================================
-__global__ void kernel_tri_wintra(
-    double* __restrict__ soil_mass,
-    double* __restrict__ conc_SW,
-    const double* __restrict__ h,
-    const float* __restrict__ innerNeumann,
-    const double* __restrict__ cell_area,
-    int num_cells, double hdry, double soil_release_rate, double dtfl)
-{
-    int ci = blockIdx.x * blockDim.x + threadIdx.x;
-    if (ci >= num_cells) return;
-
-    if (h[ci] > hdry && innerNeumann[ci] != 1.0f) {
-        double deltam = soil_mass[ci] * soil_release_rate / 3600.0 * dtfl;
-        soil_mass[ci] -= deltam;
-        conc_SW[ci] += deltam / (h[ci] * cell_area[ci]);
-    }
-}
-
-// ============================================================================
 // Host function: Courant condition
 // ============================================================================
 void tri_cuda_courant_condition(TriCudaMemoryManager& cmem,
@@ -625,23 +604,6 @@ void tri_cuda_hydrodynamics_calc(TriCudaMemoryManager& cmem)
         d.d_ldry, d.d_innerNeumannBCWeir,
         d.d_dh, d.d_dqx, d.d_dqy,
         nc, d.hdry, d.gacc);
-}
-
-// ============================================================================
-// Host function: WINTRA
-// ============================================================================
-void tri_cuda_wintra_solver(TriCudaMemoryManager& cmem,
-                             double soil_release_rate,
-                             double NODATA_VALUE)
-{
-    auto& d = cmem.data;
-    int nc = d.num_cells;
-    int blocks = (nc + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-    kernel_tri_wintra<<<blocks, BLOCK_SIZE>>>(
-        d.d_soil_mass, d.d_conc_SW,
-        d.d_h, d.d_innerNeumannBCWeir, d.d_cell_area,
-        nc, d.hdry, soil_release_rate, d.dtfl);
 }
 
 // ============================================================================

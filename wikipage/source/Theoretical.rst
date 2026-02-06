@@ -280,7 +280,7 @@ CUDA GPU Acceleration
 **Regular Mesh Kernels:**
 
 * 2D thread grid matching the domain (1 thread per cell)
-* Separate kernels for Courant condition, hydrodynamics, ADE, and WINTRA
+* Separate kernels for Courant condition, hydrodynamics, and ADE
 * Block-level reduction for global minimum (CFL time step)
 
 **Triangular Mesh Kernels (7 specialized kernels):**

@@ -97,13 +97,6 @@ bool tri_write_results(
         file << "        </DataArray>\n";
     }
 
-    // Soil mass (WINTRA)
-    file << "        <DataArray type=\"Float64\" Name=\"soil_mass\" format=\"ascii\">\n";
-    for (int ci = 0; ci < ncells; ci++) {
-        file << "          " << sol.soil_mass[ci] << "\n";
-    }
-    file << "        </DataArray>\n";
-
     // Wetting time tracer
     file << "        <DataArray type=\"Float64\" Name=\"twetimetracer\" format=\"ascii\">\n";
     for (int ci = 0; ci < ncells; ci++) {

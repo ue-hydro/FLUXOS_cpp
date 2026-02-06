@@ -78,9 +78,8 @@ struct TriCudaData {
     double* d_dqx;
     double* d_dqy;
 
-    // ADE/WINTRA
+    // ADE
     double* d_h0;
-    double* d_soil_mass;
     double* d_twetimetracer;
     double* d_conc_SW;      // single species buffer
 

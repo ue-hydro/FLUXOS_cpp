@@ -99,7 +99,6 @@ void CudaMemoryManager::allocate(size_t MROWS, size_t MCOLS) {
     alloc_d(&grid.d_fn_3, n); total_bytes += n * sizeof(double);
     alloc_d(&grid.d_twetimetracer, n); total_bytes += n * sizeof(double);
     alloc_d(&grid.d_h0, n);         total_bytes += n * sizeof(double);
-    alloc_d(&grid.d_soil_mass, n);   total_bytes += n * sizeof(double);
 
     // Float matrices (3)
     alloc_f(&grid.d_ldry, n);              total_bytes += n * sizeof(float);
@@ -147,7 +146,6 @@ void CudaMemoryManager::deallocate() {
     CUDA_CHECK(cudaFree(grid.d_fn_3));
     CUDA_CHECK(cudaFree(grid.d_twetimetracer));
     CUDA_CHECK(cudaFree(grid.d_h0));
-    CUDA_CHECK(cudaFree(grid.d_soil_mass));
     CUDA_CHECK(cudaFree(grid.d_ldry));
     CUDA_CHECK(cudaFree(grid.d_innerNeumannBCWeir));
     CUDA_CHECK(cudaFree(grid.d_ldry_prev));
@@ -183,7 +181,6 @@ void CudaMemoryManager::copy_all_to_device(GlobVar& ds) {
     arma_to_device(*ds.fn_3, grid.d_fn_3, n);
     arma_to_device(*ds.twetimetracer, grid.d_twetimetracer, n);
     arma_to_device(*ds.h0, grid.d_h0, n);
-    arma_to_device(*ds.soil_mass, grid.d_soil_mass, n);
     arma_to_device(*ds.ldry, grid.d_ldry, n);
     arma_to_device(*ds.innerNeumannBCWeir, grid.d_innerNeumannBCWeir, n);
     arma_to_device(*ds.ldry_prev, grid.d_ldry_prev, n);
@@ -219,7 +216,6 @@ void CudaMemoryManager::copy_all_to_host(GlobVar& ds) {
     device_to_arma(grid.d_fn_3, *ds.fn_3, n);
     device_to_arma(grid.d_twetimetracer, *ds.twetimetracer, n);
     device_to_arma(grid.d_h0, *ds.h0, n);
-    device_to_arma(grid.d_soil_mass, *ds.soil_mass, n);
     device_to_arma(grid.d_ldry, *ds.ldry, n);
     device_to_arma(grid.d_innerNeumannBCWeir, *ds.innerNeumannBCWeir, n);
     device_to_arma(grid.d_ldry_prev, *ds.ldry_prev, n);
@@ -239,7 +235,6 @@ void CudaMemoryManager::copy_output_fields_to_host(GlobVar& ds) {
     device_to_arma(grid.d_ldry_prev, *ds.ldry_prev, n);
     device_to_arma(grid.d_fe_1, *ds.fe_1, n);
     device_to_arma(grid.d_fn_1, *ds.fn_1, n);
-    device_to_arma(grid.d_soil_mass, *ds.soil_mass, n);
 }
 
 void CudaMemoryManager::update_scalars(GlobVar& ds) {

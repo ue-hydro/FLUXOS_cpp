@@ -86,10 +86,6 @@ void tri_initiation(
         sol.ks[ci] = ds.hdry;  // Same as regular mesh: hdry from ks
         sol.ldry[ci] = 1.0f;   // Start dry
 
-        // Soil mass initialization for WINTRA
-        if (ds.wintra) {
-            sol.soil_mass[ci] = ds.soil_conc_bckgrd;
-        }
     }
 
     // ---- Find inflow cell ----

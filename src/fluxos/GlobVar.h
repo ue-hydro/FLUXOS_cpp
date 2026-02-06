@@ -65,7 +65,6 @@ public:
         
     conc_SW= std::unique_ptr<std::vector<arma::Mat<double>>>( new  std::vector<arma::mat>);
     
-    soil_mass= std::unique_ptr<arma::Mat<double>>( new  arma::mat(MROWS,MCOLS));
     h0= std::unique_ptr<arma::Mat<double>>( new  arma::mat(MROWS,MCOLS));
     ldry_prev= std::unique_ptr<arma::Mat<float>>( new  arma::fmat(MROWS,MCOLS));
     
@@ -87,12 +86,12 @@ public:
         //sbMROWS,sbMCOLS,                                  // for calc of weight of water (bed slope term) (solver_wet)
         ks, //cfri                                  // Friction (Chezy model is not being used for now)
         fe_1,fe_2,fe_3,fn_1,fn_2,fn_3,twetimetracer,
-        h0,soil_mass,basin_dem;
+        h0,basin_dem;
     std::unique_ptr<std::vector<arma::Mat<double>>> conc_SW;
     std::unique_ptr<arma::Mat<float>> ldry,innerNeumannBCWeir,meteo,inflow,ldry_prev;   
     double hdry,                                    //minimum water depth
         dtfl,tim,                                   // timestep for flow computation
-        D_coef,soil_release_rate,soil_conc_bckgrd,qmelvtotal, qmelv_inc;
+        D_coef,qmelvtotal, qmelv_inc;
 
     std::string output_folder, sim_start_time, dem_file,meteo_file,inflow_file,sim_purp;
 
@@ -106,9 +105,8 @@ public:
     json master_MODSET;
 
     // Modules
-    bool ade_solver, openwq, wintra;
+    bool ade_solver, openwq;
     std::string openwq_masterfile; // openwq
-    double SWEmax, SWEstd;         // wintra
 
     // Restart option
     bool restart_opt;

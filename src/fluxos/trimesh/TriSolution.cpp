@@ -52,9 +52,8 @@ void TriSolution::allocate(int ncells, int nedges, int num_chem)
     dqx.assign(ncells, 0.0);
     dqy.assign(ncells, 0.0);
 
-    // ADE / WINTRA
+    // ADE
     h0.assign(ncells, 0.0);
-    soil_mass.assign(ncells, 0.0);
     twetimetracer.assign(ncells, 0.0);
 
     conc_SW.resize(num_chem);
@@ -116,7 +115,7 @@ void TriSolution::clear()
     phi_z.clear(); phi_qx.clear(); phi_qy.clear();
     flux_mass.clear(); flux_momx.clear(); flux_momy.clear();
     dh.clear(); dqx.clear(); dqy.clear();
-    h0.clear(); soil_mass.clear(); twetimetracer.clear();
+    h0.clear(); twetimetracer.clear();
     conc_SW.clear();
     num_cells = 0;
     num_edges = 0;

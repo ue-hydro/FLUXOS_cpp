@@ -53,9 +53,8 @@ public:
     std::vector<double> dqx;        // change in x-momentum
     std::vector<double> dqy;        // change in y-momentum
 
-    // ---- ADE / WINTRA fields (per cell) ----
+    // ---- ADE fields (per cell) ----
     std::vector<double> h0;             // depth at start of timestep
-    std::vector<double> soil_mass;      // soil mass for WINTRA
     std::vector<double> twetimetracer;  // wetting time tracer [hours]
     std::vector<std::vector<double>> conc_SW;  // concentration [nchem][ncells]
 

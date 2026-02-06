@@ -17,11 +17,6 @@ void cuda_courant_condition(CudaMemoryManager& cmem,
 // Hydrodynamics: launches 4 phase kernels sequentially on GPU
 void cuda_hydrodynamics_calc(CudaMemoryManager& cmem);
 
-// WINTRA soil release solver on GPU
-void cuda_wintra_solver(CudaMemoryManager& cmem,
-                        double soil_release_rate,
-                        double NODATA_VALUE);
-
 // ADE concentration adjustment (parallelizable part only)
 void cuda_ade_adjust(CudaMemoryManager& cmem, int it);
 

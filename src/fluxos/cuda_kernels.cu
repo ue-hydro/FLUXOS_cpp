@@ -432,51 +432,6 @@ void cuda_hydrodynamics_calc(CudaMemoryManager& cmem) {
 }
 
 // ============================================================================
-// KERNEL: WINTRA solver (soil mass release)
-// ============================================================================
-__global__ void kernel_wintra(
-    const double* __restrict__ d_h,
-    const double* __restrict__ d_zb,
-    double* __restrict__ d_soil_mass,
-    double* __restrict__ d_conc_SW,
-    unsigned int MROWS, unsigned int NROWS, unsigned int NCOLS,
-    double hdry, double arbase, double dtfl,
-    double soil_release_rate, double NODATA_VALUE)
-{
-    unsigned int irow = blockIdx.x * blockDim.x + threadIdx.x + 1;
-    unsigned int icol = blockIdx.y * blockDim.y + threadIdx.y + 1;
-
-    if (irow > NROWS || icol > NCOLS) return;
-
-    unsigned int idx = IDX(irow, icol, MROWS);
-    double hp = d_h[idx];
-    double zbp = d_zb[idx];
-
-    if (hp > hdry && zbp != NODATA_VALUE) {
-        double deltam = d_soil_mass[idx] * soil_release_rate / 3600.0 * dtfl;
-        d_soil_mass[idx] -= deltam;
-        d_conc_SW[idx] += deltam / (hp * arbase);
-    }
-}
-
-void cuda_wintra_solver(CudaMemoryManager& cmem,
-                        double soil_release_rate,
-                        double NODATA_VALUE)
-{
-    CudaGridData& g = cmem.grid;
-    dim3 block(BLOCK_X, BLOCK_Y);
-    dim3 grid_dim(ceil_div(g.NROWS, BLOCK_X), ceil_div(g.NCOLS, BLOCK_Y));
-
-    kernel_wintra<<<grid_dim, block>>>(
-        g.d_h, g.d_zb, g.d_soil_mass, g.d_conc_SW,
-        g.MROWS, g.NROWS, g.NCOLS,
-        g.hdry, g.arbase, g.dtfl,
-        soil_release_rate, NODATA_VALUE);
-
-    CUDA_CHECK(cudaDeviceSynchronize());
-}
-
-// ============================================================================
 // KERNEL: ADE concentration adjustment (parallelizable part)
 // ============================================================================
 __global__ void kernel_ade_adjust(
