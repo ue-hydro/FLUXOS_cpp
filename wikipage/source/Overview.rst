@@ -78,7 +78,7 @@ FLUXOS-OVERLAND is optimized for high-performance computing:
 
 **CUDA GPU Acceleration**
 
-* Full GPU offloading of hydrodynamics, ADE, and WINTRA solvers
+* Full GPU offloading of hydrodynamics and ADE solvers
 * Regular mesh: Cartesian 2D thread grid (1 thread per cell)
 * Triangular mesh: 1D thread indexing with 7 specialized kernels (wet/dry, gradient, limiter, edge flux, accumulate, update, Courant)
 * Race-free flux accumulation via ``atomicAdd``

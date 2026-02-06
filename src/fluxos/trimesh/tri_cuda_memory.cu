@@ -97,7 +97,6 @@ void TriCudaMemoryManager::allocate(const TriMesh& mesh, const TriSolution& sol)
     ALLOC_D(data.d_dqy, nc, double);
 
     ALLOC_D(data.d_h0, nc, double);
-    ALLOC_D(data.d_soil_mass, nc, double);
     ALLOC_D(data.d_twetimetracer, nc, double);
     ALLOC_D(data.d_conc_SW, nc, double);
 
@@ -187,7 +186,6 @@ void TriCudaMemoryManager::copy_solution_to_device(const TriSolution& sol)
     H2D(data.d_ldry_prev, sol.ldry_prev.data(), nc, float);
     H2D(data.d_innerNeumannBCWeir, sol.innerNeumannBCWeir.data(), nc, float);
     H2D(data.d_h0, sol.h0.data(), nc, double);
-    H2D(data.d_soil_mass, sol.soil_mass.data(), nc, double);
     H2D(data.d_twetimetracer, sol.twetimetracer.data(), nc, double);
 }
 
@@ -208,7 +206,6 @@ void TriCudaMemoryManager::copy_solution_to_host(TriSolution& sol)
     D2H(sol.ldry.data(), data.d_ldry, nc, float);
     D2H(sol.ldry_prev.data(), data.d_ldry_prev, nc, float);
     D2H(sol.h0.data(), data.d_h0, nc, double);
-    D2H(sol.soil_mass.data(), data.d_soil_mass, nc, double);
     D2H(sol.twetimetracer.data(), data.d_twetimetracer, nc, double);
 }
 
@@ -226,7 +223,6 @@ void TriCudaMemoryManager::copy_output_to_host(TriSolution& sol)
     D2H(sol.uy.data(), data.d_uy, nc, double);
     D2H(sol.us.data(), data.d_us, nc, double);
     D2H(sol.ldry.data(), data.d_ldry, nc, float);
-    D2H(sol.soil_mass.data(), data.d_soil_mass, nc, double);
     D2H(sol.twetimetracer.data(), data.d_twetimetracer, nc, double);
 }
 
@@ -279,7 +275,7 @@ void TriCudaMemoryManager::deallocate()
     FREE_D(data.d_phi_z); FREE_D(data.d_phi_qx); FREE_D(data.d_phi_qy);
     FREE_D(data.d_flux_mass); FREE_D(data.d_flux_momx); FREE_D(data.d_flux_momy);
     FREE_D(data.d_dh); FREE_D(data.d_dqx); FREE_D(data.d_dqy);
-    FREE_D(data.d_h0); FREE_D(data.d_soil_mass); FREE_D(data.d_twetimetracer);
+    FREE_D(data.d_h0); FREE_D(data.d_twetimetracer);
     FREE_D(data.d_conc_SW); FREE_D(data.d_block_reduce);
 }
 

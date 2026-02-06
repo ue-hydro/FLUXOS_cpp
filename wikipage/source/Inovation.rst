@@ -31,7 +31,7 @@ CUDA GPU Acceleration
 
 FLUXOS-OVERLAND now includes CUDA GPU acceleration, enabling significant speedups for large-scale simulations:
 
-* **Regular mesh GPU solver**: Full GPU offloading of hydrodynamics, ADE, and WINTRA solvers with 2D thread grid matching the domain
+* **Regular mesh GPU solver**: Full GPU offloading of hydrodynamics and ADE solvers with 2D thread grid matching the domain
 * **Triangular mesh GPU solver**: 7 specialized CUDA kernels optimized for unstructured mesh computation:
 
   - Wet/dry classification, gradient computation, Barth-Jespersen limiting

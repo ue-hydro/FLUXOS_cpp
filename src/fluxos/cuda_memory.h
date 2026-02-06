@@ -28,7 +28,7 @@ struct CudaGridData {
     double *d_fe_1, *d_fe_2, *d_fe_3;
     double *d_fn_1, *d_fn_2, *d_fn_3;
     double *d_twetimetracer;
-    double *d_h0, *d_soil_mass;
+    double *d_h0;
 
     // Device pointers for float matrices
     float *d_ldry, *d_innerNeumannBCWeir, *d_ldry_prev;

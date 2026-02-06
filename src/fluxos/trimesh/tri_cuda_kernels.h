@@ -18,11 +18,6 @@ void tri_cuda_courant_condition(TriCudaMemoryManager& cmem,
 // Launches 6 kernels: wetdry -> gradient -> limiter -> edge_flux -> accumulate -> update
 void tri_cuda_hydrodynamics_calc(TriCudaMemoryManager& cmem);
 
-// WINTRA soil release on GPU
-void tri_cuda_wintra_solver(TriCudaMemoryManager& cmem,
-                             double soil_release_rate,
-                             double NODATA_VALUE);
-
 // ADE concentration adjustment on GPU
 void tri_cuda_ade_adjust(TriCudaMemoryManager& cmem);
 

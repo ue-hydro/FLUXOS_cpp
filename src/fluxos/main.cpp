@@ -40,7 +40,6 @@ using json = nlohmann::json;
 #include "solver_wetdomain.h"
 #include "hydrodynamics_calc.h"
 #include "ADEsolver_calc.h"
-#include "WINTRAsolver_calc.h"
 #include "write_results.h"
 #include "mpi_domain.h"
 
@@ -56,7 +55,6 @@ using json = nlohmann::json;
 #include "trimesh/tri_initiate.h"
 #include "trimesh/tri_hydrodynamics.h"
 #include "trimesh/tri_ade_solver.h"
-#include "trimesh/tri_wintra_solver.h"
 #include "trimesh/tri_forcing.h"
 #include "trimesh/tri_write_results.h"
 #include "trimesh/tri_mpi_domain.h"
@@ -237,11 +235,7 @@ int main(int argc, char* argv[])
     // #######################################################
     // Provide additional information to console
     // #######################################################
-    logFLUXOSfile << "Simulation time (days) = " + std::to_string(ds.ntim) + " (= " + std::to_string(ds.ntim) + " sec)";
-    logFLUXOSfile << "\nSoil release rate (1/hour) = " + std::to_string(ds.soil_release_rate);
-    logFLUXOSfile << "\nSoil initial background mass available for release to runoff (g) (0.txt points will be overwritten) = " + std::to_string(ds.soil_conc_bckgrd);
-    logFLUXOSfile << "\nSWE max (cm) = " + std::to_string(ds.SWEmax);
-    logFLUXOSfile << "\nSWE std (cm) = " + std::to_string(ds.SWEstd) + "\n";
+    logFLUXOSfile << "Simulation time (days) = " + std::to_string(ds.ntim) + " (= " + std::to_string(ds.ntim) + " sec)\n";
 
     // #######################################################
     // Modules 
@@ -251,8 +245,7 @@ int main(int argc, char* argv[])
         // Message that openwq has been activated
         logFLUXOSfile << "\n > ADE_solver activated";
     }else{
-        // otherwise disable wintra and openwq
-        ds.wintra = false;
+        // otherwise disable openwq
         ds.openwq = false;
     }
     
@@ -302,7 +295,6 @@ int main(int argc, char* argv[])
     ds.hdry = (*ds.ks).at(1,1);  // temporary but basically saying that nothing will move until it reaches roughness height
     print_next = timstart;
     print_next = print_next + ds.print_step;
-    if(ds.wintra==true){ds.SWEstd = ds.SWEstd/100;}
 
 #ifdef USE_CUDA
     // Initialize CUDA GPU memory and copy all fields to device (regular mesh)
@@ -632,15 +624,6 @@ int main(int argc, char* argv[])
                     }
                     tri_cuda_mem.copy_solution_to_device(tri_sol);
                 }
-
-                // Wintra module on GPU
-                if (ds.wintra == true) {
-                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
-                        tri_cuda_mem.copy_conc_to_device(tri_sol, chem_mobile[ichem]);
-                        tri_cuda_wintra_solver(tri_cuda_mem, ds.soil_release_rate, ds.NODATA_VALUE);
-                        tri_cuda_mem.copy_conc_to_host(tri_sol, chem_mobile[ichem]);
-                    }
-                }
 #else
                 // CPU: Triangular mesh hydrodynamics
                 tri_hydrodynamics_calc(ds, tri_mesh, tri_sol);
@@ -649,13 +632,6 @@ int main(int argc, char* argv[])
                 if (ds.ade_solver == true) {
                     for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
                         tri_adesolver_calc(ds, tri_mesh, tri_sol, it, chem_mobile[ichem]);
-                    }
-                }
-
-                // Wintra module (cell-based soil release with per-cell area)
-                if (ds.wintra == true) {
-                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
-                        tri_wintrasolver_calc(ds, tri_mesh, tri_sol, chem_mobile[ichem]);
                     }
                 }
 #endif
@@ -682,15 +658,6 @@ int main(int argc, char* argv[])
                     cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
                 };
             }
-
-            // Wintra module on GPU
-            if(ds.wintra==true){
-                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
-                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
-                    cuda_wintra_solver(cuda_mem, ds.soil_release_rate, ds.NODATA_VALUE);
-                    cuda_mem.copy_conc_to_host(ds, chem_mobile[ichem]);
-                };
-            }
 #else
             // CPU: Dynamic wave solver
             hydrodynamics_calc(ds);
@@ -699,13 +666,6 @@ int main(int argc, char* argv[])
             if(ds.ade_solver==true){
                 for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
                     adesolver_calc(ds, it, chem_mobile[ichem]);
-                };
-            }
-
-            // Wintra module
-            if(ds.wintra==true){
-                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
-                    wintrasolver_calc(ds, chem_mobile[ichem]);
                 };
             }
 #endif
