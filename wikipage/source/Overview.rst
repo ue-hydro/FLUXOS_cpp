@@ -50,6 +50,8 @@ Key Capabilities
      - Dirichlet, Neumann, and internal weir boundary conditions; tag-based boundary conditions for triangular meshes (wall, outflow)
    * - **Output Formats**
      - ASCII text output for regular mesh; VTK XML Unstructured Grid (.vtu) with ParaView time series (.pvd) for triangular mesh
+   * - **GeoTIFF Preprocessing**
+     - Python CLI tool (``fluxos_setup.py``) for GeoTIFF DEM import, downscaling, slope-based adaptive triangular mesh generation (via Gmsh), and JSON config creation
 
 Mesh Types
 ----------
@@ -60,14 +62,15 @@ FLUXOS-OVERLAND supports two mesh types, selectable at runtime via the JSON conf
 
 * Traditional structured grid with uniform cell size (``dxy``)
 * Efficient row-column indexing with ``(irow, icol)``
-* Input: ASCII-ESRI DEM files
+* Input: ESRI ASCII DEM files (``.asc``), or GeoTIFF via Python preprocessing tool
 * Output: ASCII text files
 
 **Unstructured Triangular Mesh** (requires ``USE_TRIMESH`` build option)
 
 * Arbitrary triangular elements for complex geometries
 * Edge-based finite volume formulation (3 faces per cell, rotated Roe solver)
-* Input: Gmsh ``.msh`` v2.2 or Triangle ``.node/.ele`` format
+* Input: Gmsh ``.msh`` v2.2 or Triangle ``.node/.ele`` format (with optional DEM z in vertices)
+* Adaptive mesh generation from GeoTIFF DEM (slope-based refinement via Python tool)
 * Output: VTK XML UnstructuredGrid (``.vtu``) with ParaView time series (``.pvd``)
 * Ideal for irregular domains, refined regions, and natural channel geometries
 
