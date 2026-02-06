@@ -34,14 +34,7 @@ Regular Mesh Output (ASCII Text)
 |twetimetracer [sec]  |wet time for each cell                                                                                                                                     |
 +---------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
 
-**Visualizing Regular Mesh Results:**
-
-Results can be visualized using:
-
-1. **3D Flood Viewer** (recommended): The built-in ``fluxos_viewer.py`` tool renders results as an animated flood on 3D terrain. See the `3D Flood Viewer (Interactive)`_ section below.
-2. **VTK conversion**: The ``fluxos_supporting_scripts/vtk_generator.py`` script converts ``.txt`` output files to VTK format for visualization in ParaView.
-3. **Google Earth**: The ``fluxos_supporting_scripts/googleearth_klmgen.py`` script generates KML files for overlay on Google Earth.
-4. **Custom scripting**: The CSV format is easily loaded with Python (``numpy``, ``pandas``) or MATLAB for custom analysis and plotting.
+See :doc:`SupportingScripts` for visualization tools including the interactive 3D Flood Viewer, VTK conversion, Google Earth KML export, and more.
 
 Triangular Mesh Output (VTK XML Unstructured Grid)
 ---------------------------------------------------
@@ -124,80 +117,4 @@ The ``.pvd`` file is a ParaView Data collection file that links all timestep ``.
 
 Open the ``.pvd`` file in ParaView to load all timesteps as an animation.
 
-**Viewing Results in ParaView:**
-
-1. Open ParaView and load the ``fluxos_timeseries.pvd`` file
-2. Select cell data arrays to visualize (e.g., ``h``, ``velocity_magnitude``)
-3. Apply color maps and thresholds for analysis
-4. Use the animation controls to step through time
-
-3D Flood Viewer (Interactive)
------------------------------
-
-FLUXOS includes an interactive 3D visualization tool (``fluxos_viewer.py``) that renders simulation results as an animated flood on top of the DEM terrain. The viewer supports both regular and triangular mesh outputs.
-
-**Installation:**
-
-.. code-block:: bash
-
-   cd fluxos_preprocessing
-   pip install -r requirements.txt
-
-**Usage:**
-
-.. code-block:: bash
-
-   # Regular mesh results
-   python fluxos_viewer.py --results-dir ./Results --dem ./terrain.asc --mesh-type regular
-
-   # Triangular mesh results
-   python fluxos_viewer.py --results-dir ./fluxos_out --dem ./terrain.asc --mesh-type triangular
-
-   # Custom settings
-   python fluxos_viewer.py --results-dir ./Results --dem ./terrain.asc \
-       --variable velocity --exaggeration 3.0 --water-opacity 0.8 --clim 0 1.5
-
-   # View terrain only (no simulation data)
-   python fluxos_viewer.py --results-dir ./Results --dem ./terrain.asc --terrain-only
-
-**Options:**
-
-.. list-table::
-   :widths: 25 15 60
-   :header-rows: 1
-
-   * - Option
-     - Default
-     - Description
-   * - ``--results-dir``
-     - (required)
-     - Directory containing output files (``.txt`` or ``.vtu``)
-   * - ``--dem``
-     - (required)
-     - Path to ESRI ASCII DEM file (``.asc``)
-   * - ``--mesh-type``
-     - regular
-     - ``regular`` (Cartesian .txt) or ``triangular`` (VTK .vtu)
-   * - ``--variable``
-     - h
-     - Variable to color: ``h`` (water depth), ``velocity``, or ``conc_SW``
-   * - ``--exaggeration``
-     - 5.0
-     - Vertical exaggeration factor for 3D relief
-   * - ``--water-opacity``
-     - 0.7
-     - Water surface transparency (0 = transparent, 1 = opaque)
-   * - ``--clim``
-     - auto
-     - Color range for the variable (e.g., ``--clim 0 2.0``)
-   * - ``--terrain-only``
-     - off
-     - Show DEM terrain without simulation results
-
-**Controls:**
-
-* **Mouse**: Left-drag to orbit, middle-drag to pan, scroll to zoom
-* **Arrow keys**: Left/Right to step through timesteps
-* **p key**: Play/pause automatic animation
-* **Slider**: Drag the timeline slider to jump to any timestep
-* **q key**: Quit
+See :doc:`SupportingScripts` for visualization tools including the interactive 3D Flood Viewer, ParaView workflows, and more.
