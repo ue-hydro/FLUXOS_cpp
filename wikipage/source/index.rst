@@ -18,6 +18,7 @@ Key Features
 * **CUDA GPU Acceleration** - Full GPU offloading for both regular and triangular mesh solvers
 * **Parallel Computing** - Hybrid MPI+OpenMP for HPC clusters
 * **Wetting/Drying** - Robust handling of dynamic wet/dry fronts
+* **GeoTIFF Preprocessing** - Python CLI tool for DEM import, downscaling, and adaptive mesh generation
 
 Quick Start
 -----------
