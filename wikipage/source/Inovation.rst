@@ -56,3 +56,16 @@ FLUXOS now includes a Python preprocessing tool (``fluxos_setup.py``) that strea
 * **JSON config generation**: Automatically produce ``modset.json`` configuration files matching the C++ solver's expected format
 
 This Python-only approach avoids adding GDAL as a C++ dependency. The C++ solver continues reading the same file formats (``.asc`` and ``.msh``), with backward-compatible support for mesh files with or without embedded vertex elevations.
+
+Interactive 3D Flood Viewer
+----------------------------
+
+FLUXOS includes an interactive 3D visualization tool (``fluxos_viewer.py``) built on PyVista (Python VTK) that renders simulation results as an animated flood on top of the terrain DEM:
+
+* **3D terrain rendering**: The DEM is displayed as a 3D surface with vertical exaggeration and earth-tone coloring
+* **Animated water overlay**: Water depth, velocity, or solute concentration is shown as a semi-transparent surface on top of the terrain, updated for each timestep
+* **Full interactivity**: Orbit, pan, and zoom with the mouse; scrub through timesteps with a slider or arrow keys; play/pause automatic animation
+* **Both mesh types**: Reads regular mesh ASCII output (``.txt``) and triangular mesh VTK output (``.vtu``/``.pvd``) directly
+* **No external software needed**: Unlike ParaView, the viewer is a single Python script included in the ``fluxos_preprocessing/`` package
+
+See the :doc:`file` page for usage instructions and available options.
