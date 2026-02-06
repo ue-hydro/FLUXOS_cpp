@@ -1,7 +1,7 @@
 Master configuration file
 ==================================
 
-The master configuration is JSON file that provides FLUXOS-OVERLAND with information and instructions to run a simulation. It contains pairs of variable/command names and values. The variables/commands needed to run a simulation are:
+The master configuration is JSON file that provides FLUXOS with information and instructions to run a simulation. It contains pairs of variable/command names and values. The variables/commands needed to run a simulation are:
 
 .. list-table:: Variables/Keywords in MASTER file (JSON type)
 
