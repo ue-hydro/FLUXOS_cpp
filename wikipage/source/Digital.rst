@@ -1,7 +1,7 @@
 Digital Elevation Model (DEM)
 ==================================
 
-    The DEM provides detailed information about the topography of the terrain. FLUXOS-OVERLAND supports two DEM input workflows:
+    The DEM provides detailed information about the topography of the terrain. FLUXOS supports two DEM input workflows:
 
     1. **ESRI ASCII Grid (.asc)** -- The native C++ format. The solver reads ``.asc`` files directly with header keywords (NCOLS, NROWS, XLLCORNER, YLLCORNER, CELLSIZE, NODATA_VALUE).
     2. **GeoTIFF (.tif)** -- Via the Python preprocessing tool ``fluxos_setup.py``, which converts GeoTIFF to ``.asc`` (for regular mesh) or generates an adaptive triangular mesh with DEM elevations embedded in vertex z-coordinates (for triangular mesh).

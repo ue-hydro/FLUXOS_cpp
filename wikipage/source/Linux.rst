@@ -1,7 +1,7 @@
 Linux Installation
 ==================================
 
-This guide provides detailed instructions for installing FLUXOS-OVERLAND on Linux systems, including workstations and HPC clusters.
+This guide provides detailed instructions for installing FLUXOS on Linux systems, including workstations and HPC clusters.
 
 Quick Start
 -----------
@@ -114,7 +114,7 @@ For distributed computing on clusters:
    mpirun --version
    which mpicc mpicxx
 
-5. Build FLUXOS-OVERLAND
+5. Build FLUXOS
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Standard Build (OpenMP only)**

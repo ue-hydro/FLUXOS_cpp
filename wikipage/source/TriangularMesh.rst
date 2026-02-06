@@ -1,12 +1,12 @@
 Triangular Mesh Guide
 ==================================
 
-This section provides a comprehensive guide to using unstructured triangular meshes in FLUXOS-OVERLAND.
+This section provides a comprehensive guide to using unstructured triangular meshes in FLUXOS.
 
 Overview
 --------
 
-FLUXOS-OVERLAND supports unstructured triangular meshes as an alternative to the default regular Cartesian grid. The triangular mesh solver uses an edge-based finite volume formulation with a rotated Roe/HLL flux solver, providing second-order accuracy on arbitrary mesh geometries.
+FLUXOS supports unstructured triangular meshes as an alternative to the default regular Cartesian grid. The triangular mesh solver uses an edge-based finite volume formulation with a rotated Roe/HLL flux solver, providing second-order accuracy on arbitrary mesh geometries.
 
 **When to use triangular meshes:**
 
@@ -41,7 +41,7 @@ For GPU acceleration of the triangular mesh solver:
 Mesh Formats
 ------------
 
-FLUXOS-OVERLAND supports two standard triangular mesh formats:
+FLUXOS supports two standard triangular mesh formats:
 
 Gmsh .msh v2.2
 ^^^^^^^^^^^^^^^

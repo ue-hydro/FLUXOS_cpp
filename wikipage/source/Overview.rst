@@ -1,17 +1,17 @@
 Overview
 ==================================
 
-What is FLUXOS-OVERLAND?
+What is FLUXOS?
 ------------------------
 
-FLUXOS-OVERLAND is a high-performance, physics-based hydrodynamic and solute transport modelling tool designed for basin-scale, event-based simulations. Originally developed for Canadian Prairie hydrology, including snowmelt flooding analysis, the model has evolved into a comprehensive platform suitable for a wide range of environmental applications.
+FLUXOS is a high-performance, physics-based hydrodynamic and solute transport modelling tool designed for basin-scale, event-based simulations. Originally developed for Canadian Prairie hydrology, including snowmelt flooding analysis, the model has evolved into a comprehensive platform suitable for a wide range of environmental applications.
 
 The model solves the 2D shallow water equations (Saint-Venant equations) coupled with advection-dispersion-reaction equations for solute transport, enabling integrated analysis of water flow and contaminant dynamics across complex landscapes.
 
 Model Heritage
 --------------
 
-FLUXOS-OVERLAND is the successor to FLUXOS, which was originally developed as an integrated surface water-groundwater model. The current version focuses on overland flow processes while maintaining the rigorous numerical foundation of its predecessor.
+FLUXOS is the successor to FLUXOS, which was originally developed as an integrated surface water-groundwater model. The current version focuses on overland flow processes while maintaining the rigorous numerical foundation of its predecessor.
 
 Key Applications
 ----------------
@@ -56,7 +56,7 @@ Key Capabilities
 Mesh Types
 ----------
 
-FLUXOS-OVERLAND supports two mesh types, selectable at runtime via the JSON configuration:
+FLUXOS supports two mesh types, selectable at runtime via the JSON configuration:
 
 **Regular Cartesian Mesh (default)**
 
@@ -77,7 +77,7 @@ FLUXOS-OVERLAND supports two mesh types, selectable at runtime via the JSON conf
 Computational Features
 ----------------------
 
-FLUXOS-OVERLAND is optimized for high-performance computing:
+FLUXOS is optimized for high-performance computing:
 
 **CUDA GPU Acceleration**
 

@@ -1,12 +1,12 @@
 CUDA GPU Acceleration
 ==================================
 
-This section describes how to build and run FLUXOS-OVERLAND with CUDA GPU acceleration for maximum performance on large-scale simulations.
+This section describes how to build and run FLUXOS with CUDA GPU acceleration for maximum performance on large-scale simulations.
 
 Overview
 --------
 
-FLUXOS-OVERLAND supports CUDA GPU acceleration for both regular Cartesian and unstructured triangular mesh solvers. GPU offloading can provide 10-50x speedup over single-core CPU execution for domains with millions of cells.
+FLUXOS supports CUDA GPU acceleration for both regular Cartesian and unstructured triangular mesh solvers. GPU offloading can provide 10-50x speedup over single-core CPU execution for domains with millions of cells.
 
 **Supported GPU operations:**
 

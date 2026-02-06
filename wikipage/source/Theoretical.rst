@@ -1,7 +1,7 @@
 Theoretical Foundation
 ==================================
 
-This section describes the mathematical and numerical foundations of FLUXOS-OVERLAND.
+This section describes the mathematical and numerical foundations of FLUXOS.
 
 Governing Equations
 -------------------
@@ -9,7 +9,7 @@ Governing Equations
 Shallow Water Equations (Hydrodynamics)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-FLUXOS-OVERLAND solves the 2D shallow water equations (Saint-Venant equations) in conservative form:
+FLUXOS solves the 2D shallow water equations (Saint-Venant equations) in conservative form:
 
 **Mass Conservation:**
 
@@ -59,7 +59,7 @@ Numerical Methods
 Finite Volume Method
 ^^^^^^^^^^^^^^^^^^^^
 
-FLUXOS-OVERLAND uses a cell-centered finite volume method. Two mesh types are supported:
+FLUXOS uses a cell-centered finite volume method. Two mesh types are supported:
 
 **Regular Cartesian Mesh:**
 
@@ -173,7 +173,7 @@ Where :math:`U` is the vector of conserved variables and :math:`R` is the residu
 Wetting and Drying
 ^^^^^^^^^^^^^^^^^^
 
-FLUXOS-OVERLAND includes robust wetting and drying treatment:
+FLUXOS includes robust wetting and drying treatment:
 
 * Cells with depth below threshold (:math:`h_{dry}`) are treated as dry
 * Momentum is set to zero in dry cells

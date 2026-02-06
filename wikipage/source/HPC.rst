@@ -1,12 +1,12 @@
 High-Performance Computing (HPC)
 ==================================
 
-This section describes how to build and run FLUXOS-OVERLAND on HPC clusters using MPI+OpenMP hybrid parallelization.
+This section describes how to build and run FLUXOS on HPC clusters using MPI+OpenMP hybrid parallelization.
 
 Overview
 --------
 
-FLUXOS-OVERLAND supports five parallelization modes:
+FLUXOS supports five parallelization modes:
 
 1. **OpenMP only**: For workstations and small domains
 2. **MPI only**: For distributed memory systems

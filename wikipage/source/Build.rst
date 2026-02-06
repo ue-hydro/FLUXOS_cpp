@@ -1,7 +1,7 @@
 Building Requirements
 ==================================
 
-This section describes the software dependencies and build requirements for FLUXOS-OVERLAND.
+This section describes the software dependencies and build requirements for FLUXOS.
 
 Required Dependencies
 ---------------------
@@ -55,7 +55,7 @@ Optional Dependencies
 Build Modes
 -----------
 
-FLUXOS-OVERLAND supports several build configurations:
+FLUXOS supports several build configurations:
 
 **Standard Build (OpenMP only)**
 
