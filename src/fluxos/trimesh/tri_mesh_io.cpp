@@ -7,6 +7,7 @@
 #include <iostream>
 #include <algorithm>
 #include <map>
+#include <cmath>
 
 // ============================================================================
 // Read Gmsh .msh v2.2 format
@@ -43,15 +44,24 @@ bool read_gmsh_msh(const std::string& filename, TriMesh& mesh)
             mesh.vertices.resize(num_nodes);
             mesh.num_vertices = num_nodes;
 
+            bool any_nonzero_z = false;
             for (int i = 0; i < num_nodes; i++) {
                 int node_id;
-                double x, y, z_unused;
-                file >> node_id >> x >> y >> z_unused;
+                double x, y, z_val;
+                file >> node_id >> x >> y >> z_val;
 
                 node_id_map[node_id] = i;
                 mesh.vertices[i].x = x;
                 mesh.vertices[i].y = y;
+                mesh.vertices[i].z = z_val;
+
+                if (std::fabs(z_val) > 1e-10) {
+                    any_nonzero_z = true;
+                }
             }
+            // If the mesh file contained non-zero z values, mark that vertex
+            // elevations are available (Python preprocessing wrote DEM z into vertices)
+            mesh.has_vertex_elevations = any_nonzero_z;
             std::getline(file, line); // consume rest of line
             std::getline(file, line); // $EndNodes
             continue;

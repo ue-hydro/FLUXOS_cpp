@@ -18,6 +18,7 @@
 struct Vertex {
     double x = 0.0;
     double y = 0.0;
+    double z = 0.0;  // elevation from DEM (0.0 = not set, use grid interpolation)
 };
 
 // ============================================================================
@@ -82,6 +83,9 @@ public:
     int num_edges = 0;
     int num_boundary_edges = 0;
     int num_internal_edges = 0;
+
+    // Flag: true if vertex z-coordinates contain DEM elevations (from Python preprocessing)
+    bool has_vertex_elevations = false;
 
     // Domain bounding box
     double xmin = 0.0, xmax = 0.0;
