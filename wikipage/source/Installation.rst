@@ -8,4 +8,5 @@ Installation
    Build
    Compile
    Trouble
+   OpenWQIntegration
 

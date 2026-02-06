@@ -1,4 +1,4 @@
-OpenWQ Integration
+OpenWQ Integration (Optional)
 ==================================
 
 .. note::

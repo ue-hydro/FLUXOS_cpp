@@ -70,7 +70,6 @@ Contents
    Documentation
    Installation
    Input
-   OpenWQIntegration
    SupportingScripts
    Calibration
    Developer
