@@ -214,7 +214,7 @@ Triangular mesh results are output as VTK XML Unstructured Grid files (``.vtu``)
 * A ``.pvd`` time series collection file for ParaView animation
 * Cell-centered data arrays: h, z, zb, ux, uy, velocity_magnitude, qx, qy, us, conc_SW, twetimetracer, cell_area
 
-See the :doc:`file` page for detailed output format documentation, including the built-in 3D Flood Viewer (``fluxos_viewer.py``) that can animate triangular mesh results interactively on 3D terrain.
+See the :doc:`file` page for detailed output format documentation and the :doc:`SupportingScripts` page for visualization tools, including the built-in 3D Flood Viewer (``fluxos_viewer.py``) that can animate triangular mesh results interactively on 3D terrain.
 
 GPU Acceleration
 ----------------

@@ -68,4 +68,4 @@ FLUXOS includes an interactive 3D visualization tool (``fluxos_viewer.py``) buil
 * **Both mesh types**: Reads regular mesh ASCII output (``.txt``) and triangular mesh VTK output (``.vtu``/``.pvd``) directly
 * **No external software needed**: Unlike ParaView, the viewer is a single Python script included in the ``fluxos_preprocessing/`` package
 
-See the :doc:`file` page for usage instructions and available options.
+See the :doc:`SupportingScripts` page for usage instructions and available options.
