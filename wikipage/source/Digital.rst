@@ -11,7 +11,7 @@ Digital Elevation Model (DEM)
 Python Preprocessing Tool (GeoTIFF Support)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``fluxos_preprocessing/`` directory contains a Python CLI tool for working with GeoTIFF DEMs. This tool replaces the need for manual DEM format conversion.
+The ``fluxos_preprocessing/`` directory contains Python CLI tools for working with GeoTIFF DEMs and visualizing simulation results. The preprocessing tool replaces the need for manual DEM format conversion, and the 3D viewer enables interactive flood animation (see :doc:`file` for viewer documentation).
 
 **Installation:**
 
