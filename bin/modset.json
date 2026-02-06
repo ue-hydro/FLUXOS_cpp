@@ -1,19 +1,23 @@
 {
 	"COMMNET": "Batch_1 - additional tests for paper",
 	"DEM_FILE": "bin/Rosa_2m.asc",
-	/*
-	"INFLOW_FILE": {
-		"FILENAME": "bin/Flow_forcing.fluxos",
-		"DISCHARGE_LOCATION":{
-			"X_COORDINATE": 425894,
-			"Y_COORDINATE": 5785553
-		}
-	},
-	*/
+	"SIM_DATETIME_START": "2009-01-01 00:00:00",
+	"RESTART": false,
 	"METEO_FILE": "bin/Qmelt_synthetic.fluxos",
 	"OUTPUT": {
+		"OUTPUT_FOLDER": "Results/",
 		"PRINT_STEP": 3600,
 		"H_MIN_TO_PRINT": 0.005
 	},
-	"ROUGNESS_HEIGHT": 0.005
+	"ROUGNESS_HEIGHT": 0.005,
+	"EXTERNAL_MODULES": {
+		"ADE_TRANSPORT": {
+			"STATUS": false,
+			"D_COEF": 0.5
+		},
+		"OPENWQ": {
+			"STATUS": false,
+			"MASTERFILE_DIR": ""
+		}
+	}
 }

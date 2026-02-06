@@ -180,6 +180,84 @@ Windows builds are supported via:
 * MSYS2/MinGW-w64 with GCC
 * Windows Subsystem for Linux (WSL) - recommended
 
+Running the Example
+-------------------
+
+FLUXOS includes a test case in the ``bin/`` directory (Rosa Creek watershed, 859x618 cells at 2m resolution).
+
+**Regular Mesh:**
+
+.. code-block:: bash
+
+   mkdir -p Results
+   ./build/bin/fluxos bin/modset.json
+
+**Triangular Mesh:**
+
+First generate the mesh from the DEM:
+
+.. code-block:: bash
+
+   python3 fluxos_preprocessing/fluxos_setup.py mesh \
+       --input bin/Rosa_2m.asc --output bin/Rosa_trimesh.msh \
+       --min-size 10 --max-size 50 --slope-factor 0.5
+
+Then run with the triangular mesh config:
+
+.. code-block:: bash
+
+   mkdir -p Results
+   ./build/bin/fluxos bin/modset_trimesh.json
+
+Visualizing Results in Google Earth
+-------------------------------------
+
+Export simulation results as KMZ files for animated visualization:
+
+.. code-block:: bash
+
+   # Regular mesh results
+   python fluxos_preprocessing/fluxos_viewer.py \
+       --results-dir Results --dem bin/Rosa_2m.asc --utm-zone 10
+
+   # Triangular mesh results
+   python fluxos_preprocessing/fluxos_viewer.py \
+       --results-dir Results --dem bin/Rosa_2m.asc \
+       --mesh-type triangular --utm-zone 10
+
+   # Open in Google Earth
+   open fluxos_regular.kmz    # macOS
+   xdg-open fluxos_regular.kmz  # Linux
+
+Use the time slider in Google Earth to animate through simulation timesteps.
+
+Benchmark Results
+-----------------
+
+Tested on the Rosa Creek example (859x618 grid, 5h simulation, 1h output steps) on Apple M-series:
+
+.. list-table::
+   :widths: 30 25 25 20
+   :header-rows: 1
+
+   * - Configuration
+     - Mesh Type
+     - Wall Time
+     - Output Size
+   * - OpenMP (release)
+     - Regular (530K cells)
+     - 4.73 s
+     - 210 MB (6 x 35 MB .txt)
+   * - OpenMP (release)
+     - Triangular (4528 cells)
+     - 0.85 s
+     - 9.2 MB (6 x 1.5 MB .vtu)
+
+.. note::
+
+   CUDA acceleration requires an NVIDIA GPU (not available on macOS ARM).
+   MPI domain decomposition is available for distributed computing on HPC clusters.
+
 Verifying the Build
 -------------------
 
@@ -190,14 +268,8 @@ After building, verify the executable:
    # Check executable exists
    ls -la build/bin/fluxos
 
-   # For MPI build
-   ls -la build/bin/fluxos_mpi
-
-   # Run with a test case
-   ./build/bin/fluxos ./input/modset.json
-
-   # For MPI (4 processes)
-   mpirun -np 4 ./build/bin/fluxos_mpi ./input/modset.json
+   # Run with the example case
+   ./build/bin/fluxos bin/modset.json
 
 Troubleshooting
 ---------------

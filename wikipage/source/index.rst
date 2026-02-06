@@ -19,7 +19,7 @@ Key Features
 * **Parallel Computing** - Hybrid MPI+OpenMP for HPC clusters
 * **Wetting/Drying** - Robust handling of dynamic wet/dry fronts
 * **GeoTIFF Preprocessing** - Python CLI tool for DEM import, downscaling, and adaptive mesh generation
-* **3D Flood Viewer** - Interactive PyVista-based visualization with animated water overlay on 3D terrain
+* **Google Earth Export** - KMZ exporter for animated flood visualization in Google Earth
 
 Quick Start
 -----------

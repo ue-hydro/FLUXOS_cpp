@@ -792,8 +792,10 @@ int main(int argc, char* argv[])
     if (is_root) {
         std::cout << "-----------------------------------------------" << std::endl;
         logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
-        std::cout << "Simulation complete (" << std::chrono::system_clock::now << ")"  << std::endl;
-        logFLUXOSfile << "Simulation complete (" << std::chrono::system_clock::now;
+        auto end_time_final = std::chrono::system_clock::now();
+        std::time_t end_time_t = std::chrono::system_clock::to_time_t(end_time_final);
+        std::cout << "Simulation complete (" << std::ctime(&end_time_t) << ")"  << std::endl;
+        logFLUXOSfile << "Simulation complete (" << std::ctime(&end_time_t) << ")";
         logFLUXOSfile.close();
     }
 
