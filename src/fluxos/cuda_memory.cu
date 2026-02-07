@@ -54,6 +54,7 @@ static void device_to_arma(const float* d_ptr, arma::Mat<float>& mat, size_t n) 
 
 CudaMemoryManager::CudaMemoryManager() : allocated(false) {
     memset(&grid, 0, sizeof(CudaGridData));
+    grid.soil_allocated = false;
 }
 
 CudaMemoryManager::~CudaMemoryManager() {
@@ -156,6 +157,16 @@ void CudaMemoryManager::deallocate() {
     CUDA_CHECK(cudaFree(grid.d_conc_SW));
     CUDA_CHECK(cudaFree(grid.d_block_reduce));
     CUDA_CHECK(cudaFree(grid.d_reduce_result));
+
+    // Free soil infiltration arrays
+    if (grid.soil_allocated) {
+        CUDA_CHECK(cudaFree(grid.d_soil_infil_rate));
+        CUDA_CHECK(cudaFree(grid.d_soil_Ks));
+        CUDA_CHECK(cudaFree(grid.d_soil_f0));
+        CUDA_CHECK(cudaFree(grid.d_soil_k));
+        CUDA_CHECK(cudaFree(grid.d_soil_wetting_time));
+        grid.soil_allocated = false;
+    }
 
     allocated = false;
     printf("CUDA memory freed\n");
@@ -266,6 +277,34 @@ void CudaMemoryManager::copy_conc_to_host(GlobVar& ds, int ichem) {
     arma::Mat<double>& conc = (*ds.conc_SW)[ichem];
     CUDA_CHECK(cudaMemcpy(conc.memptr(), grid.d_conc_SW,
                           grid.total_size * sizeof(double), cudaMemcpyDeviceToHost));
+}
+
+void CudaMemoryManager::allocate_soil() {
+    size_t n = grid.total_size;
+    alloc_d(&grid.d_soil_infil_rate, n);
+    alloc_d(&grid.d_soil_Ks, n);
+    alloc_d(&grid.d_soil_f0, n);
+    alloc_d(&grid.d_soil_k, n);
+    alloc_d(&grid.d_soil_wetting_time, n);
+    grid.soil_allocated = true;
+    printf("CUDA: soil infiltration arrays allocated (%.1f MB)\n", n * 5 * 8 / 1e6);
+}
+
+void CudaMemoryManager::copy_soil_to_device(GlobVar& ds) {
+    if (!grid.soil_allocated) return;
+    size_t n = grid.total_size;
+    arma_to_device(*ds.soil_infil_rate, grid.d_soil_infil_rate, n);
+    arma_to_device(*ds.soil_Ks, grid.d_soil_Ks, n);
+    arma_to_device(*ds.soil_f0, grid.d_soil_f0, n);
+    arma_to_device(*ds.soil_k, grid.d_soil_k, n);
+    arma_to_device(*ds.soil_wetting_time, grid.d_soil_wetting_time, n);
+}
+
+void CudaMemoryManager::copy_soil_to_host(GlobVar& ds) {
+    if (!grid.soil_allocated) return;
+    size_t n = grid.total_size;
+    device_to_arma(grid.d_soil_infil_rate, *ds.soil_infil_rate, n);
+    device_to_arma(grid.d_soil_wetting_time, *ds.soil_wetting_time, n);
 }
 
 void CudaMemoryManager::sync() {

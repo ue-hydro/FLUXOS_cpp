@@ -86,6 +86,14 @@ struct TriCudaData {
     // Reduction buffer
     double* d_block_reduce;
 
+    // Soil infiltration device arrays (Horton decay model)
+    double* d_soil_infil_rate;
+    double* d_soil_Ks;
+    double* d_soil_f0;
+    double* d_soil_k;
+    double* d_soil_wetting_time;
+    bool soil_allocated;
+
     // Scalar constants
     double hdry, gacc, cfl, cvdef, nuem, dtfl;
 };
@@ -116,6 +124,11 @@ public:
     // Copy single concentration species to/from device
     void copy_conc_to_device(const TriSolution& sol, int ichem);
     void copy_conc_to_host(TriSolution& sol, int ichem);
+
+    // Soil infiltration GPU memory
+    void allocate_soil(int num_cells);
+    void copy_soil_to_device(const TriSolution& sol);
+    void copy_soil_to_host(TriSolution& sol);
 
     // Deallocate all device memory
     void deallocate();

@@ -48,6 +48,8 @@ using json = nlohmann::json;
 #include "cuda_kernels.h"
 #endif
 
+#include "soil_infiltration.h"
+
 #ifdef USE_TRIMESH
 #include "trimesh/TriMesh.h"
 #include "trimesh/TriSolution.h"
@@ -58,6 +60,7 @@ using json = nlohmann::json;
 #include "trimesh/tri_forcing.h"
 #include "trimesh/tri_write_results.h"
 #include "trimesh/tri_mpi_domain.h"
+#include "trimesh/tri_soil_infiltration.h"
 #ifdef USE_CUDA
 #include "trimesh/tri_cuda_memory.h"
 #include "trimesh/tri_cuda_kernels.h"
@@ -185,11 +188,18 @@ int main(int argc, char* argv[])
     // #######################################################
     errflag = read_modset(
         ds,
-        modset_flname, 
+        modset_flname,
         &ks_input,
         logFLUXOSfile);
     if (errflag)
         exit(EXIT_FAILURE);
+
+    // #######################################################
+    // Soil infiltration configuration (constant-rate loss model)
+    // #######################################################
+    SoilConfig soil_config;
+    read_soil_config(ds.master_MODSET, soil_config, logFLUXOSfile);
+    ds.soil_infiltration_enabled = soil_config.enabled;
 
     // #######################################################
     // Provide info to console
@@ -215,7 +225,15 @@ int main(int argc, char* argv[])
     if (errflag)
         exit(EXIT_FAILURE);
     ds.arbase = ds.dxy * ds.dxy;
-    
+
+    // #######################################################
+    // Read soil type map (regular mesh)
+    // #######################################################
+    if (soil_config.enabled) {
+        errflag = read_soil_map_regular(ds, soil_config, logFLUXOSfile);
+        if (errflag) exit(EXIT_FAILURE);
+    }
+
     // #######################################################
     // Read forcing: Meteo and inflow files
     // #######################################################
@@ -354,6 +372,12 @@ int main(int argc, char* argv[])
 
         // Set hdry from ks (consistent with regular mesh)
         ds.hdry = tri_sol.ks[0]; // use first cell ks as hdry
+
+        // Initialize soil infiltration for triangular mesh
+        if (soil_config.enabled) {
+            errflag = tri_init_soil(ds, tri_mesh, tri_sol, soil_config, logFLUXOSfile);
+            if (errflag) exit(EXIT_FAILURE);
+        }
 
 #ifdef USE_MPI
         // MPI domain decomposition for triangular mesh
@@ -529,6 +553,11 @@ int main(int argc, char* argv[])
             errflag = tri_add_inflow(ds, tri_mesh, tri_sol, nchem);
             if (errflag) exit(EXIT_FAILURE);
 
+            // Apply soil infiltration (after forcing, before solver)
+            if (soil_config.enabled) {
+                tri_apply_soil_infiltration(ds, tri_mesh, tri_sol, soil_config);
+            }
+
 #ifdef USE_CUDA
             // Sync forcing-modified fields to GPU
             tri_cuda_mem.copy_solution_to_device(tri_sol);
@@ -593,6 +622,11 @@ int main(int argc, char* argv[])
                 (*ds.conc_SW)[ichem] = (*OpenWQ_vars.chemass)(openwq_cmp_sw_id)(ichem).slice(0)
                         / (*ds.h * ds.arbase);
             }
+        }
+
+        // Apply soil infiltration (after forcing, before solver)
+        if (soil_config.enabled) {
+            apply_soil_infiltration(ds, soil_config);
         }
 
 #ifdef USE_CUDA

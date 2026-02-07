@@ -33,6 +33,7 @@ void TriCudaMemoryManager::allocate(const TriMesh& mesh, const TriSolution& sol)
     int ne = mesh.num_edges;
     data.num_cells = nc;
     data.num_edges = ne;
+    data.soil_allocated = false;
 
     // Print GPU info
     int device;
@@ -254,6 +255,40 @@ void TriCudaMemoryManager::copy_conc_to_host(TriSolution& sol, int ichem)
 }
 
 // ============================================================================
+// Allocate soil infiltration device arrays
+// ============================================================================
+void TriCudaMemoryManager::allocate_soil(int num_cells)
+{
+    int nc = num_cells;
+    ALLOC_D(data.d_soil_infil_rate, nc, double);
+    ALLOC_D(data.d_soil_Ks, nc, double);
+    ALLOC_D(data.d_soil_f0, nc, double);
+    ALLOC_D(data.d_soil_k, nc, double);
+    ALLOC_D(data.d_soil_wetting_time, nc, double);
+    data.soil_allocated = true;
+    std::cout << "  Triangular CUDA: soil arrays allocated" << std::endl;
+}
+
+void TriCudaMemoryManager::copy_soil_to_device(const TriSolution& sol)
+{
+    if (!data.soil_allocated) return;
+    int nc = data.num_cells;
+    H2D(data.d_soil_infil_rate, sol.soil_infil_rate.data(), nc, double);
+    H2D(data.d_soil_Ks, sol.soil_Ks.data(), nc, double);
+    H2D(data.d_soil_f0, sol.soil_f0.data(), nc, double);
+    H2D(data.d_soil_k, sol.soil_k.data(), nc, double);
+    H2D(data.d_soil_wetting_time, sol.soil_wetting_time.data(), nc, double);
+}
+
+void TriCudaMemoryManager::copy_soil_to_host(TriSolution& sol)
+{
+    if (!data.soil_allocated) return;
+    int nc = data.num_cells;
+    D2H(sol.soil_infil_rate.data(), data.d_soil_infil_rate, nc, double);
+    D2H(sol.soil_wetting_time.data(), data.d_soil_wetting_time, nc, double);
+}
+
+// ============================================================================
 // Deallocate
 // ============================================================================
 void TriCudaMemoryManager::deallocate()
@@ -277,6 +312,16 @@ void TriCudaMemoryManager::deallocate()
     FREE_D(data.d_dh); FREE_D(data.d_dqx); FREE_D(data.d_dqy);
     FREE_D(data.d_h0); FREE_D(data.d_twetimetracer);
     FREE_D(data.d_conc_SW); FREE_D(data.d_block_reduce);
+
+    // Free soil arrays
+    if (data.soil_allocated) {
+        FREE_D(data.d_soil_infil_rate);
+        FREE_D(data.d_soil_Ks);
+        FREE_D(data.d_soil_f0);
+        FREE_D(data.d_soil_k);
+        FREE_D(data.d_soil_wetting_time);
+        data.soil_allocated = false;
+    }
 }
 
 #undef TRI_CUDA_CHECK

@@ -64,6 +64,15 @@ void TriSolution::allocate(int ncells, int nedges, int num_chem)
     for (int ic = 0; ic < num_chem; ic++) {
         conc_SW[ic].assign(ncells, 0.0);
     }
+
+    // Soil infiltration (allocated but zeroed; actual initialization
+    // happens in tri_init_soil() if soil module is enabled)
+    soil_infil_rate.assign(ncells, 0.0);
+    soil_Ks.assign(ncells, 0.0);
+    soil_f0.assign(ncells, 0.0);
+    soil_k.assign(ncells, 0.0);
+    soil_wetting_time.assign(ncells, 0.0);
+    soil_type_id.assign(ncells, 0);
 }
 
 // ============================================================================
@@ -124,6 +133,10 @@ void TriSolution::clear()
     dh.clear(); dqx.clear(); dqy.clear();
     h0.clear(); twetimetracer.clear();
     conc_SW.clear();
+    // Soil infiltration
+    soil_infil_rate.clear(); soil_Ks.clear();
+    soil_f0.clear(); soil_k.clear(); soil_wetting_time.clear();
+    soil_type_id.clear();
     num_cells = 0;
     num_edges = 0;
     nchem = 0;

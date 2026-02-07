@@ -63,6 +63,14 @@ public:
     std::vector<double> twetimetracer;  // wetting time tracer [hours]
     std::vector<std::vector<double>> conc_SW;  // concentration [nchem][ncells]
 
+    // ---- Soil infiltration (per cell, Horton decay model) ----
+    std::vector<double> soil_infil_rate;   // instantaneous infiltration rate [m/s]
+    std::vector<double> soil_Ks;           // saturated hydraulic conductivity [m/s] = final rate (fc)
+    std::vector<double> soil_f0;           // initial infiltration rate [m/s]
+    std::vector<double> soil_k;            // Horton decay constant [1/s]
+    std::vector<double> soil_wetting_time; // cumulative wetting time [s]
+    std::vector<int>    soil_type_id;      // soil type ID (for output/diagnostics)
+
     // ---- Metadata ----
     int num_cells = 0;
     int num_edges = 0;
