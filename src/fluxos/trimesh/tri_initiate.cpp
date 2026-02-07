@@ -42,8 +42,14 @@ void tri_initiation(
 
             double zb_val = (v0.z + v1.z + v2.z) / 3.0;
 
-            // NODATA check: if elevation is zero or negative, handle as weir
-            if (zb_val <= 0.0) {
+            // NODATA check: if ANY vertex has zero/negative elevation,
+            // treat the cell as inactive (Neumann BC). This catches boundary
+            // triangles where some vertices fall outside the DEM domain.
+            // Also mark very small cells (area < 2 m²) as inactive — these are
+            // numerical artifacts near sharp topographic features that act as sinks.
+            bool has_nodata_vertex = (v0.z <= 0.0 || v1.z <= 0.0 || v2.z <= 0.0);
+            bool is_tiny_cell = (mesh.cells[ci].area < 2.0);
+            if (zb_val <= 0.0 || has_nodata_vertex || is_tiny_cell) {
                 sol.innerNeumannBCWeir[ci] = 1.0f;
                 // Average from valid neighbor cells
                 double sum_zb = 0.0;

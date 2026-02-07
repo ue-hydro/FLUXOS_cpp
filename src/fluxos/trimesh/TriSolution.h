@@ -48,6 +48,11 @@ public:
     std::vector<double> flux_momx;  // x-momentum flux [m^3/s * m/s]
     std::vector<double> flux_momy;  // y-momentum flux [m^3/s * m/s]
 
+    // ---- Hydrostatic pressure source terms (per edge) ----
+    // Bed-step correction from Audusse et al. hydrostatic reconstruction
+    std::vector<double> src_pcorr_L;  // 0.5*g*(h_orig^2 - h_recon^2) left side
+    std::vector<double> src_pcorr_R;  // 0.5*g*(h_orig^2 - h_recon^2) right side
+
     // ---- Accumulators (per cell) ----
     std::vector<double> dh;         // change in water depth
     std::vector<double> dqx;        // change in x-momentum

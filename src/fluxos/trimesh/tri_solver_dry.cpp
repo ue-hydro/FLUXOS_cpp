@@ -91,8 +91,8 @@ void tri_edge_flux_dry(
     // Ritter discharge per unit width
     double qn = 0.296 * dz * std::sqrt(gacc * dz);
 
-    // Volume rate limiter: don't drain more than available
-    double vol_rate = h_wet * mesh.cells[wet_cell].area / dtfl;
+    // Per-edge volume rate limiter: each edge may drain at most 1/3 of cell volume
+    double vol_rate = h_wet * mesh.cells[wet_cell].area / (3.0 * dtfl);
     double edge_flux_rate = qn * edge.length;
     if (edge_flux_rate > vol_rate) {
         qn = vol_rate / edge.length;

@@ -270,14 +270,16 @@ __global__ void kernel_tri_edge_flux(
         qy_R = qy_arr[rc] + phi_qy_arr[rc] * (grad_qy_x[rc] * dx_R + grad_qy_y[rc] * dy_R);
         zb_R = zb[rc];
     } else {
-        if (edge_btag[ei] == 2) { // outflow
-            z_R = z_L; qx_R = qx_L; qy_R = qy_L; zb_R = zb_L;
-        } else { // wall: reflect
+        if (edge_btag[ei] == 3) {
+            // Explicit wall (tag=3): reflect normal velocity
             z_R = z_L; zb_R = zb_L;
             double qn = qx_L * nx + qy_L * ny;
             double qt = qx_L * tx + qy_L * ty;
             qx_R = -qn * nx + qt * tx;
             qy_R = -qn * ny + qt * ty;
+        } else {
+            // Transmissive/zero-gradient boundary (tag=1 or 2)
+            z_R = z_L; qx_R = qx_L; qy_R = qy_L; zb_R = zb_L;
         }
     }
 
@@ -324,9 +326,9 @@ __global__ void kernel_tri_edge_flux(
     double f3_R = h_R * un_R * ut_R;
 
     double fn1, fn2, fn3;
-    if (s_L >= 0.0) {
+    if (s_L > 0.0) {
         fn1 = f1_L; fn2 = f2_L; fn3 = f3_L;
-    } else if (s_R <= 0.0) {
+    } else if (s_R < 0.0) {
         fn1 = f1_R; fn2 = f2_R; fn3 = f3_R;
     } else {
         double inv_ds = 1.0 / (s_R - s_L);
@@ -335,21 +337,29 @@ __global__ void kernel_tri_edge_flux(
         fn3 = (s_R * f3_L - s_L * f3_R + s_L * s_R * (h_R * ut_R - h_L * ut_L)) * inv_ds;
     }
 
+    // Hydrostatic pressure correction for bed slope source term
+    // Use cell-center values (not MUSCL-extrapolated) for the Audusse source term
+    double h_L_orig = fmax(0.0, z[lc] - zb[lc]);
+    double h_R_orig = (rc >= 0) ? fmax(0.0, z[rc] - zb[rc]) : h_L_orig;
+    double pcorr_L = 0.5 * gacc * (h_L_orig * h_L_orig - h_L * h_L);
+    double pcorr_R = 0.5 * gacc * (h_R_orig * h_R_orig - h_R * h_R);
+    fn2 += (pcorr_L - pcorr_R);
+
     // Rotate back to global frame
     double elen = edge_length[ei];
     double fx = fn2 * nx + fn3 * tx;
     double fy = fn2 * ny + fn3 * ty;
 
-    // Mass balance limiter
+    // Per-edge mass balance limiter: each edge may drain at most 1/3 of cell volume
     double mflux = fn1 * elen;
     if (mflux > 0.0) {
-        double vavail = h[lc] * cell_area[lc] / dtfl;
+        double vavail = h[lc] * cell_area[lc] / (3.0 * dtfl);
         if (mflux > vavail) {
             double s = vavail / mflux;
             fn1 *= s; fx *= s; fy *= s;
         }
     } else if (mflux < 0.0 && rc >= 0) {
-        double vavail = h[rc] * cell_area[rc] / dtfl;
+        double vavail = h[rc] * cell_area[rc] / (3.0 * dtfl);
         if (-mflux > vavail) {
             double s = vavail / (-mflux);
             fn1 *= s; fx *= s; fy *= s;
@@ -398,6 +408,31 @@ __global__ void kernel_tri_accumulate(
 }
 
 // ============================================================================
+// Kernel: Post-accumulation mass balance limiter (1 thread per cell)
+// Limits net outflow from each cell to available water volume
+// ============================================================================
+__global__ void kernel_tri_mass_limiter(
+    const double* __restrict__ h,
+    double* __restrict__ dh,
+    double* __restrict__ dqx,
+    double* __restrict__ dqy,
+    int num_cells)
+{
+    int ci = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ci >= num_cells) return;
+
+    if (dh[ci] < 0.0) {
+        double outflow = -dh[ci];
+        if (outflow > h[ci] && outflow > 1e-15) {
+            double scale = h[ci] / outflow;
+            dh[ci] *= scale;
+            dqx[ci] *= scale;
+            dqy[ci] *= scale;
+        }
+    }
+}
+
+// ============================================================================
 // Kernel: State update (1 thread per cell)
 // ============================================================================
 __global__ void kernel_tri_update(
@@ -408,13 +443,21 @@ __global__ void kernel_tri_update(
     double* __restrict__ us_arr, const double* __restrict__ ks,
     float* __restrict__ ldry, const float* __restrict__ innerNeumann,
     const double* __restrict__ dh, const double* __restrict__ dqx, const double* __restrict__ dqy,
-    int num_cells, double hdry, double gacc)
+    int num_cells, double hdry, double gacc, double dtfl)
 {
     int ci = blockIdx.x * blockDim.x + threadIdx.x;
     if (ci >= num_cells) return;
 
     z[ci] += dh[ci];
     double hp = fmax(0.0, z[ci] - zb[ci]);
+
+    // Depth cap: prevent unbounded accumulation in topographic sinks
+    const double h_max_cap = 2.0;
+    if (hp > h_max_cap) {
+        hp = h_max_cap;
+        z[ci] = zb[ci] + hp;
+    }
+
     h[ci] = hp;
 
     if (hp < hdry || innerNeumann[ci] == 1.0f) {
@@ -426,6 +469,20 @@ __global__ void kernel_tri_update(
         qx[ci] += dqx[ci];
         qy[ci] += dqy[ci];
 
+        // Manning bed friction (semi-implicit)
+        {
+            double h43 = pow(fmax(hp, ks[ci]), 4.0 / 3.0);
+            double cf = gacc * ks[ci] * ks[ci] / h43;
+            double h2t = hp * hp;
+            double dent = h2t + fmax(h2t, hdry * hdry);
+            double ux_tmp = 2.0 * hp * qx[ci] / dent;
+            double uy_tmp = 2.0 * hp * qy[ci] / dent;
+            double spd = sqrt(ux_tmp * ux_tmp + uy_tmp * uy_tmp);
+            double fric = 1.0 / (1.0 + cf * spd * dtfl / fmax(hp, hdry));
+            qx[ci] *= fric;
+            qy[ci] *= fric;
+        }
+
         double h2 = hp * hp;
         double eps2 = hdry * hdry;
         double den = h2 + fmax(h2, eps2);
@@ -433,8 +490,8 @@ __global__ void kernel_tri_update(
         uy[ci] = 2.0 * hp * qy[ci] / den;
 
         double speed = sqrt(ux[ci] * ux[ci] + uy[ci] * uy[ci]);
-        double cf = gacc * ks[ci] * ks[ci] / pow(fmax(hp, ks[ci]), 4.0 / 3.0);
-        us_arr[ci] = sqrt(cf) * speed;
+        double cf_us = gacc * ks[ci] * ks[ci] / pow(fmax(hp, ks[ci]), 4.0 / 3.0);
+        us_arr[ci] = sqrt(cf_us) * speed;
 
         ldry[ci] = 0.0f;
     }
@@ -597,13 +654,17 @@ void tri_cuda_hydrodynamics_calc(TriCudaMemoryManager& cmem)
         d.d_dh, d.d_dqx, d.d_dqy,
         ne, d.dtfl);
 
+    // Phase 5b: Post-accumulation mass balance limiter
+    kernel_tri_mass_limiter<<<cell_blocks, BLOCK_SIZE>>>(
+        d.d_h, d.d_dh, d.d_dqx, d.d_dqy, nc);
+
     // Phase 6: State update
     kernel_tri_update<<<cell_blocks, BLOCK_SIZE>>>(
         d.d_z, d.d_zb, d.d_h, d.d_qx, d.d_qy,
         d.d_ux, d.d_uy, d.d_us, d.d_ks,
         d.d_ldry, d.d_innerNeumannBCWeir,
         d.d_dh, d.d_dqx, d.d_dqy,
-        nc, d.hdry, d.gacc);
+        nc, d.hdry, d.gacc, d.dtfl);
 }
 
 // ============================================================================

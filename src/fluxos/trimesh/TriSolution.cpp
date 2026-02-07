@@ -47,6 +47,10 @@ void TriSolution::allocate(int ncells, int nedges, int num_chem)
     flux_momx.assign(nedges, 0.0);
     flux_momy.assign(nedges, 0.0);
 
+    // Hydrostatic pressure source terms (per edge)
+    src_pcorr_L.assign(nedges, 0.0);
+    src_pcorr_R.assign(nedges, 0.0);
+
     // Accumulators
     dh.assign(ncells, 0.0);
     dqx.assign(ncells, 0.0);
@@ -89,6 +93,8 @@ void TriSolution::zero_accumulators()
     std::fill(flux_mass.begin(), flux_mass.end(), 0.0);
     std::fill(flux_momx.begin(), flux_momx.end(), 0.0);
     std::fill(flux_momy.begin(), flux_momy.end(), 0.0);
+    std::fill(src_pcorr_L.begin(), src_pcorr_L.end(), 0.0);
+    std::fill(src_pcorr_R.begin(), src_pcorr_R.end(), 0.0);
     std::fill(grad_z_x.begin(), grad_z_x.end(), 0.0);
     std::fill(grad_z_y.begin(), grad_z_y.end(), 0.0);
     std::fill(grad_qx_x.begin(), grad_qx_x.end(), 0.0);
@@ -114,6 +120,7 @@ void TriSolution::clear()
     grad_qy_x.clear(); grad_qy_y.clear();
     phi_z.clear(); phi_qx.clear(); phi_qy.clear();
     flux_mass.clear(); flux_momx.clear(); flux_momy.clear();
+    src_pcorr_L.clear(); src_pcorr_R.clear();
     dh.clear(); dqx.clear(); dqy.clear();
     h0.clear(); twetimetracer.clear();
     conc_SW.clear();
