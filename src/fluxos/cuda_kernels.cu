@@ -166,17 +166,13 @@ void cuda_courant_condition(CudaMemoryManager& cmem,
     reduce_threads = p;
     if (reduce_threads < 1) reduce_threads = 1;
 
-    // Use d_block_reduce[0..1] for final result
-    double* d_result;
-    CUDA_CHECK(cudaMalloc(&d_result, 2 * sizeof(double)));
-
+    // Use preallocated d_reduce_result buffer (avoids malloc/free every timestep)
     kernel_reduce_final<<<1, reduce_threads, 2 * reduce_threads * sizeof(double)>>>(
         g.d_block_reduce, g.d_block_reduce + num_blocks,
-        d_result, num_blocks);
+        g.d_reduce_result, num_blocks);
 
     double result[2];
-    CUDA_CHECK(cudaMemcpy(result, d_result, 2 * sizeof(double), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_result));
+    CUDA_CHECK(cudaMemcpy(result, g.d_reduce_result, 2 * sizeof(double), cudaMemcpyDeviceToHost));
 
     dtfl_out = result[0];
     hpall_out = result[1];

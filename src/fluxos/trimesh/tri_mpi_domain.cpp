@@ -120,38 +120,38 @@ void TriMPIDomain::exchange_halo(std::vector<double>& field)
 #ifdef USE_MPI
     if (size <= 1) return;
 
-    std::vector<MPI_Request> requests;
+    // Persistent send/recv buffers that outlive MPI_Waitall
+    std::vector<std::vector<double>> send_bufs(neighbors.size());
+    std::vector<std::vector<double>> recv_bufs(neighbors.size());
+    std::vector<MPI_Request> requests(2 * neighbors.size());
 
-    for (auto& nc : neighbors) {
-        // Send our cells to neighbor
-        std::vector<double> send_buf(nc.send_cells.size());
+    for (size_t ni = 0; ni < neighbors.size(); ni++) {
+        auto& nc = neighbors[ni];
+
+        // Pack send buffer
+        send_bufs[ni].resize(nc.send_cells.size());
         for (size_t i = 0; i < nc.send_cells.size(); i++) {
-            send_buf[i] = field[nc.send_cells[i]];
+            send_bufs[ni][i] = field[nc.send_cells[i]];
         }
 
-        MPI_Request send_req;
-        MPI_Isend(send_buf.data(), static_cast<int>(send_buf.size()),
-                  MPI_DOUBLE, nc.rank, 0, MPI_COMM_WORLD, &send_req);
-        requests.push_back(send_req);
+        MPI_Isend(send_bufs[ni].data(), static_cast<int>(nc.send_cells.size()),
+                  MPI_DOUBLE, nc.rank, 0, MPI_COMM_WORLD, &requests[2 * ni]);
 
-        // Receive neighbor's cells
-        std::vector<double> recv_buf(nc.recv_cells.size());
-        MPI_Request recv_req;
-        MPI_Irecv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                  MPI_DOUBLE, nc.rank, 0, MPI_COMM_WORLD, &recv_req);
-        requests.push_back(recv_req);
+        // Post receive
+        recv_bufs[ni].resize(nc.recv_cells.size());
+        MPI_Irecv(recv_bufs[ni].data(), static_cast<int>(nc.recv_cells.size()),
+                  MPI_DOUBLE, nc.rank, 0, MPI_COMM_WORLD, &requests[2 * ni + 1]);
     }
 
     // Wait for all communication to complete
     MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
 
-    // Unpack received data
-    int req_idx = 0;
-    for (auto& nc : neighbors) {
-        req_idx++;  // skip send
-        // Recv data would need proper handling with buffer persistence
-        // This is a simplified version - in production, use persistent buffers
-        req_idx++;
+    // Unpack received data into field
+    for (size_t ni = 0; ni < neighbors.size(); ni++) {
+        auto& nc = neighbors[ni];
+        for (size_t i = 0; i < nc.recv_cells.size(); i++) {
+            field[nc.recv_cells[i]] = recv_bufs[ni][i];
+        }
     }
 #endif
 }
@@ -164,28 +164,39 @@ void TriMPIDomain::exchange_halo_float(std::vector<float>& field)
 #ifdef USE_MPI
     if (size <= 1) return;
 
-    // Similar to exchange_halo but with MPI_FLOAT
-    std::vector<MPI_Request> requests;
+    // Persistent send/recv buffers that outlive MPI_Waitall
+    std::vector<std::vector<float>> send_bufs(neighbors.size());
+    std::vector<std::vector<float>> recv_bufs(neighbors.size());
+    std::vector<MPI_Request> requests(2 * neighbors.size());
 
-    for (auto& nc : neighbors) {
-        std::vector<float> send_buf(nc.send_cells.size());
+    for (size_t ni = 0; ni < neighbors.size(); ni++) {
+        auto& nc = neighbors[ni];
+
+        // Pack send buffer
+        send_bufs[ni].resize(nc.send_cells.size());
         for (size_t i = 0; i < nc.send_cells.size(); i++) {
-            send_buf[i] = field[nc.send_cells[i]];
+            send_bufs[ni][i] = field[nc.send_cells[i]];
         }
 
-        MPI_Request send_req;
-        MPI_Isend(send_buf.data(), static_cast<int>(send_buf.size()),
-                  MPI_FLOAT, nc.rank, 1, MPI_COMM_WORLD, &send_req);
-        requests.push_back(send_req);
+        MPI_Isend(send_bufs[ni].data(), static_cast<int>(nc.send_cells.size()),
+                  MPI_FLOAT, nc.rank, 1, MPI_COMM_WORLD, &requests[2 * ni]);
 
-        std::vector<float> recv_buf(nc.recv_cells.size());
-        MPI_Request recv_req;
-        MPI_Irecv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                  MPI_FLOAT, nc.rank, 1, MPI_COMM_WORLD, &recv_req);
-        requests.push_back(recv_req);
+        // Post receive
+        recv_bufs[ni].resize(nc.recv_cells.size());
+        MPI_Irecv(recv_bufs[ni].data(), static_cast<int>(nc.recv_cells.size()),
+                  MPI_FLOAT, nc.rank, 1, MPI_COMM_WORLD, &requests[2 * ni + 1]);
     }
 
+    // Wait for all communication to complete
     MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
+
+    // Unpack received data into field
+    for (size_t ni = 0; ni < neighbors.size(); ni++) {
+        auto& nc = neighbors[ni];
+        for (size_t i = 0; i < nc.recv_cells.size(); i++) {
+            field[nc.recv_cells[i]] = recv_bufs[ni][i];
+        }
+    }
 #endif
 }
 

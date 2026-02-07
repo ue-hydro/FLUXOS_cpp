@@ -665,6 +665,9 @@ void tri_cuda_hydrodynamics_calc(TriCudaMemoryManager& cmem)
         d.d_ldry, d.d_innerNeumannBCWeir,
         d.d_dh, d.d_dqx, d.d_dqy,
         nc, d.hdry, d.gacc, d.dtfl);
+
+    // Ensure all kernels complete before returning
+    cudaDeviceSynchronize();
 }
 
 // ============================================================================

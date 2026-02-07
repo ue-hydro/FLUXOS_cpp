@@ -38,6 +38,7 @@ struct CudaGridData {
 
     // Reduction buffers
     double *d_block_reduce;
+    double *d_reduce_result;   // preallocated 2-element buffer for final reduction
     size_t num_blocks;
 };
 

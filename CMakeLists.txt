@@ -105,8 +105,15 @@ IF (UNIX)
 		MESSAGE(STATUS "MPI C compiler: ${MPI_C_COMPILER}")
 		MESSAGE(STATUS "MPI CXX compiler: ${MPI_CXX_COMPILER}")
 		add_definitions(-DUSE_MPI)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILE_FLAGS}")
-		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
+		# Use modern imported targets when available (CMake 3.9+),
+		# fall back to legacy variables for older CMake
+		if(TARGET MPI::MPI_CXX)
+			# Modern CMake: imported target handles includes, flags, and libraries
+			MESSAGE(STATUS "MPI: using imported target MPI::MPI_CXX")
+		else()
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILE_FLAGS}")
+			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
+		endif()
 		# Update executable name to indicate MPI version
 		IF(MODE_release MATCHES ON)
 			set(FLUXOS_EXEC_name "fluxos_mpi")
@@ -195,8 +202,8 @@ IF (UNIX)
 		${HDF5_INCLUDE_DIRS}
 		${ARMADILLO_INCLUDE_DIR})
 
-	# Add MPI include directories if enabled
-	IF(USE_MPI MATCHES ON)
+	# Add MPI include directories if enabled (legacy path)
+	IF(USE_MPI MATCHES ON AND NOT TARGET MPI::MPI_CXX)
 		target_include_directories(
 			${FLUXOS_EXEC_name} PUBLIC
 			${MPI_CXX_INCLUDE_DIRS})
@@ -210,9 +217,11 @@ IF (UNIX)
 
 	# Add MPI libraries if enabled
 	IF(USE_MPI MATCHES ON)
-		target_link_libraries(
-			${FLUXOS_EXEC_name}
-			${MPI_CXX_LIBRARIES})
+		if(TARGET MPI::MPI_CXX)
+			target_link_libraries(${FLUXOS_EXEC_name} MPI::MPI_CXX)
+		else()
+			target_link_libraries(${FLUXOS_EXEC_name} ${MPI_CXX_LIBRARIES})
+		endif()
 	ENDIF()
 
 	# Add CUDA libraries if enabled
