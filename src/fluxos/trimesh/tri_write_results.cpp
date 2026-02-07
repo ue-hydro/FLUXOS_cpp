@@ -111,6 +111,29 @@ bool tri_write_results(
     }
     file << "        </DataArray>\n";
 
+    // Soil infiltration fields (only output if soil module is active)
+    if (!sol.soil_Ks.empty() && sol.soil_Ks.size() == static_cast<size_t>(ncells)) {
+        bool has_soil_data = false;
+        for (int ci = 0; ci < ncells; ci++) {
+            if (sol.soil_Ks[ci] > 0.0) { has_soil_data = true; break; }
+        }
+        if (has_soil_data) {
+            // Instantaneous infiltration rate
+            file << "        <DataArray type=\"Float64\" Name=\"soil_infil_rate\" format=\"ascii\">\n";
+            for (int ci = 0; ci < ncells; ci++) {
+                file << "          " << sol.soil_infil_rate[ci] << "\n";
+            }
+            file << "        </DataArray>\n";
+
+            // Soil type ID
+            file << "        <DataArray type=\"Int32\" Name=\"soil_type\" format=\"ascii\">\n";
+            for (int ci = 0; ci < ncells; ci++) {
+                file << "          " << sol.soil_type_id[ci] << "\n";
+            }
+            file << "        </DataArray>\n";
+        }
+    }
+
     file << "      </CellData>\n";
 
     // ---- Points (vertices) ----

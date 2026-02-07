@@ -41,7 +41,11 @@ bool write_results(
     std::string filext(".txt");
     tprint += filext;
 
-    arma::mat filedataR(ds.NROWS*ds.NCOLS,15);
+    // Determine number of output columns (extra 1 if soil infiltration enabled)
+    int ncols_out = 15;
+    if (ds.soil_infiltration_enabled) ncols_out = 16;
+
+    arma::mat filedataR(ds.NROWS*ds.NCOLS, ncols_out);
 
     for(icol=1;icol<=ds.NCOLS;icol++)
     {
@@ -69,14 +73,19 @@ bool write_results(
                 filedataR(a,13) = (*ds.fn_1).at(irow,icol);
                 filedataR(a,14) = (*ds.twetimetracer).at(irow,icol);
 
+                // Soil infiltration field
+                if (ds.soil_infiltration_enabled) {
+                    filedataR(a,15) = (*ds.soil_infil_rate).at(irow,icol);
+                }
+
                 a = a + 1;
 
             }
         }
     }
 
-    arma::mat filedata(std::max(0,a-1),14);
-    filedata = filedataR(arma::span(0,std::max(0,a-1)),arma::span(0,14));
+    arma::mat filedata(std::max(0,a-1), ncols_out - 1);
+    filedata = filedataR(arma::span(0,std::max(0,a-1)),arma::span(0, ncols_out - 1));
 
     arma::field<std::string> header(filedata.n_cols);
     header(0) = "irow [-]";
@@ -94,6 +103,9 @@ bool write_results(
     header(12) = "fe_1 [m2/s]";
     header(13) = "fn_1 [m2/s]";
     header(14) = "twetimetracer [sec]";
+    if (ds.soil_infiltration_enabled) {
+        header(15) = "soil_infil_rate [m/s]";
+    }
 
     bool outwritestatus =  filedata.save(arma::csv_name(tprint,header));
     return outwritestatus;

@@ -36,6 +36,14 @@ struct CudaGridData {
     // Device pointer for concentration (one species at a time)
     double *d_conc_SW;
 
+    // Soil infiltration device arrays (Horton decay model)
+    double *d_soil_infil_rate;
+    double *d_soil_Ks;
+    double *d_soil_f0;
+    double *d_soil_k;
+    double *d_soil_wetting_time;
+    bool soil_allocated;
+
     // Reduction buffers
     double *d_block_reduce;
     double *d_reduce_result;   // preallocated 2-element buffer for final reduction
@@ -67,6 +75,11 @@ public:
     // Concentration field for a specific chemical species
     void copy_conc_to_device(GlobVar& ds, int ichem);
     void copy_conc_to_host(GlobVar& ds, int ichem);
+
+    // Soil infiltration GPU memory
+    void allocate_soil();
+    void copy_soil_to_device(GlobVar& ds);
+    void copy_soil_to_host(GlobVar& ds);
 
     void sync();
 
