@@ -70,7 +70,7 @@ __device__ void solver_dry_device(
     const double zp = d_z[IDX(irow, icol)];
     const double ze = d_z[IDX(ie, icol)];
     const double zn = d_z[IDX(irow, in)];
-    const double hp = fmax(0.0, d_z[IDX(irow, icol)] - d_z[IDX(irow, icol)]);
+    const double hp = fmax(0.0, d_z[IDX(irow, icol)] - d_zb[IDX(irow, icol)]);
     const double he = fmax(0.0, ze - zbe);
     const double hn = fmax(0.0, zn - zbn);
     const double qp = d_qx[IDX(irow, icol)];

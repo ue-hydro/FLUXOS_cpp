@@ -115,6 +115,10 @@ void CudaMemoryManager::allocate(size_t MROWS, size_t MCOLS) {
     alloc_d(&grid.d_block_reduce, grid.num_blocks * 2); // *2 for min+max
     total_bytes += grid.num_blocks * 2 * sizeof(double);
 
+    // Preallocated 2-element buffer for final courant reduction result
+    alloc_d(&grid.d_reduce_result, 2);
+    total_bytes += 2 * sizeof(double);
+
     printf("CUDA memory allocated: %.1f MB for %zux%zu grid\n",
            total_bytes / 1e6, MROWS, MCOLS);
 
@@ -151,6 +155,7 @@ void CudaMemoryManager::deallocate() {
     CUDA_CHECK(cudaFree(grid.d_ldry_prev));
     CUDA_CHECK(cudaFree(grid.d_conc_SW));
     CUDA_CHECK(cudaFree(grid.d_block_reduce));
+    CUDA_CHECK(cudaFree(grid.d_reduce_result));
 
     allocated = false;
     printf("CUDA memory freed\n");
