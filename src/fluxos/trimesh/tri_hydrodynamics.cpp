@@ -123,6 +123,8 @@ void tri_hydrodynamics_calc(
             sol.flux_mass[ei] = 0.0;
             sol.flux_momx[ei] = 0.0;
             sol.flux_momy[ei] = 0.0;
+            sol.src_pcorr_L[ei] = 0.0;
+            sol.src_pcorr_R[ei] = 0.0;
             continue;
         }
 
@@ -131,9 +133,14 @@ void tri_hydrodynamics_calc(
             sol.flux_mass[ei] = 0.0;
             sol.flux_momx[ei] = 0.0;
             sol.flux_momy[ei] = 0.0;
+            sol.src_pcorr_L[ei] = 0.0;
+            sol.src_pcorr_R[ei] = 0.0;
         } else if (left_dry || right_dry) {
             // One side dry: use Ritter dry-front solver
             tri_edge_flux_dry(mesh, sol, ei, gacc, hdry, dtfl);
+            // Dry-front solver doesn't compute hydrostatic source terms
+            sol.src_pcorr_L[ei] = 0.0;
+            sol.src_pcorr_R[ei] = 0.0;
         } else {
             // Both wet: use full Roe solver
             tri_edge_flux_wet(mesh, sol, ei, gacc, hdry, cvdef, nuem, dtfl);
@@ -153,26 +160,60 @@ void tri_hydrodynamics_calc(
         sol.dqy[ci] = 0.0;
     }
 
-    // Accumulate edge fluxes to cells
+    // Accumulate edge fluxes and hydrostatic source terms to cells
     // Note: This loop is NOT parallelizable with OpenMP due to race conditions
     // (multiple edges write to same cell). Use atomic operations or coloring.
     for (int ei = 0; ei < nedges; ei++) {
         const Edge& edge = mesh.edges[ei];
         int lc = edge.left_cell;
         int rc = edge.right_cell;
+        double nx = edge.nx;
+        double ny = edge.ny;
+        double elen = edge.length;
 
         // Left cell: flux goes OUT (subtract)
         double inv_area_L = 1.0 / mesh.cells[lc].area;
-        sol.dh[lc] -= sol.flux_mass[ei] * dtfl * inv_area_L;
+        sol.dh[lc]  -= sol.flux_mass[ei] * dtfl * inv_area_L;
         sol.dqx[lc] -= sol.flux_momx[ei] * dtfl * inv_area_L;
         sol.dqy[lc] -= sol.flux_momy[ei] * dtfl * inv_area_L;
+
+        // Hydrostatic pressure source term for left cell (Audusse et al.)
+        // This is a positive force pushing water away from the bed step.
+        // It acts along the outward edge normal direction for the left cell.
+        sol.dqx[lc] += sol.src_pcorr_L[ei] * nx * elen * dtfl * inv_area_L;
+        sol.dqy[lc] += sol.src_pcorr_L[ei] * ny * elen * dtfl * inv_area_L;
 
         // Right cell: flux comes IN (add)
         if (rc >= 0) {
             double inv_area_R = 1.0 / mesh.cells[rc].area;
-            sol.dh[rc] += sol.flux_mass[ei] * dtfl * inv_area_R;
+            sol.dh[rc]  += sol.flux_mass[ei] * dtfl * inv_area_R;
             sol.dqx[rc] += sol.flux_momx[ei] * dtfl * inv_area_R;
             sol.dqy[rc] += sol.flux_momy[ei] * dtfl * inv_area_R;
+
+            // Hydrostatic pressure source term for right cell
+            // The edge normal points from left to right, so for the right cell
+            // the inward normal is -nx, -ny. The source acts outward from the
+            // bed step, so for the right cell it pushes in the -normal direction.
+            sol.dqx[rc] -= sol.src_pcorr_R[ei] * nx * elen * dtfl * inv_area_R;
+            sol.dqy[rc] -= sol.src_pcorr_R[ei] * ny * elen * dtfl * inv_area_R;
+        }
+    }
+
+    // ================================================================
+    // Phase 5b: Post-accumulation mass balance limiter
+    // A triangle has 3 edges, so the per-edge limiter allowed 3x over-drainage.
+    // Instead, limit the NET outflow from each cell to available water.
+    // ================================================================
+    #pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < ncells; ci++) {
+        if (sol.dh[ci] < 0.0) {
+            double outflow = -sol.dh[ci];
+            if (outflow > sol.h[ci] && outflow > 1e-15) {
+                double scale = sol.h[ci] / outflow;
+                sol.dh[ci] *= scale;
+                sol.dqx[ci] *= scale;
+                sol.dqy[ci] *= scale;
+            }
         }
     }
 
@@ -186,6 +227,17 @@ void tri_hydrodynamics_calc(
 
         // Recompute depth
         double hp = std::fmax(0.0, sol.z[ci] - sol.zb[ci]);
+
+        // Depth cap: prevent unbounded accumulation in topographic sinks.
+        // Small triangular cells near sharp terrain features can act as
+        // numerical sinks that don't exist on the regular mesh. Cap depth
+        // to prevent extreme values that slow down the CFL timestep globally.
+        const double h_max_cap = 2.0;  // Maximum allowable depth (m)
+        if (hp > h_max_cap) {
+            hp = h_max_cap;
+            sol.z[ci] = sol.zb[ci] + hp;
+        }
+
         sol.h[ci] = hp;
 
         if (hp < hdry || sol.innerNeumannBCWeir[ci] == 1.0f) {
@@ -200,6 +252,24 @@ void tri_hydrodynamics_calc(
             sol.qx[ci] += sol.dqx[ci];
             sol.qy[ci] += sol.dqy[ci];
 
+            // ---- Manning bed friction (semi-implicit) ----
+            // Friction slope: Sf = n^2 * |u| * u / h^(4/3)
+            // Using ks as Manning's n (roughness height), the friction
+            // coefficient is: cf = g * n^2 / h^(1/3)
+            // Semi-implicit treatment: qx_new = qx / (1 + cf * |u| * dt / h)
+            // This prevents velocity blow-up on steep slopes and is unconditionally stable.
+            {
+                double h43 = std::pow(std::fmax(hp, sol.ks[ci]), 4.0 / 3.0);
+                double cf = gacc * sol.ks[ci] * sol.ks[ci] / h43;
+                // Current velocity magnitude
+                double ux_tmp = 2.0 * hp * sol.qx[ci] / (hp * hp + std::fmax(hp * hp, hdry * hdry));
+                double uy_tmp = 2.0 * hp * sol.qy[ci] / (hp * hp + std::fmax(hp * hp, hdry * hdry));
+                double speed = std::sqrt(ux_tmp * ux_tmp + uy_tmp * uy_tmp);
+                double friction_factor = 1.0 / (1.0 + cf * speed * dtfl / std::fmax(hp, hdry));
+                sol.qx[ci] *= friction_factor;
+                sol.qy[ci] *= friction_factor;
+            }
+
             // Compute velocities (desingularized)
             double h2 = hp * hp;
             double eps2 = hdry * hdry;
@@ -209,8 +279,8 @@ void tri_hydrodynamics_calc(
 
             // Shear stress velocity: us = sqrt(g * h * Sf)
             double speed = std::sqrt(sol.ux[ci] * sol.ux[ci] + sol.uy[ci] * sol.uy[ci]);
-            double cf = gacc * sol.ks[ci] * sol.ks[ci] / std::pow(std::fmax(hp, sol.ks[ci]), 4.0 / 3.0);
-            sol.us[ci] = std::sqrt(cf) * speed;
+            double cf_us = gacc * sol.ks[ci] * sol.ks[ci] / std::pow(std::fmax(hp, sol.ks[ci]), 4.0 / 3.0);
+            sol.us[ci] = std::sqrt(cf_us) * speed;
 
             sol.ldry[ci] = 0.0f;
         }

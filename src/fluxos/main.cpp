@@ -328,10 +328,11 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         }
 
-        // Compute geometry (areas, normals, edge lengths, LSQ matrices)
-        tri_mesh.compute_geometry();
+        // Build edge-cell connectivity, then compute geometry (areas, normals,
+        // edge lengths, LSQ matrices). build_edges() must come first because
+        // compute_geometry() needs the edges to compute their lengths/normals.
         tri_mesh.build_edges();
-        tri_mesh.compute_lsq_matrices();
+        tri_mesh.compute_geometry();
 
         if (!tri_mesh.validate()) {
             logFLUXOSfile << "ERROR: Triangular mesh validation failed\n";
@@ -368,6 +369,10 @@ int main(int argc, char* argv[])
         tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
         logFLUXOSfile << "   CUDA GPU acceleration enabled for triangular mesh\n";
 #endif
+
+        // Print mesh quality statistics
+        tri_mesh.print_info(logFLUXOSfile);
+        tri_mesh.print_info(std::cout);
 
         logFLUXOSfile << "   Triangular mesh initialization complete\n";
 

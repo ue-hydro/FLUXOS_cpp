@@ -65,20 +65,21 @@ void tri_edge_flux_wet(
         zb_R = sol.zb[rc];
     } else {
         // Boundary edge: apply boundary condition
-        if (edge.boundary_tag == 2) {
-            // Outflow: zero-gradient (transmissive)
-            z_R = z_L;
-            qx_R = qx_L;
-            qy_R = qy_L;
-            zb_R = zb_L;
-        } else {
-            // Wall (default): reflect normal velocity, keep tangential
+        if (edge.boundary_tag == 3) {
+            // Explicit wall (tag=3): reflect normal velocity, keep tangential
             z_R = z_L;
             double qn_L = qx_L * nx + qy_L * ny;
             double qt_L = qx_L * tx + qy_L * ty;
             double qn_R = -qn_L;  // reflect normal component
             qx_R = qn_R * nx + qt_L * tx;
             qy_R = qn_R * ny + qt_L * ty;
+            zb_R = zb_L;
+        } else {
+            // Default (tag=1 or 2): transmissive/zero-gradient boundary
+            // Ghost state mirrors interior — allows natural outflow via Riemann solver
+            z_R = z_L;
+            qx_R = qx_L;
+            qy_R = qy_L;
             zb_R = zb_L;
         }
     }
@@ -106,6 +107,8 @@ void tri_edge_flux_wet(
         sol.flux_mass[edge_id] = 0.0;
         sol.flux_momx[edge_id] = 0.0;
         sol.flux_momy[edge_id] = 0.0;
+        sol.src_pcorr_L[edge_id] = 0.0;
+        sol.src_pcorr_R[edge_id] = 0.0;
         return;
     }
 
@@ -157,12 +160,12 @@ void tri_edge_flux_wet(
     // ---- HLL flux ----
     double fn1, fn2, fn3;  // flux in normal frame
 
-    if (s_L >= 0.0) {
+    if (s_L > 0.0) {
         // Supersonic from left
         fn1 = f1_L;
         fn2 = f2_L;
         fn3 = f3_L;
-    } else if (s_R <= 0.0) {
+    } else if (s_R < 0.0) {
         // Supersonic from right
         fn1 = f1_R;
         fn2 = f2_R;
@@ -212,13 +215,19 @@ void tri_edge_flux_wet(
         fn3 = 0.5 * (f3_L + f3_R) + 0.5 * r3;
     }
 
-    // ---- Hydrostatic pressure correction for well-balancedness ----
-    // Source term due to bed step: 0.5*g*(h_L^2 - h_Lstar^2) on left side
-    double h_L_orig = std::fmax(0.0, z_L - zb_L);
-    double h_R_orig = (rc >= 0) ? std::fmax(0.0, z_R - zb_R) : h_L_orig;
-    double pressure_corr = 0.5 * gacc * (h_L_orig * h_L_orig - h_L * h_L
-                                        - h_R_orig * h_R_orig + h_R * h_R);
-    // This is applied as a source term rather than modifying the flux directly
+    // ---- Hydrostatic pressure source term (Audusse et al. 2004) ----
+    // The hydrostatic reconstruction creates a mismatch between the original
+    // cell depth (h_orig = z - zb) and the reconstructed face depth (h_face =
+    // z - zb_face). This difference is a bed-slope source term that must be
+    // applied PER-CELL during flux accumulation (not added to the inter-cell
+    // flux). Each cell gets: S = +0.5*g*(h_orig^2 - h_recon^2) projected
+    // along the edge normal.
+    {
+        double h_L_orig = std::fmax(0.0, sol.z[lc] - sol.zb[lc]);
+        double h_R_orig = (rc >= 0) ? std::fmax(0.0, sol.z[rc] - sol.zb[rc]) : h_L_orig;
+        sol.src_pcorr_L[edge_id] = 0.5 * gacc * (h_L_orig * h_L_orig - h_L * h_L);
+        sol.src_pcorr_R[edge_id] = 0.5 * gacc * (h_R_orig * h_R_orig - h_R * h_R);
+    }
 
     // ---- Turbulent stress contribution ----
     double turb_fn2 = 0.0, turb_fn3 = 0.0;
@@ -251,28 +260,29 @@ void tri_edge_flux_wet(
     double fx_global = (fn2 + turb_fn2) * nx + (fn3 + turb_fn3) * tx;
     double fy_global = (fn2 + turb_fn2) * ny + (fn3 + turb_fn3) * ty;
 
-    // ---- Mass balance check ----
-    // Limit outgoing mass flux to available water
-    double mass_flux = fn1 * edge.length;
-    if (mass_flux > 0.0) {
-        // Outgoing from left cell
-        double vol_avail = sol.h[lc] * mesh.cells[lc].area;
-        double max_flux = vol_avail / dtfl;
-        if (mass_flux > max_flux) {
-            double scale = max_flux / mass_flux;
-            fn1 *= scale;
-            fx_global *= scale;
-            fy_global *= scale;
-        }
-    } else if (mass_flux < 0.0 && rc >= 0) {
-        // Outgoing from right cell
-        double vol_avail = sol.h[rc] * mesh.cells[rc].area;
-        double max_flux = vol_avail / dtfl;
-        if (-mass_flux > max_flux) {
-            double scale = max_flux / (-mass_flux);
-            fn1 *= scale;
-            fx_global *= scale;
-            fy_global *= scale;
+    // ---- Per-edge mass balance check ----
+    // A triangle has 3 edges. To prevent over-drainage, each edge may drain
+    // at most 1/3 of the cell's available water volume per timestep.
+    {
+        double mass_flux = fn1 * edge.length;
+        if (mass_flux > 0.0) {
+            // Outgoing from left cell: limit to 1/3 of available volume
+            double max_flux = sol.h[lc] * mesh.cells[lc].area / (3.0 * dtfl);
+            if (mass_flux > max_flux) {
+                double scale = max_flux / mass_flux;
+                fn1 *= scale;
+                fx_global *= scale;
+                fy_global *= scale;
+            }
+        } else if (mass_flux < 0.0 && rc >= 0) {
+            // Outgoing from right cell: limit to 1/3 of available volume
+            double max_flux = sol.h[rc] * mesh.cells[rc].area / (3.0 * dtfl);
+            if (-mass_flux > max_flux) {
+                double scale = max_flux / (-mass_flux);
+                fn1 *= scale;
+                fx_global *= scale;
+                fy_global *= scale;
+            }
         }
     }
 

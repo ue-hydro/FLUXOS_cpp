@@ -95,16 +95,11 @@ def _build_legend_png(clim, variable, opacity=180, width=300, height=40):
         "velocity": "Velocity [m/s]",
         "conc_SW": "Concentration [mg/L]",
     }
-    # Simple gradient bar — no text rendering (keep it dependency-free)
-    img = np.zeros((height, width, 4), dtype=np.uint8)
-    for x in range(width):
-        t = x / max(width - 1, 1)
-        r = int(200 * (1 - t))
-        g = int(220 * (1 - t) + 50 * t)
-        b = int(255 * (1 - t * 0.3))
-        a = int(opacity * (0.3 + 0.7 * t))
-        img[:, x] = [r, g, b, a]
-    return _write_png(img)
+    # Gradient bar matching the blue->cyan->yellow->red ramp (no text rendering)
+    vals = np.linspace(clim[0] + 1e-9, clim[1], width).reshape(1, width)
+    vals = np.broadcast_to(vals, (height, width)).copy()
+    rgba = _value_to_rgba(vals, clim[0], clim[1], opacity)
+    return _write_png(rgba)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -375,7 +370,11 @@ def rasterize_triangular(points, cells, cell_data, variable, clim,
                           h_min, opacity, nrows, ncols, xll, yll, cs):
     """
     Rasterize one triangular-mesh timestep into an RGBA image (nrows x ncols x 4).
-    Triangle cell values are painted into the grid by rasterising each triangle.
+
+    Uses vertex-based interpolation for smooth rendering:
+    1. Average cell values to vertices (area-weighted)
+    2. Rasterize each triangle using barycentric interpolation of vertex values
+    3. This produces smooth gradients instead of flat per-cell shading.
     """
     if "h" not in cell_data:
         return np.zeros((nrows, ncols, 4), dtype=np.uint8), 0
@@ -397,6 +396,28 @@ def rasterize_triangular(points, cells, cell_data, variable, clim,
     else:
         var_values = h
 
+    # ── Step 1: Interpolate cell values to vertices (area-weighted average) ──
+    npts = len(points)
+    vertex_val_sum = np.zeros(npts)
+    vertex_weight = np.zeros(npts)
+    for ci, (i0, i1, i2) in enumerate(cells):
+        if h[ci] <= h_min:
+            continue
+        val = var_values[ci]
+        # Use 1.0 weight (uniform); could use cell area for area-weighting
+        vertex_val_sum[i0] += val
+        vertex_val_sum[i1] += val
+        vertex_val_sum[i2] += val
+        vertex_weight[i0] += 1.0
+        vertex_weight[i1] += 1.0
+        vertex_weight[i2] += 1.0
+
+    # Vertex values: average of surrounding wet cells
+    with np.errstate(invalid='ignore', divide='ignore'):
+        vertex_vals = np.where(vertex_weight > 0, vertex_val_sum / vertex_weight, 0.0)
+    vertex_wet = vertex_weight > 0
+
+    # ── Step 2: Rasterize with barycentric interpolation ──
     grid = np.full((nrows, ncols), np.nan)
     wet_count = 0
 
@@ -404,36 +425,156 @@ def rasterize_triangular(points, cells, cell_data, variable, clim,
         if h[ci] <= h_min:
             continue
         wet_count += 1
-        val = var_values[ci]
+
+        # Vertex values for this triangle
+        v0_val = vertex_vals[i0]
+        v1_val = vertex_vals[i1]
+        v2_val = vertex_vals[i2]
 
         # Triangle vertices in grid coordinates
         p0, p1, p2 = points[i0], points[i1], points[i2]
-        cols = np.array([(p0[0] - xll) / cs, (p1[0] - xll) / cs, (p2[0] - xll) / cs])
-        rows = np.array([(nrows - 1) - (p0[1] - yll) / cs,
-                          (nrows - 1) - (p1[1] - yll) / cs,
-                          (nrows - 1) - (p2[1] - yll) / cs])
+        c0g = (p0[0] - xll) / cs
+        c1g = (p1[0] - xll) / cs
+        c2g = (p2[0] - xll) / cs
+        r0g = (nrows - 1) - (p0[1] - yll) / cs
+        r1g = (nrows - 1) - (p1[1] - yll) / cs
+        r2g = (nrows - 1) - (p2[1] - yll) / cs
 
         # Bounding box of triangle
-        r_min = max(0, int(np.floor(rows.min())))
-        r_max = min(nrows - 1, int(np.ceil(rows.max())))
-        c_min = max(0, int(np.floor(cols.min())))
-        c_max = min(ncols - 1, int(np.ceil(cols.max())))
+        r_min = max(0, int(np.floor(min(r0g, r1g, r2g))))
+        r_max = min(nrows - 1, int(np.ceil(max(r0g, r1g, r2g))))
+        c_min = max(0, int(np.floor(min(c0g, c1g, c2g))))
+        c_max = min(ncols - 1, int(np.ceil(max(c0g, c1g, c2g))))
 
-        # Scan-fill using barycentric coordinates
+        # Precompute barycentric denominator
+        denom = (r1g - r2g) * (c0g - c2g) + (c2g - c1g) * (r0g - r2g)
+        if abs(denom) < 1e-12:
+            continue  # Degenerate triangle
+
+        inv_denom = 1.0 / denom
+
+        # Scan-fill with barycentric interpolation
         for r in range(r_min, r_max + 1):
             for c in range(c_min, c_max + 1):
-                # Point-in-triangle test (barycentric)
                 px, py = float(c), float(r)
-                d1 = (px - cols[1]) * (rows[0] - rows[1]) - (cols[0] - cols[1]) * (py - rows[1])
-                d2 = (px - cols[2]) * (rows[1] - rows[2]) - (cols[1] - cols[2]) * (py - rows[2])
-                d3 = (px - cols[0]) * (rows[2] - rows[0]) - (cols[2] - cols[0]) * (py - rows[0])
-                has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
-                has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
-                if not (has_neg and has_pos):
-                    grid[r, c] = val
+                # Barycentric coordinates
+                w0 = ((r1g - r2g) * (px - c2g) + (c2g - c1g) * (py - r2g)) * inv_denom
+                w1 = ((r2g - r0g) * (px - c2g) + (c0g - c2g) * (py - r2g)) * inv_denom
+                w2 = 1.0 - w0 - w1
+
+                if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                    # Interpolated value
+                    grid[r, c] = w0 * v0_val + w1 * v1_val + w2 * v2_val
 
     rgba = _value_to_rgba(grid, clim[0], clim[1], opacity)
     return rgba.astype(np.uint8), wet_count
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  GRID RASTERIZER  (mesh wireframe for the first frame)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _draw_line(img, r0, c0, r1, c1, rgba):
+    """Bresenham's line into an (H, W, 4) image."""
+    h, w = img.shape[:2]
+    dr = abs(r1 - r0)
+    dc = abs(c1 - c0)
+    sr = 1 if r0 < r1 else -1
+    sc = 1 if c0 < c1 else -1
+    err = dc - dr
+    while True:
+        if 0 <= r0 < h and 0 <= c0 < w:
+            img[r0, c0] = rgba
+        if r0 == r1 and c0 == c1:
+            break
+        e2 = 2 * err
+        if e2 > -dr:
+            err -= dr
+            c0 += sc
+        if e2 < dc:
+            err += dc
+            r0 += sr
+
+
+def rasterize_regular_grid(dem, meta, grid_color=(255, 255, 0, 160), spacing=1):
+    """
+    Draw the regular mesh grid lines onto a transparent RGBA image.
+    Only draws lines where the DEM has valid (non-NaN) cells.
+    """
+    nrows, ncols = dem.shape
+    img = np.zeros((nrows, ncols, 4), dtype=np.uint8)
+    rgba = np.array(grid_color, dtype=np.uint8)
+
+    # Mark domain outline and cell boundaries
+    valid = ~np.isnan(dem)
+
+    # Draw cell boundaries: highlight every Nth row and column
+    step = max(1, spacing)
+    # Horizontal lines
+    for r in range(0, nrows, step):
+        in_run = False
+        for c in range(ncols):
+            if valid[r, c]:
+                if not in_run:
+                    in_run = True
+                img[r, c] = rgba
+            else:
+                in_run = False
+
+    # Vertical lines
+    for c in range(0, ncols, step):
+        in_run = False
+        for r in range(nrows):
+            if valid[r, c]:
+                if not in_run:
+                    in_run = True
+                img[r, c] = rgba
+            else:
+                in_run = False
+
+    # Domain boundary: draw edges between valid and invalid
+    boundary_rgba = np.array((255, 200, 0, 220), dtype=np.uint8)
+    for r in range(nrows):
+        for c in range(ncols):
+            if not valid[r, c]:
+                continue
+            # Check 4-neighbours — if any is invalid or out-of-bounds, this is boundary
+            is_edge = False
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if nr < 0 or nr >= nrows or nc < 0 or nc >= ncols:
+                    is_edge = True
+                elif np.isnan(dem[nr, nc]):
+                    is_edge = True
+            if is_edge:
+                img[r, c] = boundary_rgba
+
+    return img
+
+
+def rasterize_triangular_grid(points, cells, nrows, ncols, xll, yll, cs,
+                                grid_color=(255, 255, 0, 160)):
+    """
+    Draw the triangular mesh wireframe onto a transparent RGBA image.
+    """
+    img = np.zeros((nrows, ncols, 4), dtype=np.uint8)
+    rgba = np.array(grid_color, dtype=np.uint8)
+
+    for i0, i1, i2 in cells:
+        p0, p1, p2 = points[i0], points[i1], points[i2]
+        # Convert to pixel coordinates
+        verts = []
+        for p in [p0, p1, p2]:
+            c = int(round((p[0] - xll) / cs))
+            r = int(round((nrows - 1) - (p[1] - yll) / cs))
+            verts.append((r, c))
+
+        # Draw three edges
+        _draw_line(img, verts[0][0], verts[0][1], verts[1][0], verts[1][1], rgba)
+        _draw_line(img, verts[1][0], verts[1][1], verts[2][0], verts[2][1], rgba)
+        _draw_line(img, verts[2][0], verts[2][1], verts[0][0], verts[0][1], rgba)
+
+    return img
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -481,11 +622,24 @@ def _ground_overlay_kml(png_filename, name, north, south, east, west,
 """
 
 
-def _master_kml(timestep_entries, title="FLUXOS Simulation"):
+def _master_kml(timestep_entries, title="FLUXOS Simulation",
+                grid_kml_file=None):
     """
     Create a master KML that uses NetworkLinks to load per-timestep KML files.
     timestep_entries: list of (kml_filename, name, ts_begin, ts_end)
+    grid_kml_file: optional always-visible grid overlay
     """
+    grid_link = ""
+    if grid_kml_file:
+        grid_link = f"""  <NetworkLink>
+    <name>Mesh Grid</name>
+    <visibility>1</visibility>
+    <Link>
+      <href>{grid_kml_file}</href>
+    </Link>
+  </NetworkLink>
+"""
+
     links = ""
     for kml_file, name, ts_begin, ts_end in timestep_entries:
         links += f"""  <NetworkLink>
@@ -507,7 +661,7 @@ def _master_kml(timestep_entries, title="FLUXOS Simulation"):
   <description>FLUXOS flood simulation results.
 Use the time slider in Google Earth to animate.</description>
   <open>1</open>
-{links}</Document>
+{grid_link}{links}</Document>
 </kml>
 """
 
@@ -545,6 +699,51 @@ def export_kml(dem, meta, results, mesh_type, variable, clim, utm_to_ll,
 
     timestep_entries = []
     total_size = 0
+
+    # ── Frame 0: mesh grid ───────────────────────────────────
+    if mesh_type == "regular":
+        # Grid lines every 10 cells for visibility
+        grid_step = max(1, min(nrows, ncols) // 60)
+        grid_img = rasterize_regular_grid(dem, meta, spacing=grid_step)
+    else:
+        grid_img = rasterize_triangular_grid(
+            results[0]["points"], results[0]["cells"],
+            nrows, ncols, xll, yll, cs)
+
+    grid_png_name = "grid.png"
+    grid_png_path = os.path.join(output_dir, grid_png_name)
+    grid_png_bytes = _write_png(grid_img)
+    with open(grid_png_path, "wb") as f:
+        f.write(grid_png_bytes)
+
+    # Grid frame is always visible (no TimeSpan)
+    grid_kml_name = "grid.kml"
+    grid_kml_path = os.path.join(output_dir, grid_kml_name)
+    grid_kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Mesh Grid</name>
+  <GroundOverlay>
+    <name>Mesh Grid ({mesh_type})</name>
+    <Icon>
+      <href>{grid_png_name}</href>
+    </Icon>
+    <LatLonBox>
+      <north>{north:.8f}</north>
+      <south>{south:.8f}</south>
+      <east>{east:.8f}</east>
+      <west>{west:.8f}</west>
+    </LatLonBox>
+    <color>ffffffff</color>
+  </GroundOverlay>
+</Document>
+</kml>
+"""
+    with open(grid_kml_path, "w") as f:
+        f.write(grid_kml_content)
+
+    total_size += len(grid_png_bytes)
+    print(f"  Grid frame: {mesh_type} mesh, PNG {len(grid_png_bytes)/1024:.0f} KB")
 
     for ri, r in enumerate(results):
         t_sec = r["time"]
@@ -604,9 +803,10 @@ def export_kml(dem, meta, results, mesh_type, variable, clim, utm_to_ll,
     with open(legend_path, "wb") as f:
         f.write(legend_bytes)
 
-    # Write master KML
+    # Write master KML (with grid as always-visible layer)
     master_path = os.path.join(output_dir, "fluxos_animation.kml")
-    master_kml = _master_kml(timestep_entries, f"FLUXOS {mesh_type.title()} Mesh")
+    master_kml = _master_kml(timestep_entries, f"FLUXOS {mesh_type.title()} Mesh",
+                              grid_kml_file=grid_kml_name)
     with open(master_path, "w") as f:
         f.write(master_kml)
 
@@ -685,8 +885,8 @@ Output:
              "Default: fluxos_kml_<mesh_type>",
     )
     parser.add_argument(
-        "--opacity", type=int, default=180,
-        help="Water overlay opacity (0-255). Default: 180",
+        "--opacity", type=int, default=140,
+        help="Water overlay opacity (0-255). Default: 140",
     )
     parser.add_argument(
         "--h-min", type=float, default=0.001,

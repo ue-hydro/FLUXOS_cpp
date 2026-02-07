@@ -6,8 +6,8 @@
 	"METEO_FILE": "bin/Qmelt_synthetic.fluxos",
 	"OUTPUT": {
 		"OUTPUT_FOLDER": "Results/",
-		"PRINT_STEP": 3600,
-		"H_MIN_TO_PRINT": 0.005
+		"PRINT_STEP": 1800,
+		"H_MIN_TO_PRINT": 0.001
 	},
 	"ROUGNESS_HEIGHT": 0.005,
 	"EXTERNAL_MODULES": {
