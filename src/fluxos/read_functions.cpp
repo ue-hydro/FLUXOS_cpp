@@ -43,9 +43,7 @@ bool read_modset(
         ds.print_step = ds.master_MODSET["OUTPUT"]["PRINT_STEP"];
         ds.h_min_print = ds.master_MODSET["OUTPUT"]["H_MIN_TO_PRINT"];
         *ks_input = ds.master_MODSET["ROUGNESS_HEIGHT"];
-        ds.soil_release_rate = ds.master_MODSET["SOIL_RELEASE_RATE"];
-        ds.soil_conc_bckgrd = ds.master_MODSET["SOIL_CONC_BACKGROUND"];
-        
+
         ///////////////
         // Modules
         ///////////////
@@ -61,12 +59,45 @@ bool read_modset(
         if (ds.openwq == true){
             ds.openwq_masterfile = ds.master_MODSET["EXTERNAL_MODULES"]["OPENWQ"]["MASTERFILE_DIR"];
         }
-        // wintra
-        ds.wintra = ds.master_MODSET["EXTERNAL_MODULES"]["WINTRA"]["STATUS"];
-        if (ds.openwq == true){
-            ds.SWEstd = ds.master_MODSET["EXTERNAL_MODULES"]["WINTRA"]["SWE_STD"];
-            ds.SWEmax = ds.master_MODSET["EXTERNAL_MODULES"]["WINTRA"]["SWE_MAX"];
+        // Mesh type (regular or triangular)
+        auto exist_mesh_type = ds.master_MODSET.find("MESH_TYPE");
+        if (exist_mesh_type != ds.master_MODSET.end()) {
+            ds.mesh_type = ds.master_MODSET["MESH_TYPE"];
         }
+
+#ifdef USE_TRIMESH
+        // Triangular mesh settings
+        if (ds.mesh_type == "triangular") {
+            auto exist_mesh_file = ds.master_MODSET.find("MESH_FILE");
+            if (exist_mesh_file != ds.master_MODSET.end()) {
+                ds.mesh_file = ds.master_MODSET["MESH_FILE"];
+            } else {
+                msg = "MESH_FILE must be provided when MESH_TYPE is 'triangular'";
+                errflag = true;
+                std::cout << msg << std::endl;
+                logFLUXOSfile << msg + "\n";
+                return errflag;
+            }
+
+            auto exist_mesh_format = ds.master_MODSET.find("MESH_FORMAT");
+            if (exist_mesh_format != ds.master_MODSET.end()) {
+                ds.mesh_format = ds.master_MODSET["MESH_FORMAT"];
+            } else {
+                ds.mesh_format = "gmsh";  // default
+            }
+
+            auto exist_bc = ds.master_MODSET.find("BOUNDARY_CONDITIONS");
+            if (exist_bc != ds.master_MODSET.end()) {
+                ds.boundary_conditions_json = ds.master_MODSET["BOUNDARY_CONDITIONS"];
+            }
+
+            logFLUXOSfile << "Mesh type: triangular\n";
+            logFLUXOSfile << "Mesh file: " + ds.mesh_file + "\n";
+            logFLUXOSfile << "Mesh format: " + ds.mesh_format + "\n";
+        } else {
+            logFLUXOSfile << "Mesh type: regular (Cartesian)\n";
+        }
+#endif
 
         // Forcing
         // Only requires one of these forcing files to be provided
@@ -265,7 +296,6 @@ float read_meteo(
             (*ds.meteo).at(a,1) = vmeteo;
             (*ds.meteo).at(a,2) = concflow;
 
-            // For WINTRA 
             ds.qmelvtotal += vmeteo /(1000.*3600.*24.) * (tmeteo - tmeteo_bef);  // input in mm/day
             
             tmeteo_bef = tmeteo;

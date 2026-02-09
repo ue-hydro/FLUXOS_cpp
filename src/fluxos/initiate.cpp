@@ -101,7 +101,6 @@ unsigned int initiation(
             (*ds.z).at(irow,icol)=(*ds.zb).at(irow,icol)+(*ds.h).at(irow,icol);
             (*ds.qx).at(irow,icol)=(*ds.ux).at(irow,icol)*(*ds.h).at(irow,icol);
             (*ds.qy).at(irow,icol)=(*ds.uy).at(irow,icol)*(*ds.h).at(irow,icol);
-            (*ds.soil_mass).at(irow,icol)  = ds.soil_conc_bckgrd;
             }
         }
     }
@@ -149,7 +148,6 @@ unsigned int initiation(
             }else{
                 (*ds.conc_SW)[0].at(irow,icol) = -1.0f;
             }
-            (*ds.soil_mass).at(irow,icol) = filedata(a,12);
             (*ds.twetimetracer).at(irow,icol) = filedata(a,15);
             (*ds.ldry).at(irow,icol) = 0.0f;
 
@@ -174,7 +172,6 @@ unsigned int initiation(
                 (*ds.qx).at(irow,icol) = 0.0f;
                 (*ds.qy).at(irow,icol) = 0.0f;
                 (*ds.us).at(irow,icol) = 0.0f;
-                (*ds.soil_mass).at(irow,icol) = 0.0f;
                 (*ds.twetimetracer).at(irow,icol) = 0.0f;
                 (*ds.ldry).at(irow,icol) = 1.0f;
 

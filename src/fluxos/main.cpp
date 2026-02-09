@@ -40,8 +40,32 @@ using json = nlohmann::json;
 #include "solver_wetdomain.h"
 #include "hydrodynamics_calc.h"
 #include "ADEsolver_calc.h"
-#include "WINTRAsolver_calc.h"
 #include "write_results.h"
+#include "mpi_domain.h"
+
+#ifdef USE_CUDA
+#include "cuda_memory.h"
+#include "cuda_kernels.h"
+#endif
+
+#include "soil_infiltration.h"
+
+#ifdef USE_TRIMESH
+#include "trimesh/TriMesh.h"
+#include "trimesh/TriSolution.h"
+#include "trimesh/tri_mesh_io.h"
+#include "trimesh/tri_initiate.h"
+#include "trimesh/tri_hydrodynamics.h"
+#include "trimesh/tri_ade_solver.h"
+#include "trimesh/tri_forcing.h"
+#include "trimesh/tri_write_results.h"
+#include "trimesh/tri_mpi_domain.h"
+#include "trimesh/tri_soil_infiltration.h"
+#ifdef USE_CUDA
+#include "trimesh/tri_cuda_memory.h"
+#include "trimesh/tri_cuda_kernels.h"
+#endif
+#endif // USE_TRIMESH
 
 // Openwq objects
 #include "../openwq/OpenWQ_hydrolink.h"
@@ -67,12 +91,12 @@ openwq_hydrolink openwq_hydrolink;
 // SW id in openwq
 int openwq_cmp_sw_id = 0;
 
-int main(int argc, char* argv[]) 
-{   
+int main(int argc, char* argv[])
+{
     unsigned int NROWSl, NCOLSl, it = 0;
     unsigned int irow, icol, print_next, timstart;
     int ntim_meteo, ntim_inflow;
-    double c0,hp,v0,u0, hpall, ks_input; 
+    double c0,hp,v0,u0, hpall, ks_input;
     bool outwritestatus;
     int nchem;
     std::vector<unsigned int> chem_mobile;
@@ -86,12 +110,32 @@ int main(int argc, char* argv[])
 
     std::string modset_flname (argv[1]);
     std::string dirpath = SplitFilename (modset_flname);
-    
+
+#ifdef USE_MPI
+    // Initialize MPI early (domain size will be set later after reading DEM)
+    // Note: Full initialization happens after we know the domain size
+    int mpi_initialized = 0;
+    MPI_Initialized(&mpi_initialized);
+    if (!mpi_initialized) {
+        int provided;
+        MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    }
+    int world_rank, world_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    bool is_root = (world_rank == 0);
+#else
+    bool is_root = true;
+#endif
+
     // #######################################################
-    // create/Open Log file
+    // create/Open Log file (only on root process)
     // #######################################################
-    std::ofstream logFLUXOSfile (dirpath + "/fluxos_run.log");
-    std::cout << "FLUXOS"  << std::endl;
+    std::ofstream logFLUXOSfile;
+    if (is_root) {
+        logFLUXOSfile.open(dirpath + "/fluxos_run.log");
+    }
+    if (is_root) std::cout << "FLUXOS"  << std::endl;
     logFLUXOSfile << "FLUXOS \n";
     logFLUXOSfile << "\n-----------------------------------------------\n" << std::endl;
     std::time_t start_time = std::chrono::system_clock::to_time_t(start);
@@ -144,11 +188,18 @@ int main(int argc, char* argv[])
     // #######################################################
     errflag = read_modset(
         ds,
-        modset_flname, 
+        modset_flname,
         &ks_input,
         logFLUXOSfile);
     if (errflag)
         exit(EXIT_FAILURE);
+
+    // #######################################################
+    // Soil infiltration configuration (constant-rate loss model)
+    // #######################################################
+    SoilConfig soil_config;
+    read_soil_config(ds.master_MODSET, soil_config, logFLUXOSfile);
+    ds.soil_infiltration_enabled = soil_config.enabled;
 
     // #######################################################
     // Provide info to console
@@ -174,7 +225,15 @@ int main(int argc, char* argv[])
     if (errflag)
         exit(EXIT_FAILURE);
     ds.arbase = ds.dxy * ds.dxy;
-    
+
+    // #######################################################
+    // Read soil type map (regular mesh)
+    // #######################################################
+    if (soil_config.enabled) {
+        errflag = read_soil_map_regular(ds, soil_config, logFLUXOSfile);
+        if (errflag) exit(EXIT_FAILURE);
+    }
+
     // #######################################################
     // Read forcing: Meteo and inflow files
     // #######################################################
@@ -194,11 +253,7 @@ int main(int argc, char* argv[])
     // #######################################################
     // Provide additional information to console
     // #######################################################
-    logFLUXOSfile << "Simulation time (days) = " + std::to_string(ds.ntim) + " (= " + std::to_string(ds.ntim) + " sec)";
-    logFLUXOSfile << "\nSoil release rate (1/hour) = " + std::to_string(ds.soil_release_rate);
-    logFLUXOSfile << "\nSoil initial background mass available for release to runoff (g) (0.txt points will be overwritten) = " + std::to_string(ds.soil_conc_bckgrd);
-    logFLUXOSfile << "\nSWE max (cm) = " + std::to_string(ds.SWEmax);
-    logFLUXOSfile << "\nSWE std (cm) = " + std::to_string(ds.SWEstd) + "\n";
+    logFLUXOSfile << "Simulation time (days) = " + std::to_string(ds.ntim) + " (= " + std::to_string(ds.ntim) + " sec)\n";
 
     // #######################################################
     // Modules 
@@ -208,8 +263,7 @@ int main(int argc, char* argv[])
         // Message that openwq has been activated
         logFLUXOSfile << "\n > ADE_solver activated";
     }else{
-        // otherwise disable wintra and openwq
-        ds.wintra = false;
+        // otherwise disable openwq
         ds.openwq = false;
     }
     
@@ -257,9 +311,108 @@ int main(int argc, char* argv[])
         nchem,
         logFLUXOSfile);
     ds.hdry = (*ds.ks).at(1,1);  // temporary but basically saying that nothing will move until it reaches roughness height
-    print_next = timstart;  
+    print_next = timstart;
     print_next = print_next + ds.print_step;
-    if(ds.wintra==true){ds.SWEstd = ds.SWEstd/100;}
+
+#ifdef USE_CUDA
+    // Initialize CUDA GPU memory and copy all fields to device (regular mesh)
+    CudaMemoryManager cuda_mem;
+#endif
+
+#ifdef USE_TRIMESH
+    // #######################################################
+    // Triangular mesh initialization (when USE_TRIMESH is compiled)
+    // #######################################################
+    TriMesh tri_mesh;
+    TriSolution tri_sol;
+    bool use_trimesh = (ds.mesh_type == "triangular");
+#ifdef USE_MPI
+    TriMPIDomain tri_mpi_domain;
+#endif
+#ifdef USE_CUDA
+    TriCudaMemoryManager tri_cuda_mem;
+#endif
+    // PVD time series tracker for VTK output
+    std::vector<std::pair<double, std::string>> tri_pvd_entries;
+
+    if (use_trimesh) {
+        logFLUXOSfile << "\n > Triangular mesh mode activated\n";
+        logFLUXOSfile << "   Mesh file: " + ds.mesh_file + "\n";
+        logFLUXOSfile << "   Mesh format: " + ds.mesh_format + "\n";
+
+        // Read triangular mesh
+        if (!read_mesh_file(ds.mesh_file, ds.mesh_format, tri_mesh)) {
+            logFLUXOSfile << "ERROR: Failed to read triangular mesh file: " + ds.mesh_file + "\n";
+            exit(EXIT_FAILURE);
+        }
+
+        // Build edge-cell connectivity, then compute geometry (areas, normals,
+        // edge lengths, LSQ matrices). build_edges() must come first because
+        // compute_geometry() needs the edges to compute their lengths/normals.
+        tri_mesh.build_edges();
+        tri_mesh.compute_geometry();
+
+        if (!tri_mesh.validate()) {
+            logFLUXOSfile << "ERROR: Triangular mesh validation failed\n";
+            exit(EXIT_FAILURE);
+        }
+
+        logFLUXOSfile << "   Mesh cells: " + std::to_string(tri_mesh.num_cells) + "\n";
+        logFLUXOSfile << "   Mesh edges: " + std::to_string(tri_mesh.num_edges) + "\n";
+        logFLUXOSfile << "   Mesh vertices: " + std::to_string(tri_mesh.num_vertices) + "\n";
+
+        // Allocate solution arrays
+        tri_sol.allocate(tri_mesh.num_cells, tri_mesh.num_edges, nchem);
+
+        // Initialize solution: interpolate DEM, find inflow cell, set BCs
+        tri_initiation(ds, tri_mesh, tri_sol, nchem, logFLUXOSfile);
+
+        // Apply boundary conditions from mesh tags
+        tri_apply_boundary_conditions(ds, tri_mesh, tri_sol);
+
+        // Set hdry from ks (consistent with regular mesh)
+        ds.hdry = tri_sol.ks[0]; // use first cell ks as hdry
+
+        // Initialize soil infiltration for triangular mesh
+        if (soil_config.enabled) {
+            errflag = tri_init_soil(ds, tri_mesh, tri_sol, soil_config, logFLUXOSfile);
+            if (errflag) exit(EXIT_FAILURE);
+        }
+
+#ifdef USE_MPI
+        // MPI domain decomposition for triangular mesh
+        tri_mpi_domain.init();
+        tri_mpi_domain.partition_mesh(tri_mesh);
+        logFLUXOSfile << "   MPI partitions: " + std::to_string(tri_mpi_domain.size) + "\n";
+#endif
+
+#ifdef USE_CUDA
+        // GPU memory for triangular mesh
+        tri_cuda_mem.allocate(tri_mesh, tri_sol);
+        tri_cuda_mem.copy_solution_to_device(tri_sol);
+        tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+        logFLUXOSfile << "   CUDA GPU acceleration enabled for triangular mesh\n";
+#endif
+
+        // Print mesh quality statistics
+        tri_mesh.print_info(logFLUXOSfile);
+        tri_mesh.print_info(std::cout);
+
+        logFLUXOSfile << "   Triangular mesh initialization complete\n";
+
+    } else {
+#endif // USE_TRIMESH
+
+        // Regular mesh CUDA initialization (only when not using trimesh)
+#ifdef USE_CUDA
+        cuda_mem.allocate(ds.MROWS, ds.MCOLS);
+        cuda_mem.copy_all_to_device(ds);
+        logFLUXOSfile << "\n > CUDA GPU acceleration enabled\n";
+#endif
+
+#ifdef USE_TRIMESH
+    } // end if (use_trimesh) else
+#endif
 
     std::cout << "-----------------------------------------------\n" << std::endl;
     logFLUXOSfile << "\n-----------------------------------------------\n" << std::endl;
@@ -297,36 +450,128 @@ int main(int argc, char* argv[])
                 ds);
         }
         
-        for(icol=1;icol<=ds.NCOLS;icol++)
-        {
-            for(irow=1;irow<=ds.NROWS;irow++)
-            {
-                hp = (*ds.h).at(irow,icol);
-                (*ds.h0)(irow,icol) = hp; // adesolver
-                (*ds.ldry_prev).at(irow,icol) = (*ds.ldry).at(irow,icol); // adesolver
+        // Courant condition calculation
+        double dtfl_local = 9.e10;
+        double hpall_local = 0.0;
 
-                if(hp>ds.hdry) 
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            // ---- Triangular mesh Courant condition ----
+#ifdef USE_CUDA
+            tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+            tri_cuda_courant_condition(tri_cuda_mem, dtfl_local, hpall_local);
+#else
+            tri_courant_condition(ds, tri_mesh, tri_sol, dtfl_local, hpall_local);
+#endif
+        } else {
+#endif // USE_TRIMESH
+
+        // ---- Regular mesh Courant condition ----
+#ifdef USE_CUDA
+        // GPU Courant condition
+        cuda_mem.update_scalars(ds);
+        cuda_courant_condition(cuda_mem, dtfl_local, hpall_local);
+#else
+        // CPU: Parallelized Courant condition with OpenMP reduction
+        {
+            const double hdry_local = ds.hdry;
+            const double gacc_local = ds.gacc;
+            const double cfl_local = ds.cfl;
+            const size_t dxy_local = ds.dxy;
+            const unsigned int NCOLS_local = ds.NCOLS;
+            const unsigned int NROWS_local = ds.NROWS;
+
+            arma::Mat<double>& h_ref = *ds.h;
+            arma::Mat<double>& h0_ref = *ds.h0;
+            arma::Mat<float>& ldry_ref = *ds.ldry;
+            arma::Mat<float>& ldry_prev_ref = *ds.ldry_prev;
+            arma::Mat<double>& qx_ref = *ds.qx;
+            arma::Mat<double>& qy_ref = *ds.qy;
+
+            #pragma omp parallel for collapse(2) reduction(min:dtfl_local) reduction(max:hpall_local) schedule(static)
+            for(icol=1;icol<=NCOLS_local;icol++)
+            {
+                for(irow=1;irow<=NROWS_local;irow++)
                 {
-                    (*ds.ldry).at(irow,icol)=0.0f;
-                    hp=std::fmax((*ds.h).at(irow,icol),ds.hdry);
-                    hpall = std::fmax(hpall,(*ds.h).at(irow,icol));
-                    c0=sqrt(ds.gacc*(*ds.h).at(irow,icol));
-                    u0=std::fmax(.000001,fabs((*ds.qx).at(irow,icol)/hp));
-                    v0=std::fmax(.000001,fabs((*ds.qy).at(irow,icol)/hp));
-                    ds.dtfl=fmin(fmin(ds.cfl*ds.dxy/(u0+c0),ds.cfl*ds.dxy/(v0+c0)),ds.dtfl);
-                }else 
-                {
-                    (*ds.ldry).at(irow,icol)=1.0f;
+                    double hp_local = h_ref(irow,icol);
+                    h0_ref(irow,icol) = hp_local; // adesolver
+                    ldry_prev_ref(irow,icol) = ldry_ref(irow,icol); // adesolver
+
+                    if(hp_local > hdry_local)
+                    {
+                        ldry_ref(irow,icol) = 0.0f;
+                        hp_local = std::fmax(hp_local, hdry_local);
+                        hpall_local = std::fmax(hpall_local, h_ref(irow,icol));
+                        double c0_local = sqrt(gacc_local * h_ref(irow,icol));
+                        double u0_local = std::fmax(.000001, fabs(qx_ref(irow,icol) / hp_local));
+                        double v0_local = std::fmax(.000001, fabs(qy_ref(irow,icol) / hp_local));
+                        double dt_candidate = fmin(cfl_local * dxy_local / (u0_local + c0_local),
+                                                   cfl_local * dxy_local / (v0_local + c0_local));
+                        dtfl_local = fmin(dt_candidate, dtfl_local);
+                    } else
+                    {
+                        ldry_ref(irow,icol) = 1.0f;
+                    }
                 }
-                ds.dtfl=fmin(print_next - ds.tim, ds.dtfl);
             }
         }
-                
+#endif
+
+#ifdef USE_TRIMESH
+        } // end regular mesh Courant condition
+#endif
+
+        // Apply reduction results and time constraint
+#ifdef USE_MPI
+        // Global reduction across all MPI processes for Courant condition
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            dtfl_local = tri_mpi_domain.global_min(dtfl_local);
+            hpall_local = tri_mpi_domain.global_max(hpall_local);
+        } else {
+#endif
+            dtfl_local = mpi_domain.global_min(dtfl_local);
+            hpall_local = mpi_domain.global_max(hpall_local);
+#ifdef USE_TRIMESH
+        }
+#endif
+#endif
+        ds.dtfl = fmin(dtfl_local, print_next - ds.tim);
+        hpall = hpall_local;
+
         ds.tim = ds.tim + ds.dtfl;
-          
+
         // #######################################################
         // Add forcing: meteo and inflow
         // #######################################################
+#ifdef USE_TRIMESH
+        if (use_trimesh) {
+            // ---- Triangular mesh forcing ----
+            errflag = tri_add_meteo(ds, tri_mesh, tri_sol, nchem);
+            if (errflag) exit(EXIT_FAILURE);
+
+            errflag = tri_add_inflow(ds, tri_mesh, tri_sol, nchem);
+            if (errflag) exit(EXIT_FAILURE);
+
+            // Apply soil infiltration (after forcing, before solver)
+            if (soil_config.enabled) {
+                tri_apply_soil_infiltration(ds, tri_mesh, tri_sol, soil_config);
+            }
+
+#ifdef USE_CUDA
+            // Sync forcing-modified fields to GPU
+            tri_cuda_mem.copy_solution_to_device(tri_sol);
+            tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+#endif
+        } else {
+#endif // USE_TRIMESH
+
+        // ---- Regular mesh forcing ----
+#ifdef USE_CUDA
+        // Copy fields from GPU to host for CPU-based forcing
+        cuda_mem.update_scalars(ds);
+        cuda_mem.copy_output_fields_to_host(ds);
+#endif
         errflag = add_meteo(
             ds,
             openwq_hydrolink,
@@ -379,29 +624,94 @@ int main(int argc, char* argv[])
             }
         }
 
-        // #######################################################        
+        // Apply soil infiltration (after forcing, before solver)
+        if (soil_config.enabled) {
+            apply_soil_infiltration(ds, soil_config);
+        }
+
+#ifdef USE_CUDA
+        // Copy forcing-modified fields back to GPU
+        cuda_mem.copy_all_to_device(ds);
+#endif
+
+#ifdef USE_TRIMESH
+        } // end regular mesh forcing
+#endif
+
+        // #######################################################
         // CALL FLOW SOLVERS
         // #######################################################
-        if (hpall!=0) 
+        if (hpall!=0)
         {
             it++;
 
-            // Dynamic wave solver
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                // ============================================================
+                // TRIANGULAR MESH SOLVERS
+                // ============================================================
+#ifdef USE_CUDA
+                // GPU: Triangular mesh hydrodynamics
+                tri_cuda_mem.update_scalars(ds.hdry, ds.gacc, ds.cfl, ds.cvdef, ds.nuem, ds.dtfl);
+                tri_cuda_hydrodynamics_calc(tri_cuda_mem);
+
+                // ADE solver on triangular mesh (edge-based, runs on CPU with GPU sync)
+                if (ds.ade_solver == true) {
+                    tri_cuda_mem.copy_solution_to_host(tri_sol);
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_adesolver_calc(ds, tri_mesh, tri_sol, it, chem_mobile[ichem]);
+                    }
+                    tri_cuda_mem.copy_solution_to_device(tri_sol);
+                }
+#else
+                // CPU: Triangular mesh hydrodynamics
+                tri_hydrodynamics_calc(ds, tri_mesh, tri_sol);
+
+                // ADE solver (edge-based advection + dispersion)
+                if (ds.ade_solver == true) {
+                    for (int ichem = 0; ichem < (int)chem_mobile.size(); ichem++) {
+                        tri_adesolver_calc(ds, tri_mesh, tri_sol, it, chem_mobile[ichem]);
+                    }
+                }
+#endif
+            } else {
+#endif // USE_TRIMESH
+
+            // ============================================================
+            // REGULAR MESH SOLVERS (original code, unchanged)
+            // ============================================================
+#ifdef USE_CUDA
+            // GPU: Dynamic wave solver
+            cuda_mem.update_scalars(ds);
+            cuda_hydrodynamics_calc(cuda_mem);
+
+            // ADE solver: concentration adjustment on GPU, flux sweep on CPU
+            if(ds.ade_solver==true){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
+                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
+                    cuda_ade_adjust(cuda_mem, it);
+                    cuda_mem.copy_conc_to_host(ds, chem_mobile[ichem]);
+                    // Copy fields needed by CPU ADE sweep
+                    cuda_mem.copy_output_fields_to_host(ds);
+                    adesolver_calc(ds, it, chem_mobile[ichem]);
+                    cuda_mem.copy_conc_to_device(ds, chem_mobile[ichem]);
+                };
+            }
+#else
+            // CPU: Dynamic wave solver
             hydrodynamics_calc(ds);
 
             // ADE solver (that is used also by openwq)
             if(ds.ade_solver==true){
-                for(int ichem=0;ichem<chem_mobile.size();ichem++){
+                for(int ichem=0;ichem<(int)chem_mobile.size();ichem++){
                     adesolver_calc(ds, it, chem_mobile[ichem]);
-                };  
-            }
-
-            // Wintra module
-            if(ds.wintra==true){
-                for(int ichem=0;ichem<chem_mobile.size();ichem++){
-                    wintrasolver_calc(ds, chem_mobile[ichem]);
                 };
             }
+#endif
+
+#ifdef USE_TRIMESH
+            } // end regular mesh solvers
+#endif
 
         }
 
@@ -445,13 +755,46 @@ int main(int argc, char* argv[])
         {
             end = std::chrono::system_clock::now();
             elapsed_seconds = end-start;
-            
+
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                // ---- Triangular mesh VTK output ----
+#ifdef USE_CUDA
+                tri_cuda_mem.copy_output_to_host(tri_sol);
+#endif
+                outwritestatus = tri_write_results(
+                    ds, tri_mesh, tri_sol,
+                    std::round(print_next),
+                    elapsed_seconds);
+
+                if (outwritestatus == true) {
+                    // Track for PVD time series
+                    std::string vtu_filename = std::to_string((int)std::round(print_next)) + ".vtu";
+                    tri_pvd_entries.push_back(std::make_pair(ds.tim, vtu_filename));
+
+                    std::cout << "Saved: '" << print_next << ".vtu' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << elapsed_seconds.count()/60 << std::endl;
+                    logFLUXOSfile << "Saved: '" << print_next << ".vtu' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << std::to_string(elapsed_seconds.count()/60) + "\n";
+                    print_next = print_next + ds.print_step;
+                    start = std::chrono::system_clock::now();
+                } else {
+                    std::cout << "Problem when saving the results:" + print_next << std::endl;
+                    logFLUXOSfile << "Problem when saving the results:" + print_next;
+                    return 0;
+                }
+            } else {
+#endif // USE_TRIMESH
+
+            // ---- Regular mesh CSV output ----
+#ifdef USE_CUDA
+            // Copy output fields from GPU to host for writing
+            cuda_mem.copy_output_fields_to_host(ds);
+#endif
             outwritestatus = write_results(
                 ds,
                 std::round(print_next),
                 elapsed_seconds);
-             
-            if(outwritestatus == true) 
+
+            if(outwritestatus == true)
             {
                 std::cout << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << elapsed_seconds.count()/60 << std::endl;
                 logFLUXOSfile << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << std::to_string(elapsed_seconds.count()/60) + "\n";
@@ -464,7 +807,11 @@ int main(int argc, char* argv[])
                 logFLUXOSfile << "Problem when saving the results:" + print_next;
                 return 0;
             }
-             
+
+#ifdef USE_TRIMESH
+            } // end regular mesh output
+#endif
+
          }
 
     }
@@ -472,12 +819,47 @@ int main(int argc, char* argv[])
     // #######################################################
     // Simulation complete
     // #######################################################
-    std::cout << "-----------------------------------------------" << std::endl;
-    logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
-    std::cout << "Simulation complete (" << std::chrono::system_clock::now << ")"  << std::endl;
-    logFLUXOSfile << "Simulation complete (" << std::chrono::system_clock::now;
-    logFLUXOSfile.close(); 
-      
+
+#ifdef USE_TRIMESH
+    // Write PVD time series file for ParaView (triangular mesh only)
+    if (use_trimesh && !tri_pvd_entries.empty()) {
+        tri_write_pvd(ds.output_folder, tri_pvd_entries);
+        logFLUXOSfile << "\nPVD time series file written to: " + ds.output_folder + "/fluxos_timeseries.pvd\n";
+    }
+#endif
+
+    if (is_root) {
+        std::cout << "-----------------------------------------------" << std::endl;
+        logFLUXOSfile << "\n-----------------------------------------------" << std::endl;
+        auto end_time_final = std::chrono::system_clock::now();
+        std::time_t end_time_t = std::chrono::system_clock::to_time_t(end_time_final);
+        std::cout << "Simulation complete (" << std::ctime(&end_time_t) << ")"  << std::endl;
+        logFLUXOSfile << "Simulation complete (" << std::ctime(&end_time_t) << ")";
+        logFLUXOSfile.close();
+    }
+
+#ifdef USE_CUDA
+#ifdef USE_TRIMESH
+    if (use_trimesh) {
+        tri_cuda_mem.deallocate();
+    } else {
+#endif
+        cuda_mem.deallocate();
+#ifdef USE_TRIMESH
+    }
+#endif
+#endif
+
+#ifdef USE_MPI
+#ifdef USE_TRIMESH
+    if (use_trimesh) {
+        tri_mpi_domain.finalize();
+    }
+#endif
+    // Finalize MPI
+    MPI_Finalize();
+#endif
+
     return 0;
 }
 

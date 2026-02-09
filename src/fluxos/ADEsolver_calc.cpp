@@ -18,274 +18,276 @@
 
 #include <iostream>
 #include <armadillo>
-#include <memory> 
+#include <memory>
 
 #include "GlobVar.h"
 #include "ADEsolver_calc.h"
+#include "mpi_domain.h"
 
-// ADE solver
+// ADE solver - optimized version with MPI+OpenMP hybrid parallelization
 void adesolver_calc(
-    GlobVar& ds, 
+    GlobVar& ds,
     int it,
     int ichem)
 {
+    // Cache frequently used values
+    const double dx = ds.dxy;
+    const double dy = ds.dxy;
+    const double dtfl = ds.dtfl;
+    const double hdry = ds.hdry;
+    const double D_coef = ds.D_coef;
+    const double area = ds.arbase;
+    const unsigned int NROWS = ds.NROWS;
+    const unsigned int NCOLS = ds.NCOLS;
+    const double nt = 1.0;  // eddy viscosity (m2/s)
+    const double sigc = 0.5;
 
-    arma::mat qfcds(ds.MROWS*ds.MCOLS,1);  //double qfcds(0:mx);
-    arma::mat con_step(ds.MROWS,ds.MCOLS);  //double qfcds(0:mx);
-    double pfw,pfe,qfs,qfn,ntp, pfce, he,fp,fe, hne, pfde,area,areae,arean,hn,qxl,qyl,fw,
-       fee,fs,fn,fnn,hnue,fem,hnn,qfcn,qfdn,fnm, cvolrate,cf,cbilan,dc,cvolpot,cvolrat,con, hnew;
-    long unsigned int ix,iy,a;//!, printlim
-    arma::mat cmaxr(ds.MROWS,ds.MCOLS); //double  cmaxr(0:mx,0:my)
-    arma::mat cminr(ds.MROWS,ds.MCOLS); //cminr(0:mx,0:my);
-    double dx,dy,hp,ie,iee,in, inn, is,iw;
-    double nt =1 ; // eddy viscosity (m2/s) = 1,
-    double sigc = 0.5;
+    // Get raw pointers for faster access (avoid repeated unique_ptr dereference)
+    arma::Mat<double>& conc = (*ds.conc_SW)[ichem];
+    const arma::Mat<double>& h_mat = *ds.h;
+    const arma::Mat<double>& h0_mat = *ds.h0;
+    const arma::Mat<float>& ldry_mat = *ds.ldry;
+    const arma::Mat<float>& ldry_prev_mat = *ds.ldry_prev;
+    const arma::Mat<double>& fe_1_mat = *ds.fe_1;
+    const arma::Mat<double>& fn_1_mat = *ds.fn_1;
 
+    // Local matrices for bounds calculation
+    arma::mat cmaxr(ds.MROWS, ds.MCOLS);
+    arma::mat cminr(ds.MROWS, ds.MCOLS);
 
-    if(it>1) {
-    // ADJUST CONCENTRATION TO NEW DEPTH
-        for (a=1;a<=ds.NCOLS*ds.NROWS;a++) {
-            iy= ((a-1)/ds.NROWS)+1;
-            ix=a-ds.NROWS*(iy-1);
+#ifdef USE_MPI
+    // Exchange ghost cells for concentration field before computation
+    mpi_domain.exchange_ghost_cells(conc);
+#endif
 
-            cmaxr(ix,iy)=std::fmax(
-                (*ds.conc_SW)[ichem](ix-1,iy),
-                std::fmax(
-                    (*ds.conc_SW)[ichem](ix+1,iy),
-                    std::fmax((*ds.conc_SW)[ichem](ix,iy-1),
-                    (*ds.conc_SW)[ichem](ix,iy+1))));
+    if(it > 1) {
+        // ADJUST CONCENTRATION TO NEW DEPTH - parallelized
+        #pragma omp parallel for collapse(2) schedule(static)
+        for(unsigned int iy = 1; iy <= NCOLS; iy++) {
+            for(unsigned int ix = 1; ix <= NROWS; ix++) {
+                // Calculate bounds from neighbors
+                cmaxr(ix, iy) = std::fmax(
+                    conc(ix-1, iy),
+                    std::fmax(
+                        conc(ix+1, iy),
+                        std::fmax(conc(ix, iy-1), conc(ix, iy+1))));
 
-            cminr(ix,iy)=std::fmin(
-                (*ds.conc_SW)[ichem](ix-1,iy),
-                std::fmin((*ds.conc_SW)[ichem](ix+1,iy),
-                    std::fmin((*ds.conc_SW)[ichem](ix,iy-1),
-                    (*ds.conc_SW)[ichem](ix,iy+1))));
-                    
-            hnew=(*ds.h)(ix,iy);
-            
-            if((*ds.ldry)(ix,iy)==0 && (*ds.ldry_prev)(ix,iy)==0) 
-            {
-                (*ds.conc_SW)[ichem](ix,iy)=(*ds.conc_SW)[ichem](ix,iy)*(*ds.h0)(ix,iy)/hnew;
-            } else if ((*ds.ldry)(ix,iy)==1) 
-            {
-                (*ds.conc_SW)[ichem](ix,iy) = 0.0f;
+                cminr(ix, iy) = std::fmin(
+                    conc(ix-1, iy),
+                    std::fmin(conc(ix+1, iy),
+                        std::fmin(conc(ix, iy-1), conc(ix, iy+1))));
+
+                double hnew = h_mat(ix, iy);
+
+                if(ldry_mat(ix, iy) == 0 && ldry_prev_mat(ix, iy) == 0) {
+                    conc(ix, iy) = conc(ix, iy) * h0_mat(ix, iy) / hnew;
+                } else if(ldry_mat(ix, iy) == 1) {
+                    conc(ix, iy) = 0.0;
+                }
             }
         }
-    }else
-    {
+    } else {
         return;
     }
-            
-    //...    POLLUTION SOURCES
-    ////$OMP PARALLEL
-    //if (isqes2_on==1) call isqes2            // instantenous
-    //if (csqes2_on==1) call csqes2          // continuous
-    //if (gusqes2_on==1) call gusqes2        // gullies
-    //if (gusqes2_on==1) call gusqes2_buildup
-    //if (load_u_src>0) call usqes2                      // uniform
-    ////$OMP END PARALLEL
 
-    dx=ds.dxy;
-    dy = ds.dxy;
-    //dyn=ds.dxy; 
+    // Row-wise flux storage for better cache locality
+    // Process column by column (Y direction) to enable some parallelization
+    #pragma omp parallel
+    {
+        // Thread-local storage for flux propagation
+        arma::vec qfcds_local(NROWS + 2, arma::fill::zeros);
 
-    // SPACE LOOP
-    for (a=1;a<ds.NCOLS*ds.NROWS;a++) {
+        #pragma omp for schedule(static)
+        for(unsigned int iy = 1; iy <= NCOLS; iy++) {
+            double pfe = 0.0;
+            qfcds_local.zeros();
 
-        iy= ((a-1)/ds.NROWS)+1;
-        ix=a-ds.NROWS*(iy-1);
+            for(unsigned int ix = 1; ix <= NROWS; ix++) {
+                double pfw, qfs, qfn, pfce, pfde, fe, fp, hne, fem;
+                double he, hp, hn, qxl, qyl, fw, fee, fs, fn, fnn;
+                double fnm, qfcn, qfdn, cvolrate, cf, cbilan, dc, cvolpot, cvolrat, con;
+                double hnue, hnn;
 
-        is=iy-1; 
-        in=iy+1; 
-        inn=std::fmin(iy+2,ds.NCOLS+1);
-        iw=ix-1;
-        ie=ix+1;
-        iee=std::fmin(ix+2,ds.NROWS+1);
-                     
-        //  BC 
-        if (ix==1) {
-            pfce=(*ds.conc_SW)[ichem](0,iy)*(*ds.fe_1)(0,iy)*dy;     // convective flux
-            hp=std::fmax((*ds.h)(1,iy),ds.hdry);                  
-            he=std::fmax((*ds.h)(2,iy),ds.hdry);
-            fp=(*ds.conc_SW)[ichem](0,iy);
-            fe=(*ds.conc_SW)[ichem](1,iy);
-           
-            hne=std::sqrt(hp*nt*he*nt)/sigc/std::fabs(dx)*dy*ds.D_coef;
-            pfde=0.;            // no diffusive flux over boundary
-            pfe=pfce;  
-        }  
+                const unsigned int is = iy - 1;
+                const unsigned int in = iy + 1;
+                const unsigned int inn = std::min(iy + 2, NCOLS + 1);
+                const unsigned int iw = ix - 1;
+                const unsigned int ie = ix + 1;
+                const unsigned int iee = std::min(ix + 2, NROWS + 1);
 
-        // CHECK IF THE DOMAIN IS DRY
-        if((*ds.ldry)(ix,iy)==1){
-            pfe=0.;
-            qfcds(ix)=0.;
-            (*ds.conc_SW)[ichem](ix,iy)=0.;            
-            continue; 
-        };
-
-        // INITIALIZATION 
-        area=ds.arbase;
-        areae=ds.arbase;
-        arean=ds.arbase;
-        ntp = nt; 
-        hp=(*ds.h)(ix,iy); 
-        he=(*ds.h)(ie,iy);
-        hn=(*ds.h)(ix,in);
-        qxl=(*ds.fe_1)(ix,iy);
-        qyl=(*ds.fn_1)(ix,iy);
-        fw=(*ds.conc_SW)[ichem](iw,iy);
-        fp=(*ds.conc_SW)[ichem](ix,iy);
-        fe=(*ds.conc_SW)[ichem](ie,iy);
-        fee=(*ds.conc_SW)[ichem](iee,iy);
-        fs=(*ds.conc_SW)[ichem](ix,is);
-        fn=(*ds.conc_SW)[ichem](ix,in);
-        fnn=(*ds.conc_SW)[ichem](ix,inn);
-            
-        // FLUXES OVER WEST AND SOUTH FACES (from previous interaction)
-        pfw=pfe; 
-        qfs=qfcds(ix);
-
-
-        // X-DIRECTION
-        //// diffusive flux and mean concentration at east face
-        if((*ds.ldry)(ie,iy)==0) {
-            hnue=std::fmax(hp*nt*he*nt,.0001); 
-            hne=std::sqrt(hnue)/sigc/dx*dy*ds.D_coef; 
-            pfde=-hne*(fe-fp);                     // diffusive flux
-
-            if(qxl>0.0f){
-                if ((*ds.ldry)(iw,iy)==0) {
-                   fem=-.125*fw+.75*fp+.375*fe;
-                }else {
-                   fem=0.5*fp+0.5*fe;
-                }             
-            } else{
-                if ((*ds.ldry)(iee,iy)==0) {
-                  fem=.375*fp+.75*fe-.125*fee;
-                }else {
-                  fem=0.5*fp+0.5*fe;   
+                // BC at start of row
+                if(ix == 1) {
+                    pfce = conc(0, iy) * fe_1_mat(0, iy) * dy;
+                    hp = std::fmax(h_mat(1, iy), hdry);
+                    he = std::fmax(h_mat(2, iy), hdry);
+                    fp = conc(0, iy);
+                    fe = conc(1, iy);
+                    hne = std::sqrt(hp * nt * he * nt) / sigc / std::fabs(dx) * dy * D_coef;
+                    pfde = 0.0;
+                    pfe = pfce;
                 }
-            }
-        }else {
-            fem=0.;
-            pfde=0.;
-        }
 
-        fem=std::fmax(0.,fem);
-
-        if(ix==ds.NROWS){  // if Boundary (overwrite the BC)
-            fem=(*ds.conc_SW)[ichem](ds.NROWS+1,iy);
-        }
-
-        //// advective flux - X-direction  - [m3/s]   
-        pfce=qxl*fem*dy;  
-        
-        //// total flux = advective flux + diffusive
-        pfe=pfce+pfde;      
-        
-        //// check available material if coming from the east cell
-        if(pfe<0){ 
-            if((*ds.ldry)(ie,iy)==0)    {
-                cvolrate=-(fe*he)*areae/ds.dtfl; 
-                pfe=std::fmax(pfe,cvolrate); //limit to available material
-            }else {
-                pfe=0.;
-            }
-        }             
-
-        // Y-DIRECTION
-        //// diffusion at the present time step Y-direction (pfde, where "d" refers to diffusion)
-        if((*ds.ldry)(ix,in)==0)           {
-            hnue=std::fmax(.0001,hp*ntp*hn*nt);
-            hnn=std::sqrt(hnue)/sigc/dy*dx*ds.D_coef;              // [m3/s]
-            qfdn=-hnn*(fn-fp);                                  // diffusive flux
-            if(qyl>0.0f)       {
-                    if((*ds.ldry)(ix,is)==0) {
-                         fnm=-.125*fs+.75*fp+.375*fn; 
-                    }else {
-                        fnm=0.5*fp+.5*fn;    
-                   }
-            }else{
-                   if ((*ds.ldry)(ix,inn)==0) {
-                        fnm=.375*fp+.75*fn-.125*fnn;
-                   }else {
-                       fnm=.5*fp+.5*fn;
-                  }
-            }
-        } else {
-            fnm=0.;
-            qfdn=0.;
-        }
-
-        fnm=std::fmax(0.,fnm);
-
-        //// if Boundary (overwrite BC)
-        if(iy==ds.NCOLS)    {
-            fnm=(*ds.conc_SW)[ichem](ix,ds.NCOLS+1);
-        }
-
-        //// advective flux - X-direction  
-        qfcn=qyl*fnm*dx; // [g/s]
-
-        //// total flux
-        qfn=qfcn+qfdn;
-        
-        //// check available material if coming from the north cell
-        if(qfn<0)    {
-            if((*ds.ldry)(ix,in)==0)    {     
-                cvolrate=-(fn*hn)*arean/ds.dtfl; 
-                qfn=std::fmax(qfn,cvolrate);   //limit to available material
-            }else {
-                qfn=0.;
-            }
-        }
-
-        //// CHECK AVAILABLE MATERIAL - VOLUME RATE [m3/s] in actual cell
-        cvolpot=(fp*hp)*area; // [m3]
-        cvolrat=cvolpot/ds.dtfl + pfw+qfs; // inflow during actual time-step
-      
-        if (cvolrat>0.0f)  {                    // outflow is possible
-            if(pfe>0.  &&  qfn>0.) {            // both outflow
-                if (pfe+qfn > cvolrat) {        // limit outflow to volrat
-                    cf=qfn/(pfe+qfn);
-                    pfe= (1.-cf)*cvolrat;       // [m3/s]
-                    qfn=cf*cvolrat;
+                // CHECK IF THE DOMAIN IS DRY
+                if(ldry_mat(ix, iy) == 1) {
+                    pfe = 0.0;
+                    qfcds_local(ix) = 0.0;
+                    conc(ix, iy) = 0.0;
+                    continue;
                 }
-            } else if(pfe>0.){
-                pfe=std::fmin(pfe,(cvolrat-qfn));
-            } else if(qfn>0.){
-                qfn=std::fmin(qfn,(cvolrat-pfe));         
+
+                // INITIALIZATION
+                hp = h_mat(ix, iy);
+                he = h_mat(ie, iy);
+                hn = h_mat(ix, in);
+                qxl = fe_1_mat(ix, iy);
+                qyl = fn_1_mat(ix, iy);
+                fw = conc(iw, iy);
+                fp = conc(ix, iy);
+                fe = conc(ie, iy);
+                fee = conc(iee, iy);
+                fs = conc(ix, is);
+                fn = conc(ix, in);
+                fnn = conc(ix, inn);
+
+                // FLUXES OVER WEST AND SOUTH FACES
+                pfw = pfe;
+                qfs = qfcds_local(ix);
+
+                // X-DIRECTION
+                if(ldry_mat(ie, iy) == 0) {
+                    hnue = std::fmax(hp * nt * he * nt, 0.0001);
+                    hne = std::sqrt(hnue) / sigc / dx * dy * D_coef;
+                    pfde = -hne * (fe - fp);
+
+                    if(qxl > 0.0) {
+                        if(ldry_mat(iw, iy) == 0) {
+                            fem = -0.125 * fw + 0.75 * fp + 0.375 * fe;
+                        } else {
+                            fem = 0.5 * fp + 0.5 * fe;
+                        }
+                    } else {
+                        if(ldry_mat(iee, iy) == 0) {
+                            fem = 0.375 * fp + 0.75 * fe - 0.125 * fee;
+                        } else {
+                            fem = 0.5 * fp + 0.5 * fe;
+                        }
+                    }
+                } else {
+                    fem = 0.0;
+                    pfde = 0.0;
+                }
+
+                fem = std::fmax(0.0, fem);
+
+                if(ix == NROWS) {
+                    fem = conc(NROWS + 1, iy);
+                }
+
+                pfce = qxl * fem * dy;
+                pfe = pfce + pfde;
+
+                if(pfe < 0) {
+                    if(ldry_mat(ie, iy) == 0) {
+                        cvolrate = -(fe * he) * area / dtfl;
+                        pfe = std::fmax(pfe, cvolrate);
+                    } else {
+                        pfe = 0.0;
+                    }
+                }
+
+                // Y-DIRECTION
+                if(ldry_mat(ix, in) == 0) {
+                    hnue = std::fmax(0.0001, hp * nt * hn * nt);
+                    hnn = std::sqrt(hnue) / sigc / dy * dx * D_coef;
+                    qfdn = -hnn * (fn - fp);
+
+                    if(qyl > 0.0) {
+                        if(ldry_mat(ix, is) == 0) {
+                            fnm = -0.125 * fs + 0.75 * fp + 0.375 * fn;
+                        } else {
+                            fnm = 0.5 * fp + 0.5 * fn;
+                        }
+                    } else {
+                        if(ldry_mat(ix, inn) == 0) {
+                            fnm = 0.375 * fp + 0.75 * fn - 0.125 * fnn;
+                        } else {
+                            fnm = 0.5 * fp + 0.5 * fn;
+                        }
+                    }
+                } else {
+                    fnm = 0.0;
+                    qfdn = 0.0;
+                }
+
+                fnm = std::fmax(0.0, fnm);
+
+                if(iy == NCOLS) {
+                    fnm = conc(ix, NCOLS + 1);
+                }
+
+                qfcn = qyl * fnm * dx;
+                qfn = qfcn + qfdn;
+
+                if(qfn < 0) {
+                    if(ldry_mat(ix, in) == 0) {
+                        cvolrate = -(fn * hn) * area / dtfl;
+                        qfn = std::fmax(qfn, cvolrate);
+                    } else {
+                        qfn = 0.0;
+                    }
+                }
+
+                // CHECK AVAILABLE MATERIAL
+                cvolpot = (fp * hp) * area;
+                cvolrat = cvolpot / dtfl + pfw + qfs;
+
+                if(cvolrat > 0.0) {
+                    if(pfe > 0.0 && qfn > 0.0) {
+                        if(pfe + qfn > cvolrat) {
+                            cf = qfn / (pfe + qfn);
+                            pfe = (1.0 - cf) * cvolrat;
+                            qfn = cf * cvolrat;
+                        }
+                    } else if(pfe > 0.0) {
+                        pfe = std::fmin(pfe, (cvolrat - qfn));
+                    } else if(qfn > 0.0) {
+                        qfn = std::fmin(qfn, (cvolrat - pfe));
+                    }
+                } else {
+                    if(pfe >= 0.0 && qfn < 0.0) {
+                        cbilan = cvolrat - qfn;
+                        if(cbilan > 0.0) {
+                            pfe = std::fmin(pfe, cbilan);
+                        } else {
+                            pfe = 0.0;
+                        }
+                    } else if(pfe < 0.0 && qfn >= 0.0) {
+                        cbilan = cvolrat - pfe;
+                        if(cbilan > 0.0) {
+                            qfn = std::fmin(qfn, cbilan);
+                        } else {
+                            qfn = 0.0;
+                        }
+                    } else if(pfe >= 0.0 && qfn >= 0.0) {
+                        pfe = 0.0;
+                        qfn = 0.0;
+                    }
+                }
+
+                // CALCULATE NEW CONCENTRATION
+                dc = (pfw - pfe + qfs - qfn) * dtfl / area;
+                con = conc(ix, iy) + dc / hp;
+                con = std::fmin(cmaxr(ix, iy), con);
+                con = std::fmax(cminr(ix, iy), con);
+                conc(ix, iy) = con;
+
+                qfcds_local(ix) = qfn;
             }
-        }else { // bilance outflow with inflow
-            if(pfe>=0.  &&  qfn<0.)  { //restrict pfe to bilan
-                cbilan=cvolrat-qfn;                
-                if(cbilan>0.) {
-                    pfe=std::fmin(pfe,cbilan);
-                }else{
-                    pfe=0.;
-                }
-            } else if(pfe<0.  &&  qfn>=0.)  {
-                cbilan=cvolrat-pfe;
-                if(cbilan>0.) {
-                    qfn=std::fmin(qfn,cbilan);
-                }else{
-                    qfn=0.;
-                }
-            } else if(pfe>=0.  &&  qfn>=0.)  {
-                pfe=0.0f;
-                qfn=0.0f;
-            }        
-        }                             
-
-        // CALCULATE NEW CONCENTRATION
-        dc=(pfw-pfe + qfs-qfn)*ds.dtfl/area;  // [m]  
-        con= (*ds.conc_SW)[ichem](ix,iy) +  dc/hp;
-
-        con=std::fmin(cmaxr(ix,iy),con);
-        con=std::fmax(cminr(ix,iy),con);
-        (*ds.conc_SW)[ichem](ix,iy) = con;
-
-        qfcds(ix)=qfn;  // convective+diffusive flux
-  
+        }
     }
+
+#ifdef USE_MPI
+    // Exchange ghost cells for updated concentration field
+    mpi_domain.exchange_ghost_cells(conc);
+#endif
 }

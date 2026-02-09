@@ -41,8 +41,12 @@ bool write_results(
     std::string filext(".txt");
     tprint += filext;
 
-    arma::mat filedataR(ds.NROWS*ds.NCOLS,16); 
-    
+    // Determine number of output columns (extra 1 if soil infiltration enabled)
+    int ncols_out = 15;
+    if (ds.soil_infiltration_enabled) ncols_out = 16;
+
+    arma::mat filedataR(ds.NROWS*ds.NCOLS, ncols_out);
+
     for(icol=1;icol<=ds.NCOLS;icol++)
     {
         for(irow=1;irow<=ds.NROWS;irow++)
@@ -54,31 +58,35 @@ bool write_results(
 
                 filedataR(a,2) = icol * (ds.dxy) + (ds.XLLCORNER);
                 filedataR(a,3) = irow * (ds.dxy) + (ds.YLLCORNER);
-                
+
                 filedataR(a,4) = (*ds.z).at(irow,icol);
                 filedataR(a,5) = (*ds.z).at(irow,icol) - (*ds.zb).at(irow,icol);
                 filedataR(a,6) = (*ds.ux).at(irow,icol);
                 filedataR(a,7) = (*ds.uy).at(irow,icol);
                 filedataR(a,8) = (*ds.qx).at(irow,icol)*ds.dxy;
                 filedataR(a,9) = (*ds.qy).at(irow,icol)*ds.dxy;
-                filedataR(a,10) = (*ds.us).at(irow,icol); 
+                filedataR(a,10) = (*ds.us).at(irow,icol);
                 // Only prints conc_SW[0]
                 // if using openwq, then all the other concentrations will be in openwq
                 filedataR(a,11) = (*ds.conc_SW)[0].at(irow,icol); // adesolver
-                filedataR(a,12) = (*ds.soil_mass).at(irow,icol); // adesolver
-                filedataR(a,13) = (*ds.fe_1).at(irow,icol);
-                filedataR(a,14) = (*ds.fn_1).at(irow,icol);
-                filedataR(a,15) = (*ds.twetimetracer).at(irow,icol);
+                filedataR(a,12) = (*ds.fe_1).at(irow,icol);
+                filedataR(a,13) = (*ds.fn_1).at(irow,icol);
+                filedataR(a,14) = (*ds.twetimetracer).at(irow,icol);
+
+                // Soil infiltration field
+                if (ds.soil_infiltration_enabled) {
+                    filedataR(a,15) = (*ds.soil_infil_rate).at(irow,icol);
+                }
 
                 a = a + 1;
 
             }
         }
     }
-   
-    arma::mat filedata(std::max(0,a-1),15); 
-    filedata = filedataR(arma::span(0,std::max(0,a-1)),arma::span(0,15));
-    
+
+    arma::mat filedata(std::max(0,a-1), ncols_out - 1);
+    filedata = filedataR(arma::span(0,std::max(0,a-1)),arma::span(0, ncols_out - 1));
+
     arma::field<std::string> header(filedata.n_cols);
     header(0) = "irow [-]";
     header(1) = "icol [-]";
@@ -92,10 +100,12 @@ bool write_results(
     header(9) = "qy * dxy [m3/sec]";
     header(10) = "us [m/s]";
     header(11) = "conc_SW [mg/l]";
-    header(12) = "soil_mass [g]";
-    header(13) = "fe_1 [m2/s]";
-    header(14) = "fn_1 [m2/s]";
-    header(15) = "twetimetracer [sec]";
+    header(12) = "fe_1 [m2/s]";
+    header(13) = "fn_1 [m2/s]";
+    header(14) = "twetimetracer [sec]";
+    if (ds.soil_infiltration_enabled) {
+        header(15) = "soil_infil_rate [m/s]";
+    }
 
     bool outwritestatus =  filedata.save(arma::csv_name(tprint,header));
     return outwritestatus;

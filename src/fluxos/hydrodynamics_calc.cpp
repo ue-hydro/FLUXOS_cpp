@@ -17,141 +17,249 @@
 
 #include <iostream>
 #include <armadillo>
-#include <memory> 
+#include <memory>
+#include <cmath>
 
 #include "GlobVar.h"
 #include "hydrodynamics_calc.h"
 #include "solver_drydomain.h"
 #include "solver_wetdomain.h"
+#include "mpi_domain.h"
 
 void hydrodynamics_calc(
     GlobVar& ds)
 {
-
 //-----------------------------------------------------------------------
 // Solves shallow water equation for one time-step - Ritter solver
 // Pressure term excluded from numerical flux
-// Discretized as central difference. 
+// Discretized as central difference.
 // Adjustment of source term
 // MUSCL-approach with limiter in roe dissipation
 // fw1= mass flux per unit width
 // fw2= momentum flux per unit width in x-direction
 // fw3= momentum flux per unit width in y-direction
+//
+// MPI+OpenMP hybrid parallelization:
+// - Domain is decomposed across MPI processes
+// - Each process uses OpenMP for local parallelism
+// - Ghost cells are exchanged between MPI neighbors
 //-----------------------------------------------------------------------
 
-    unsigned int irow, icol;
-    double hp, dtl;
-    float cell_neumann;
+    // Cache frequently used values for faster access
+    const unsigned int NCOLS = ds.NCOLS;
+    const unsigned int NROWS = ds.NROWS;
+    const double hdry = ds.hdry;
+    const double dxy = ds.dxy;
+    const double dtl = ds.dtfl;
 
-    dtl = ds.dtfl;
+    // Get raw references to avoid repeated unique_ptr dereference
+    arma::Mat<double>& z_ref = *ds.z;
+    arma::Mat<double>& zb_ref = *ds.zb;
+    arma::Mat<double>& h_ref = *ds.h;
+    arma::Mat<double>& qx_ref = *ds.qx;
+    arma::Mat<double>& qy_ref = *ds.qy;
+    arma::Mat<double>& us_ref = *ds.us;
+    arma::Mat<float>& ldry_ref = *ds.ldry;
+    arma::Mat<double>& twetimetracer_ref = *ds.twetimetracer;
+    arma::Mat<float>& innerNeumannBCWeir_ref = *ds.innerNeumannBCWeir;
+    arma::Mat<double>& dh_ref = *ds.dh;
+    arma::Mat<double>& dqx_ref = *ds.dqx;
+    arma::Mat<double>& dqy_ref = *ds.dqy;
+    arma::Mat<double>& qxf_ref = *ds.qxf;
+    arma::Mat<double>& qyf_ref = *ds.qyf;
+    arma::Mat<double>& fe_1_ref = *ds.fe_1;
+    arma::Mat<double>& fe_2_ref = *ds.fe_2;
+    arma::Mat<double>& fe_3_ref = *ds.fe_3;
+    arma::Mat<double>& fn_1_ref = *ds.fn_1;
+    arma::Mat<double>& fn_2_ref = *ds.fn_2;
+    arma::Mat<double>& fn_3_ref = *ds.fn_3;
 
-    //Begin OpenMP parallel region
+    // Pre-compute constants
+    const double dtl_div_3600 = dtl / 3600.0;
+    const double inv_dxy = 1.0 / dxy;
+
+#ifdef USE_MPI
+    // Exchange ghost cells for input fields before computation
+    // This ensures each process has up-to-date boundary data from neighbors
+    mpi_domain.exchange_ghost_cells(z_ref);
+    mpi_domain.exchange_ghost_cells(zb_ref);
+    mpi_domain.exchange_ghost_cells(qx_ref);
+    mpi_domain.exchange_ghost_cells(qy_ref);
+    mpi_domain.exchange_ghost_cells(h_ref);
+    mpi_domain.exchange_ghost_cells(ldry_ref);
+#endif
+
+    // Begin OpenMP parallel region
     #pragma omp parallel
     {
+        unsigned int irow, icol;
+        double hp;
+        float cell_neumann;
 
         // GET hp AND CHECK IF DRY OR WET
-    #pragma omp for private(irow,hp)
-        for(icol=1;icol<=ds.NCOLS;icol++)
+        #pragma omp for schedule(static) collapse(2)
+        for(icol = 1; icol <= NCOLS; icol++)
         {
-            for(irow=1;irow<=ds.NROWS;irow++)
+            for(irow = 1; irow <= NROWS; irow++)
             {
-                hp=std::fmax(0.0f,(*ds.z).at(irow,icol)-(*ds.zb).at(irow,icol));
-                (*ds.h).at(irow,icol) = hp;
+                hp = std::fmax(0.0, z_ref(irow, icol) - zb_ref(irow, icol));
+                h_ref(irow, icol) = hp;
 
-                if(hp<=ds.hdry)
+                if(hp <= hdry)
                 {
-                  (*ds.qx).at(irow,icol)=0.0f;
-                  (*ds.qy).at(irow,icol)=0.0f;
-                  (*ds.us).at(irow,icol)=0.0f;
-                  (*ds.ldry).at(irow,icol) = 1.0f;;
-                } else
+                    qx_ref(irow, icol) = 0.0;
+                    qy_ref(irow, icol) = 0.0;
+                    us_ref(irow, icol) = 0.0;
+                    ldry_ref(irow, icol) = 1.0f;
+                }
+                else
                 {
-                  (*ds.ldry).at(irow,icol) = 0.0f;
-                  (*ds.twetimetracer).at(irow,icol) += dtl/3600; 
+                    ldry_ref(irow, icol) = 0.0f;
+                    twetimetracer_ref(irow, icol) += dtl_div_3600;
                 }
             }
         }
+
+#ifdef USE_MPI
+        // Single-threaded ghost exchange after ldry update
+        #pragma omp single
+        {
+            mpi_domain.exchange_ghost_cells(ldry_ref);
+            mpi_domain.exchange_ghost_cells(h_ref);
+        }
+#endif
 
         // CALL FLOW SOLVERS (compute mass and momentum fluxes)
-        #pragma omp for private(irow,cell_neumann)
-        for(icol=1;icol<=ds.NCOLS;icol++)
+        #pragma omp for schedule(static) collapse(2)
+        for(icol = 1; icol <= NCOLS; icol++)
         {
-            for(irow=1;irow<=ds.NROWS;irow++)
+            for(irow = 1; irow <= NROWS; irow++)
             {
-                cell_neumann = (*ds.innerNeumannBCWeir).at(irow,icol);
-                if((*ds.ldry).at(irow,icol) == 1.0f && cell_neumann == 0.0f) 
+                cell_neumann = innerNeumannBCWeir_ref(irow, icol);
+                if(ldry_ref(irow, icol) == 1.0f && cell_neumann == 0.0f)
                 {
-                    solver_dry(ds,irow,icol);
-                } else if (cell_neumann == 0.0f)
+                    solver_dry(ds, irow, icol);
+                }
+                else if(cell_neumann == 0.0f)
                 {
-                    solver_wet(ds,irow,icol);
+                    solver_wet(ds, irow, icol);
                 }
             }
         }
+
+#ifdef USE_MPI
+        // Exchange flux ghost cells before derivative computation
+        #pragma omp single
+        {
+            mpi_domain.exchange_ghost_cells(fe_1_ref);
+            mpi_domain.exchange_ghost_cells(fe_2_ref);
+            mpi_domain.exchange_ghost_cells(fe_3_ref);
+            mpi_domain.exchange_ghost_cells(fn_1_ref);
+            mpi_domain.exchange_ghost_cells(fn_2_ref);
+            mpi_domain.exchange_ghost_cells(fn_3_ref);
+        }
+#endif
 
         // CALCULATE TOTAL MASS AND MOMENTUM DERIVATIVE
-        #pragma omp for private(irow,cell_neumann)
-        for(icol=1;icol<=ds.NCOLS;icol++)
+        #pragma omp for schedule(static) collapse(2)
+        for(icol = 1; icol <= NCOLS; icol++)
         {
-            for(irow=1;irow<=ds.NROWS;irow++)
+            for(irow = 1; irow <= NROWS; irow++)
             {
-                 cell_neumann = (*ds.innerNeumannBCWeir).at(irow,icol);
-                 if (cell_neumann == 0.0f){
-                    (*ds.dh).at(irow,icol) = 
-                        (((*ds.fe_1).at(irow-1,icol)-(*ds.fe_1).at(irow,icol))/ds.dxy 
-                        +((*ds.fn_1).at(irow,icol-1)-(*ds.fn_1).at(irow,icol))/ds.dxy)*dtl;
-                    (*ds.dqx).at(irow,icol) = 
-                        (((*ds.fe_2).at(irow-1,icol)-(*ds.fe_2).at(irow,icol))/ds.dxy 
-                        +((*ds.fn_2).at(irow,icol-1)-(*ds.fn_2).at(irow,icol))/ds.dxy)*dtl;
-                    (*ds.dqy).at(irow,icol) = 
-                        (((*ds.fe_3).at(irow-1,icol)-(*ds.fe_3).at(irow,icol))/ds.dxy 
-                        +((*ds.fn_3).at(irow,icol-1)-(*ds.fn_3).at(irow,icol))/ds.dxy)*dtl;
-                    (*ds.qxf).at(irow,icol) = (*ds.fe_1).at(irow,icol)*dtl;
-                    (*ds.qyf).at(irow,icol) = (*ds.fn_1).at(irow,icol)*dtl;
-                 }else
-                 {
-                    (*ds.dh).at(irow,icol) = 0.0f;
-                    (*ds.dqx).at(irow,icol) = 0.0f;
-                    (*ds.dqy).at(irow,icol) = 0.0f;
-                    (*ds.qxf).at(irow,icol) = 0.0f;
-                    (*ds.qyf).at(irow,icol) = 0.0f;
-                 }
+                cell_neumann = innerNeumannBCWeir_ref(irow, icol);
+                if(cell_neumann == 0.0f)
+                {
+                    // Use cached references and pre-computed inverse
+                    const double fe1_w = fe_1_ref(irow - 1, icol);
+                    const double fe1_p = fe_1_ref(irow, icol);
+                    const double fn1_s = fn_1_ref(irow, icol - 1);
+                    const double fn1_p = fn_1_ref(irow, icol);
+
+                    dh_ref(irow, icol) = ((fe1_w - fe1_p) * inv_dxy + (fn1_s - fn1_p) * inv_dxy) * dtl;
+
+                    const double fe2_w = fe_2_ref(irow - 1, icol);
+                    const double fe2_p = fe_2_ref(irow, icol);
+                    const double fn2_s = fn_2_ref(irow, icol - 1);
+                    const double fn2_p = fn_2_ref(irow, icol);
+
+                    dqx_ref(irow, icol) = ((fe2_w - fe2_p) * inv_dxy + (fn2_s - fn2_p) * inv_dxy) * dtl;
+
+                    const double fe3_w = fe_3_ref(irow - 1, icol);
+                    const double fe3_p = fe_3_ref(irow, icol);
+                    const double fn3_s = fn_3_ref(irow, icol - 1);
+                    const double fn3_p = fn_3_ref(irow, icol);
+
+                    dqy_ref(irow, icol) = ((fe3_w - fe3_p) * inv_dxy + (fn3_s - fn3_p) * inv_dxy) * dtl;
+
+                    qxf_ref(irow, icol) = fe1_p * dtl;
+                    qyf_ref(irow, icol) = fn1_p * dtl;
+                }
+                else
+                {
+                    dh_ref(irow, icol) = 0.0;
+                    dqx_ref(irow, icol) = 0.0;
+                    dqy_ref(irow, icol) = 0.0;
+                    qxf_ref(irow, icol) = 0.0;
+                    qyf_ref(irow, icol) = 0.0;
+                }
             }
         }
 
-        // CAL NEW VALUES
-        #pragma omp for private(irow,cell_neumann,hp)
-        for(icol=1;icol<=ds.NCOLS;icol++)
+#ifdef USE_MPI
+        // Exchange qxf/qyf ghost cells for smoothing step
+        #pragma omp single
         {
-            for(irow=1;irow<=ds.NROWS;irow++)
-            {
-                (*ds.z).at(irow,icol)=(*ds.z).at(irow,icol)+(*ds.dh).at(irow,icol);
-                hp=std::fmax(0.0f,(*ds.z).at(irow,icol)-(*ds.zb).at(irow,icol));
-                (*ds.h).at(irow,icol)=hp;
-                cell_neumann = (*ds.innerNeumannBCWeir).at(irow,icol);
+            mpi_domain.exchange_ghost_cells(qxf_ref);
+            mpi_domain.exchange_ghost_cells(qyf_ref);
+        }
+#endif
 
-                if(hp<ds.hdry || cell_neumann == 1.0f) 
+        // CALCULATE NEW VALUES
+        #pragma omp for schedule(static) collapse(2)
+        for(icol = 1; icol <= NCOLS; icol++)
+        {
+            for(irow = 1; irow <= NROWS; irow++)
+            {
+                z_ref(irow, icol) = z_ref(irow, icol) + dh_ref(irow, icol);
+                hp = std::fmax(0.0, z_ref(irow, icol) - zb_ref(irow, icol));
+                h_ref(irow, icol) = hp;
+                cell_neumann = innerNeumannBCWeir_ref(irow, icol);
+
+                if(hp < hdry || cell_neumann == 1.0f)
                 {
-                    (*ds.qx).at(irow,icol)= 0.0f;
-                    (*ds.qy).at(irow,icol)= 0.0f;
-                    (*ds.us).at(irow,icol)= 0.0f;
-                    (*ds.ldry).at(irow,icol) = 1.0f;
-                } else 
+                    qx_ref(irow, icol) = 0.0;
+                    qy_ref(irow, icol) = 0.0;
+                    us_ref(irow, icol) = 0.0;
+                    ldry_ref(irow, icol) = 1.0f;
+                }
+                else
                 {
-                    (*ds.qx).at(irow,icol)=
-                        (*ds.qx).at(irow,icol)+(*ds.dqx).at(irow,icol);  // numerical flux at cell center
-                    (*ds.qy).at(irow,icol)=
-                        (*ds.qy).at(irow,icol)+(*ds.dqy).at(irow,icol);  // numerical flux at cell center
-                    (*ds.qx).at(irow,icol)=
-                        .1*(*ds.qxf).at(irow-1,icol)+.8*(*ds.qx).at(irow,icol)
-                        +.1*(*ds.qxf).at(irow,icol); 
-                    (*ds.qy).at(irow,icol)=
-                        .1*(*ds.qyf).at(irow,icol-1)+.8*(*ds.qy).at(irow,icol)
-                        +.1*(*ds.qyf).at(irow,icol);
-                    (*ds.ldry).at(irow,icol) = 0.0f;
+                    // Update momentum at cell center
+                    qx_ref(irow, icol) = qx_ref(irow, icol) + dqx_ref(irow, icol);
+                    qy_ref(irow, icol) = qy_ref(irow, icol) + dqy_ref(irow, icol);
+
+                    // Smoothing with neighboring fluxes
+                    const double qxf_w = qxf_ref(irow - 1, icol);
+                    const double qxf_p = qxf_ref(irow, icol);
+                    qx_ref(irow, icol) = 0.1 * qxf_w + 0.8 * qx_ref(irow, icol) + 0.1 * qxf_p;
+
+                    const double qyf_s = qyf_ref(irow, icol - 1);
+                    const double qyf_p = qyf_ref(irow, icol);
+                    qy_ref(irow, icol) = 0.1 * qyf_s + 0.8 * qy_ref(irow, icol) + 0.1 * qyf_p;
+
+                    ldry_ref(irow, icol) = 0.0f;
                 }
             }
-        } 
+        }
 
-    } //end of OpenMP parallel region
+    } // end of OpenMP parallel region
+
+#ifdef USE_MPI
+    // Final ghost exchange for updated state variables
+    mpi_domain.exchange_ghost_cells(z_ref);
+    mpi_domain.exchange_ghost_cells(h_ref);
+    mpi_domain.exchange_ghost_cells(qx_ref);
+    mpi_domain.exchange_ghost_cells(qy_ref);
+    mpi_domain.exchange_ghost_cells(ldry_ref);
+#endif
 }

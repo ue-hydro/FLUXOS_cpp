@@ -1,0 +1,26 @@
+{
+	"COMMNET": "Triangular mesh test",
+	"DEM_FILE": "bin/Rosa_2m.asc",
+	"SIM_DATETIME_START": "2009-01-01 00:00:00",
+	"RESTART": false,
+	"MESH_TYPE": "triangular",
+	"MESH_FILE": "bin/Rosa_trimesh_fine.msh",
+	"MESH_FORMAT": "gmsh",
+	"METEO_FILE": "bin/Qmelt_synthetic.fluxos",
+	"OUTPUT": {
+		"OUTPUT_FOLDER": "Results/",
+		"PRINT_STEP": 1800,
+		"H_MIN_TO_PRINT": 0.001
+	},
+	"ROUGNESS_HEIGHT": 0.005,
+	"EXTERNAL_MODULES": {
+		"ADE_TRANSPORT": {
+			"STATUS": false,
+			"D_COEF": 0.5
+		},
+		"OPENWQ": {
+			"STATUS": false,
+			"MASTERFILE_DIR": ""
+		}
+	}
+}
