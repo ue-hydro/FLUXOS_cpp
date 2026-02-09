@@ -3,13 +3,6 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-.. image:: uevora_logo.png
-   :width: 350px
-   :align: center
-   :alt: Universidade de Évora
-
-|
-
 Welcome to FLUXOS Documentation
 =========================================
 
