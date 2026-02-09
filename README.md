@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="uevora_logo.png" alt="Universidade de Évora" width="350">
+</p>
+
 # FLUXOS-OVERLAND
 ## Table of Contents
 * [Introduction](#introduction)
