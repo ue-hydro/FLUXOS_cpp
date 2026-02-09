@@ -1,14 +1,14 @@
 Master configuration file
 ==================================
 
-The master configuration is JSON file that provides FLUXOS-OVERLAND with information and instructions to run a simulation. It contains pairs of variable/command names and values. The variables/commands needed to run a simulation are:
+The master configuration is JSON file that provides FLUXOS with information and instructions to run a simulation. It contains pairs of variable/command names and values. The variables/commands needed to run a simulation are:
 
 .. list-table:: Variables/Keywords in MASTER file (JSON type)
 
     *   - Variable/Keyword
         - any useful descriptive information about the project
     *   - ``DEM_FILE``
-        - full path to the ASCII-ERSI DEM file
+        - full path to the ESRI ASCII DEM file (``.asc``). Can be generated from GeoTIFF using the Python preprocessing tool (see :doc:`Digital`)
     *   - ``SIM_DATETIME_START``
         - Simulation start datetime
     *   - ``RESTART``
@@ -17,14 +17,6 @@ The master configuration is JSON file that provides FLUXOS-OVERLAND with informa
         - temporal resolution of the output files (this is not the model timestep as that is defined by the Courant–Friedrichs–Lewy Condition of numerical stability)
     *   - ``ROUGNESS_HEIGHT``
         - average roughness of the terrain measured in height (m), it is used in friction model and water will be retained until this height
-    *   - ``SOIL_RELEASE_RATE``
-        - release of soil contaminants (mg/hour)
-    *   - ``SOIL_CONC_BACKGROUND``
-        - initial surficial soil concentration (mg/l)
-    *   - ``SWE_STD``
-        - standard deviation of pre-melt SWE (for calculation of runoff-soil interaction during snowmelt, used the WINTRA model)
-    *   - ``SWE_MAX``
-        - maximum SWE (for calculation of runoff-soil interaction during snowmelt, used the WINTRA model)
     *   - ``METEO_FILE`` (optional)
         - full path to the snowmelt/rainfall timeseries
     *   - ``INFLOW_FILE`` (optional)
@@ -37,16 +29,26 @@ The master configuration is JSON file that provides FLUXOS-OVERLAND with informa
         - activate openwq (disabled if ``ADE_TRANSPORT:STATUS`` is ``FALSE``)
     *   - ``EXTERNAL_MODULES`` => ``OPENWQ`` => ``MASTERFILE_DIR``
         - path to openwq master file
-    *   - ``EXTERNAL_MODULES`` => ``WINTRA`` => ``STATUS``
-        - activate wintra (disabled if ``ADE_TRANSPORT:STATUS`` is ``FALSE``)
-    *   - ``EXTERNAL_MODULES`` => ``WINTRA`` => ``SWE_MAX``
-        - max snow water equivalent for wintra calculations
-    *   - ``EXTERNAL_MODULES`` => ``WINTRA`` => ``SWE_STD``
-        - standard-deviation of snow water equivalent for wintra calculations
+
+Triangular Mesh Configuration (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When built with ``USE_TRIMESH``, the following additional variables are available for configuring unstructured triangular mesh simulations:
+
+.. list-table:: Triangular Mesh Variables/Keywords
+
+    *   - ``MESH_TYPE``
+        - Mesh type selector: ``"regular"`` (default) or ``"triangular"``
+    *   - ``MESH_FILE``
+        - Full path to the triangular mesh file (e.g., ``"domain.msh"`` for Gmsh format)
+    *   - ``MESH_FORMAT``
+        - Mesh file format: ``"gmsh"`` (Gmsh .msh v2.2) or ``"triangle"`` (Triangle .node/.ele)
+    *   - ``BOUNDARY_CONDITIONS``
+        - JSON object mapping physical group tags to boundary condition types
 
 The JSON file supports C/C++ syntax for comments: single-line comment (``//``) or comment blocks (``/*`` and ``*/``).
 
-Example:
+Example (Regular Mesh):
 
 .. code-block:: json
 
@@ -69,11 +71,6 @@ Example:
                 "STATUS": true,
                 "D_COEF": 0.01
             },
-            "WINTRA":{
-                "STATUS": false,
-                "SWE_STD": 9.5,
-                "SWE_MAX": 9.5
-            },
             "OPENWQ": {
                 "STATUS": true,
                 "MASTERFILE_DIR": "../openwq_in/openWQ_master.json"
@@ -85,11 +82,60 @@ Example:
             "PRINT_STEP": 3600,
             "H_MIN_TO_PRINT": 0.005
         },
-        "ROUGNESS_HEIGHT": 0.005,
-        "SOIL_RELEASE_RATE": 0.0,
-        "SOIL_CONC_BACKGROUND": 0.0
+        "ROUGNESS_HEIGHT": 0.005
 
     }
+
+Example (Triangular Mesh):
+
+.. code-block:: json
+
+    {
+        "COMMNET": "Triangular mesh simulation",
+        "DEM_FILE": "domain_dem.asc",
+        "SIM_DATETIME_START": "2017SEP01 12:15:00",
+        "RESTART": false,
+
+        "MESH_TYPE": "triangular",
+        "MESH_FILE": "domain.msh",
+        "MESH_FORMAT": "gmsh",
+        "BOUNDARY_CONDITIONS": {
+            "1": {"type": "wall"},
+            "2": {"type": "outflow"}
+        },
+
+        "INFLOW_FILE": {
+            "FILENAME": "Flow_forcing.csv",
+            "DISCHARGE_LOCATION":{
+                "X_COORDINATE": 425894,
+                "Y_COORDINATE": 5785553
+            }
+        },
+
+        "EXTERNAL_MODULES":{
+            "ADE_TRANSPORT":{
+                "STATUS": true,
+                "D_COEF": 0.01
+            },
+            "OPENWQ": {
+                "STATUS": false,
+                "MASTERFILE_DIR": ""
+            }
+        },
+        "METEO_FILE": "Qmelt_synthetic.fluxos",
+        "OUTPUT": {
+            "OUTPUT_FOLDER": "../fluxos_out",
+            "PRINT_STEP": 3600,
+            "H_MIN_TO_PRINT": 0.005
+        },
+        "ROUGNESS_HEIGHT": 0.005
+    }
+
+.. note::
+
+   When ``MESH_TYPE`` is set to ``"triangular"``, the DEM file (``DEM_FILE``) is still required. If the ``.msh`` file contains non-zero vertex z-coordinates (generated by the Python preprocessing tool), the solver uses vertex elevations directly -- computing cell bed elevation as the mean of its three vertex z values. Otherwise, the solver falls back to interpolating bed elevation from the DEM grid. The ``MESH_FILE`` provides the mesh topology, while boundary conditions are defined by physical group tags (mapped via ``BOUNDARY_CONDITIONS``).
+
+   **Tip:** Use the Python preprocessing tool to generate both the ``.msh`` file (with embedded DEM elevations) and the ``modset.json`` config. See :doc:`Digital` for details.
 
 
 

@@ -19,325 +19,295 @@
 
 #include <iostream>
 #include <armadillo>
-#include <memory> 
+#include <memory>
+#include <cmath>
 
 #include "GlobVar.h"
 #include "solver_wetdomain.h"
 
 void solver_wet(
-    GlobVar& ds, 
-    unsigned int irow, 
-    unsigned int icol){
+    GlobVar& ds,
+    unsigned int irow,
+    unsigned int icol) {
 
-    unsigned int iw,ie, is,in,inn, NROWSl, NCOLSl,dx,dy;
-    double fe1,fe2,fe3,fn1,fn2,fn3,zw,zp,ze,zs,
-        zn,znn,hw,he,hs,hn,hnn,fe2p,fn3p,qe,qp,qn,rw,rp,re,rn;
-    double dze,dqe,dre,
-        hme,qme,rme,dzn;
-    double dqn,drn,hmn,hne,qmn,rmn,volrat,ume,vmn,volpot,cf;
-    double cme,cmn,vme,umn,//dzbewr,dzbnsr,
-        cnp,cne,cnn,up,un,us0,use0,une,vp,ve,vw,vwn,ven,txye,txyn,fe1c,fe2c,fe3c,fn1c,fn2c,fn3c,dzea,dhea;
-    double cc,c1,c2,c3,c1a,c2a,c3a,a11,a12,a21,a22,a31,a32,a33,fe1r,fe2r,fe3r,dzna,dhna,a13,a23,fn1r,fn2r,fn3r;
-    double hp ,hp0; 
-    double zbw,zbp,zbe,zbs,zbn,zbnn,zbpe,zbpn; //zbpw,zbps
-    double dtl, hdryl,gaccl,kspl, nueml, cvdefl; 
-    float ldp,lde,ldn;
-    bool lroe;
+    // Cache global constants
+    const unsigned int NROWSl = ds.NROWS;
+    const unsigned int NCOLSl = ds.NCOLS;
+    const double hdryl = ds.hdry;
+    const double gaccl = ds.gacc;
+    const double nueml = ds.nuem;
+    const double cvdefl = ds.cvdef;
+    const double dtl = ds.dtfl;
+    const unsigned int dx = ds.dxy;
+    const unsigned int dy = ds.dxy;
+    const double arbase = ds.arbase;
 
-    NROWSl = ds.NROWS;
-    NCOLSl = ds.NCOLS;
-    hdryl = ds.hdry;
-    gaccl = ds.gacc;
-    kspl = (*ds.ks).at(irow,icol);
-    nueml = ds.nuem;
-    cvdefl = ds.cvdef;
-    
-    is=icol-1;
-    in=icol+1;
-    inn=fmin(icol+2,NCOLSl+1);
-    lroe = true;
-    iw=irow-1;
-    ie=irow+1;
-   
-    dx  = ds.dxy;
-    dy  = ds.dxy;
-    
-    ldp = (*ds.ldry).at(irow,icol);
-    lde = (*ds.ldry).at(ie,icol);
-    ldn = (*ds.ldry).at(irow,in);
+    // Pre-compute neighbor indices
+    const unsigned int is = icol - 1;
+    const unsigned int in = icol + 1;
+    const unsigned int inn = std::min(icol + 2, NCOLSl + 1);
+    const unsigned int iw = irow - 1;
+    const unsigned int ie = irow + 1;
 
-    // CELL CENTER VALUES
-    zbw = (*ds.zb).at(iw,icol);
-    zbp = (*ds.zb).at(irow,icol);
-    zbe = (*ds.zb).at(ie,icol);
-    zbs = (*ds.zb).at(irow,is);
-    zbn = (*ds.zb).at(irow,in);
-    zbnn= (*ds.zb).at(irow,inn);
-    zw=(*ds.z).at(iw,icol);
-    zp=(*ds.z).at(irow,icol);
-    ze=(*ds.z).at(ie,icol);
-    zs=(*ds.z).at(irow,is);
-    zn=(*ds.z).at(irow,in);
-    znn=(*ds.z).at(irow,inn);
-    qp=(*ds.qx).at(irow,icol);
-    qe=(*ds.qx).at(ie,icol);
-    qn=(*ds.qx).at(irow,in);
-    rw=(*ds.qy).at(iw,icol);
-    rp=(*ds.qy).at(irow,icol);
-    re=(*ds.qy).at(ie,icol);
-    rn=(*ds.qy).at(irow,in);
+    // Get raw references for faster access
+    const arma::Mat<double>& zb_ref = *ds.zb;
+    const arma::Mat<double>& z_ref = *ds.z;
+    const arma::Mat<double>& qx_ref = *ds.qx;
+    const arma::Mat<double>& qy_ref = *ds.qy;
+    const arma::Mat<double>& h_ref = *ds.h;
+    const arma::Mat<float>& ldry_ref = *ds.ldry;
+    const arma::Mat<double>& us_ref = *ds.us;
+    const arma::Mat<double>& ks_ref = *ds.ks;
+    arma::Mat<double>& fn_1_ref = *ds.fn_1;
+    arma::Mat<double>& fn_2_ref = *ds.fn_2;
+    arma::Mat<double>& fn_3_ref = *ds.fn_3;
+    arma::Mat<double>& fe_1_ref = *ds.fe_1;
+    arma::Mat<double>& fe_2_ref = *ds.fe_2;
+    arma::Mat<double>& fe_3_ref = *ds.fe_3;
 
-    // zbpw=.5*(zbw+zbp);
-    zbpe=.5*(zbe+zbp);
-    // zbps=.5*(zbs+zbp);
-    zbpn=.5*(zbn+zbp);
-    hp  = std::fmax(0.0f,(*ds.z).at(irow,icol)-zbp);
-    hp0 = std::fmax(std::fmax(hdryl,hp),kspl);
-    hw=std::fmax(0.0f,zw-zbw);
-    he=std::fmax(0.0f,ze-zbe);
-    hs=std::fmax(0.0f,zs-zbs);
-    hn=std::fmax(0.0f,zn-zbn);
-    hnn=std::fmax(0.0f,znn-zbnn);
+    const double kspl = ks_ref(irow, icol);
+    const float ldp = ldry_ref(irow, icol);
+    const float lde = ldry_ref(ie, icol);
+    const float ldn = ldry_ref(irow, in);
 
-    // CELL FACE VALUES                    
-    hme=.5*(hp+he);          
-    qme=.5*(qp+qe);
-    rme=.5*(rp+re);
-    hmn=.5*(hp+hn);   
-    qmn=.5*(qp+qn);
-    rmn=.5*(rp+rn);
+    // CELL CENTER VALUES - batch read for cache efficiency
+    const double zbw = zb_ref(iw, icol);
+    const double zbp = zb_ref(irow, icol);
+    const double zbe = zb_ref(ie, icol);
+    const double zbs = zb_ref(irow, is);
+    const double zbn = zb_ref(irow, in);
+    const double zbnn = zb_ref(irow, inn);
+    const double zw = z_ref(iw, icol);
+    const double zp = z_ref(irow, icol);
+    const double ze = z_ref(ie, icol);
+    const double zs = z_ref(irow, is);
+    double zn = z_ref(irow, in);
+    const double znn = z_ref(irow, inn);
+    double qp = qx_ref(irow, icol);
+    double qe = qx_ref(ie, icol);
+    double qn = qx_ref(irow, in);
+    const double rw = qy_ref(iw, icol);
+    double rp = qy_ref(irow, icol);
+    double re = qy_ref(ie, icol);
+    double rn = qy_ref(irow, in);
 
-    dze=ze-zp;
-    dqe=qe-qp;
-    dre=re-rp;
-    dzn=zn-zp;
-    drn=rn-rp;
-    dqn=qn-qp;
-    
-    // TIMESTEP
-    dtl=ds.dtfl;
+    const double zbpe = 0.5 * (zbe + zbp);
+    const double zbpn = 0.5 * (zbn + zbp);
+    double hp = std::fmax(0.0, zp - zbp);
+    const double hp0 = std::fmax(std::fmax(hdryl, hp), kspl);
+    const double hw = std::fmax(0.0, zw - zbw);
+    double he = std::fmax(0.0, ze - zbe);
+    const double hs = std::fmax(0.0, zs - zbs);
+    double hn = std::fmax(0.0, zn - zbn);
+    double hnn_orig = std::fmax(0.0, znn - zbnn);
 
-    // CELLS WITH SOME DRY NEIGHBOURS     
-    if(lde==1.0f) 
-    { 
-        hme=std::fmax(0.0f,zp-zbpe);
-        he=0.0f;;
-        qe=0.0f;
-        re=0.0f;
-        if(hme>hdryl) 
-        {
-             if(ze>=zp) {
-                qme=0.0f;
-                rme=0.0f;
-            }else 
-            {
-                dze=fmin(fabs(dze),hme);
-                qme=0.296*dze*sqrt(gaccl*dze);    // Ritter solution
-                volrat=0.5*dx*hp/dtl;            // available volume rate per m of cell P [m2/s]
-                qme=fmin(qme,volrat);
-                rme=0.0f;
+    // CELL FACE VALUES
+    double hme = 0.5 * (hp + he);
+    double qme = 0.5 * (qp + qe);
+    double rme = 0.5 * (rp + re);
+    double hmn = 0.5 * (hp + hn);
+    double qmn = 0.5 * (qp + qn);
+    double rmn = 0.5 * (rp + rn);
+
+    double dze = ze - zp;
+    double dqe = qe - qp;
+    double dre = re - rp;
+    double dzn = zn - zp;
+    double drn = rn - rp;
+    double dqn = qn - qp;
+
+    bool lroe = true;
+    double volrat;
+
+    // CELLS WITH SOME DRY NEIGHBOURS
+    if(lde == 1.0f) {
+        hme = std::fmax(0.0, zp - zbpe);
+        he = 0.0;
+        qe = 0.0;
+        re = 0.0;
+        if(hme > hdryl) {
+            if(ze >= zp) {
+                qme = 0.0;
+                rme = 0.0;
+            } else {
+                dze = fmin(fabs(dze), hme);
+                qme = 0.296 * dze * sqrt(gaccl * dze);  // Ritter solution
+                volrat = 0.5 * dx * hp / dtl;           // available volume rate per m of cell P
+                qme = fmin(qme, volrat);
+                rme = 0.0;
             }
-        }else 
-        {
-            qme=0.0f;
-            rme=0.0f;
-            hme=0.0f;            
+        } else {
+            qme = 0.0;
+            rme = 0.0;
+            hme = 0.0;
         }
-        lroe= false;
+        lroe = false;
     }
-    if(ldn==1.0f) 
-    {
-        hmn=std::fmax(0.0f,zp-zbpn);
-        hn=0.0f;
-        qn=0.0f;
-        rn=0.0f;
-        if(hmn>hdryl) 
-        {
-            if(zn>=zp) 
-            {
-                qmn=0.0f;
-                rmn=0.0f;
-            }else 
-            {
-                dzn=fmin(fabs(dzn),hmn);
-                rmn=0.296*dzn*sqrt(gaccl*dzn);    // Ritter solution
-                qmn=0.0f;
-                volrat=0.5*dy*hp/dtl;            // available volume rate per m of cell P [m2/s]
-                rmn=fmin(rmn,volrat);
+
+    if(ldn == 1.0f) {
+        hmn = std::fmax(0.0, zp - zbpn);
+        hn = 0.0;
+        qn = 0.0;
+        rn = 0.0;
+        if(hmn > hdryl) {
+            if(zn >= zp) {
+                qmn = 0.0;
+                rmn = 0.0;
+            } else {
+                dzn = fmin(fabs(dzn), hmn);
+                rmn = 0.296 * dzn * sqrt(gaccl * dzn);  // Ritter solution
+                qmn = 0.0;
+                volrat = 0.5 * dy * hp / dtl;           // available volume rate per m of cell P
+                rmn = fmin(rmn, volrat);
             }
-        }else 
-        {
-            qmn=0.0f;
-            rmn=0.0f;
-            hmn=0.0f;
+        } else {
+            qmn = 0.0;
+            rmn = 0.0;
+            hmn = 0.0;
         }
-        lroe=false;
+        lroe = false;
     }
 
     // CALC TURBULENT STRESS
-    cme=sqrt(gaccl*hme);
-    cmn=sqrt(gaccl*hmn);
-    ume=qme/std::fmax(hme,hdryl);
-    vme=rme/std::fmax(hme,hdryl);
-    umn=qmn/std::fmax(hmn,hdryl);
-    vmn=rmn/std::fmax(hmn,hdryl);
-    
-    cnp=cvdefl*(*ds.us).at(irow,icol)*hp+nueml;
-    cne=cvdefl*(*ds.us).at(ie,icol)*he+nueml;
-    cnn=cvdefl*(*ds.us).at(irow,in)*hn+nueml;
-    hne=.5*(cnp+cne)*sqrt(hp*he);
-    hnn=.5*(cnp+cnn)*sqrt(hp*hn);
+    const double cme = sqrt(gaccl * hme);
+    const double cmn = sqrt(gaccl * hmn);
+    const double ume = qme / std::fmax(hme, hdryl);
+    const double vme = rme / std::fmax(hme, hdryl);
+    const double umn = qmn / std::fmax(hmn, hdryl);
+    const double vmn = rmn / std::fmax(hmn, hdryl);
 
-    up=qp/hp0;
-    un=qn/std::fmax(std::fmax(hn,hdryl),(*ds.ks).at(irow,in));
-    us0=(*ds.qx).at(irow,is)/std::fmax(std::fmax(hs,hdryl),(*ds.ks).at(irow,is));
-    use0=(*ds.qx).at(ie,is)/std::fmax(std::fmax((*ds.h).at(ie,is),hdryl),(*ds.ks).at(ie,is));
-    une=(*ds.qx).at(ie,in)/std::fmax(std::fmax((*ds.h).at(ie,in),hdryl),(*ds.ks).at(ie,in));
-    vp=rp/hp0;
-    ve=re/std::fmax(std::fmax(he,hdryl),(*ds.ks).at(ie,icol));
-    vw=rw/std::fmax(std::fmax(hw,hdryl),(*ds.ks).at(iw,icol));
-    vwn=(*ds.qy).at(iw,in)/std::fmax(std::fmax((*ds.h).at(iw,in),hdryl),(*ds.ks).at(iw,in));
-    ven=(*ds.qy).at(ie,in)/std::fmax(std::fmax((*ds.h).at(ie,in),hdryl),(*ds.ks).at(ie,in));
+    const double cnp = cvdefl * us_ref(irow, icol) * hp + nueml;
+    const double cne = cvdefl * us_ref(ie, icol) * he + nueml;
+    const double cnn = cvdefl * us_ref(irow, in) * hn + nueml;
+    const double hne = 0.5 * (cnp + cne) * sqrt(hp * he);
+    double hnn = 0.5 * (cnp + cnn) * sqrt(hp * hn);
 
-    txye=hne*((ve-vp)/fabs(dx)+.25*(un+une-us0-use0)/dy);
-    txyn=hnn*((un-up)/fabs(dy)+.25*(ve+ven-vw-vwn)/dx);
+    const double up = qp / hp0;
+    const double un = qn / std::fmax(std::fmax(hn, hdryl), ks_ref(irow, in));
+    const double us0 = qx_ref(irow, is) / std::fmax(std::fmax(hs, hdryl), ks_ref(irow, is));
+    const double use0 = qx_ref(ie, is) / std::fmax(std::fmax(h_ref(ie, is), hdryl), ks_ref(ie, is));
+    const double une = qx_ref(ie, in) / std::fmax(std::fmax(h_ref(ie, in), hdryl), ks_ref(ie, in));
+    const double vp = rp / hp0;
+    const double ve = re / std::fmax(std::fmax(he, hdryl), ks_ref(ie, icol));
+    const double vw = rw / std::fmax(std::fmax(hw, hdryl), ks_ref(iw, icol));
+    const double vwn = qy_ref(iw, in) / std::fmax(std::fmax(h_ref(iw, in), hdryl), ks_ref(iw, in));
+    const double ven = qy_ref(ie, in) / std::fmax(std::fmax(h_ref(ie, in), hdryl), ks_ref(ie, in));
+
+    const double txye = hne * ((ve - vp) / fabs(dx) + 0.25 * (un + une - us0 - use0) / dy);
+    const double txyn = hnn * ((un - up) / fabs(dy) + 0.25 * (ve + ven - vw - vwn) / dx);
 
     // CALC OF CONVECTION FLUXES
-    fe1c=qme;
-    fe2c=qme*ume;
-    fe3c=qme*vme -txye;
-    fn1c=rmn;
-    fn2c=rmn*umn -txyn;
-    fn3c=rmn*vmn;
+    double fe1c = qme;
+    double fe2c = qme * ume;
+    double fe3c = qme * vme - txye;
+    double fn1c = rmn;
+    double fn2c = rmn * umn - txyn;
+    double fn3c = rmn * vmn;
 
-    // ROE's DISSIPASSION
-    if(lroe) 
-    { 
-        if(hme>ds.hdry) 
-        {
-            dzea=fabs(dze);
-            if(dzea>0.5*hme) 
-            {
-                dhea=fabs(he-hp);
-                dzea=fmin(dzea,dhea);
-                dze=std::copysign(dzea,dze);
+    // ROE's DISSIPATION
+    double fe1r = 0.0, fe2r = 0.0, fe3r = 0.0;
+    double fn1r = 0.0, fn2r = 0.0, fn3r = 0.0;
+
+    if(lroe) {
+        if(hme > hdryl) {
+            double dzea = fabs(dze);
+            if(dzea > 0.5 * hme) {
+                double dhea = fabs(he - hp);
+                dzea = fmin(dzea, dhea);
+                dze = std::copysign(dzea, dze);
             }
-            cc=.25/cme;
-        }else 
-        {
-            cc=0.0f;
+            double cc = 0.25 / cme;
+            double c1 = ume;
+            double c2 = ume + cme;
+            double c3 = ume - cme;
+            double c1a = fabs(c1);
+            double c2a = fabs(c2);
+            double c3a = fabs(c3);
+            double a11 = c2 * c3a - c2a * c3;
+            double a12 = c2a - c3a;
+            double a21 = c2 * c3 * (c3a - c2a);
+            double a22 = c2a * c2 - c3a * c3;
+            double a31 = vme * (c2 * c3a - 2.0 * cme * c1a - c2a * c3);
+            double a32 = vme * (c2a - c3a);
+            double a33 = 2.0 * cme * c1a;
+
+            fe1r = -(a11 * dze + a12 * dqe) * cc;
+            fe2r = -(a21 * dze + a22 * dqe) * cc;
+            fe3r = -(a31 * dze + a32 * dqe + a33 * dre) * cc;
         }
-        
-        c1=ume;
-        c2=ume+cme;
-        c3=ume-cme;
-        c1a=fabs(c1);
-        c2a=fabs(c2);
-        c3a=fabs(c3);
-        a11=c2*c3a-c2a*c3;
-        a12=c2a-c3a;
-        a21=c2*c3*(c3a-c2a);
-        a22=c2a*c2-c3a*c3;
-        a31=vme*(c2*c3a-2.*cme*c1a-c2a*c3);
-        a32=vme*(c2a-c3a);
-        a33=2.*cme*c1a;
 
-        fe1r=-(a11*dze+a12*dqe)*cc;
-        fe2r=-(a21*dze+a22*dqe)*cc;
-        fe3r=-(a31*dze+a32*dqe+a33*dre)*cc;
+        if(ldp == 0.0f && hmn > hdryl) {
+            double dzna = fabs(dzn);
+            double dhna = fabs(hn - hp);
+            dzna = fmin(dzna, dhna);
+            dzn = std::copysign(dzna, dzn);
+            double cc = 0.25 / cmn;
+            double c1 = vmn;
+            double c2 = vmn + cmn;
+            double c3 = vmn - cmn;
+            double c1a = std::fabs(c1);
+            double c2a = std::fabs(c2);
+            double c3a = std::fabs(c3);
+            double a11 = c2 * c3a - c2a * c3;
+            double a13 = c2a - c3a;
+            double a21 = umn * (c2 * c3a - 2.0 * cmn * c1a - c2a * c3);
+            double a22 = 2.0 * cmn * c1a;
+            double a23 = umn * (c2a - c3a);
+            double a31 = c2 * c3 * (c3a - c2a);
+            double a33 = c2a * c2 - c3a * c3;
 
-        if(ldp==0.0f&&hmn>ds.hdry) 
-        {
-                dzna=fabs(dzn);
-                dhna=fabs(hn-hp);
-                dzna=fmin(dzna,dhna);
-                dzn=std::copysign(dzna,dzn);
-                cc=.25/cmn;
-        }else 
-        {
-            cc=0.0f;
-        };
-        c1=vmn;
-        c2=vmn+cmn;
-        c3=vmn-cmn;
-        c1a=std::fabs(c1);
-        c2a=std::fabs(c2);
-        c3a=std::fabs(c3);
-        a11=c2*c3a-c2a*c3;
-        a13=c2a-c3a;
-        a21=umn*(c2*c3a-2.*cmn*c1a-c2a*c3);
-        a22=2.*cmn*c1a;
-        a23=umn*(c2a-c3a);
-        a31=c2*c3*(c3a-c2a);
-        a33=c2a*c2-c3a*c3;
-
-        fn1r=-(a11*dzn+a13*drn)*cc;
-        fn2r=-(a21*dzn+a22*dqn+a23*drn)*cc;
-        fn3r=-(a31*dzn+a33*drn)*cc;
-    } else
-    {
-        fe1r=0.0f;
-        fe2r=0.0f;
-        fe3r=0.0f;
-        fn1r=0.0f;
-        fn2r=0.0f;
-        fn3r=0.0f;
+            fn1r = -(a11 * dzn + a13 * drn) * cc;
+            fn2r = -(a21 * dzn + a22 * dqn + a23 * drn) * cc;
+            fn3r = -(a31 * dzn + a33 * drn) * cc;
+        }
     }
-    
+
     // PRESSURE AT CELL SIDE
-    fe2p=.5*gaccl*(hme*hme);
-    fn3p=.5*gaccl*(hmn*hmn); 
+    const double fe2p = 0.5 * gaccl * (hme * hme);
+    const double fn3p = 0.5 * gaccl * (hmn * hmn);
 
     // SUM OF ALL FLUXES
-    fe1=fe1c+fe1r;
-    fe2=fe2c+fe2r+fe2p;
-    fe3=fe3c+fe3r;
-    fn1=fn1c+fn1r;
-    fn2=fn2c+fn2r;
-    fn3=fn3c+fn3r+fn3p;
-            
-    // BOUNDARY CONDITIONS (WEIR DISCHARGE RATE) 
-    if (icol==1 || icol==NCOLSl)
-    {
-        fn1=std::fmin(volrat,sqrt(gaccl)*pow(std::fmax(hp,0.0f),1.5));
+    double fe1 = fe1c + fe1r;
+    double fe2 = fe2c + fe2r + fe2p;
+    double fe3 = fe3c + fe3r;
+    double fn1 = fn1c + fn1r;
+    double fn2 = fn2c + fn2r;
+    double fn3 = fn3c + fn3r + fn3p;
+
+    // BOUNDARY CONDITIONS (WEIR DISCHARGE RATE)
+    if(icol == 1 || icol == NCOLSl) {
+        fn1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
     }
-    if (irow==1 || irow==NROWSl)
-    {
-        fe1=std::fmin(volrat,sqrt(gaccl)*pow(std::fmax(hp,0.0f),1.5));
+    if(irow == 1 || irow == NROWSl) {
+        fe1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
     }
 
-    // CHECK MASS BALANCE (restrict outflow flux to available water)        
-    volpot=ds.arbase*hp;    // volume in cell P [m3]
-    volrat=volpot/dtl;      // max flux rate 
-        
-    if(volrat>0.0f) { // cell has water
-        if(fe1>0.0f&&fn1>0.0f) 
-        {
-            if(fe1*dy+fn1*dx>volrat) {
-                cf=fn1*dx/(fe1*dy+fn1*dx);
-                fe1=(1.-cf)*volrat/dy;            // [m3/s]
-                fn1=cf*volrat/dx;
+    // CHECK MASS BALANCE (restrict outflow flux to available water)
+    double volpot = arbase * hp;    // volume in cell P [m3]
+    volrat = volpot / dtl;          // max flux rate
+
+    if(volrat > 0.0) {  // cell has water
+        if(fe1 > 0.0 && fn1 > 0.0) {
+            if(fe1 * dy + fn1 * dx > volrat) {
+                double cf = fn1 * dx / (fe1 * dy + fn1 * dx);
+                fe1 = (1.0 - cf) * volrat / dy;
+                fn1 = cf * volrat / dx;
             }
-        }else if(fe1>0.0f) 
-        {
-            fe1=fmin(fe1*dy,volrat)/dy; 
-        }else if(fn1>0.0f) 
-        {
-            fn1=fmin(fn1*dx,volrat)/dx;
+        } else if(fe1 > 0.0) {
+            fe1 = fmin(fe1 * dy, volrat) / dy;
+        } else if(fn1 > 0.0) {
+            fn1 = fmin(fn1 * dx, volrat) / dx;
         }
-    }else // cell has no water 
-    {
-        fe1=0.0f;
-        fn1=0.0f;
+    } else {  // cell has no water
+        fe1 = 0.0;
+        fn1 = 0.0;
     }
 
     // SAVE MASS AND MOMENTUM FLUXES
-    (*ds.fn_1).at(irow,icol)=fn1;
-    (*ds.fn_2).at(irow,icol)=fn2;
-    (*ds.fn_3).at(irow,icol)=fn3;
-    (*ds.fe_1).at(irow,icol)=fe1;
-    (*ds.fe_2).at(irow,icol)=fe2;
-    (*ds.fe_3).at(irow,icol)=fe3;
-    
-} 
-
+    fn_1_ref(irow, icol) = fn1;
+    fn_2_ref(irow, icol) = fn2;
+    fn_3_ref(irow, icol) = fn3;
+    fe_1_ref(irow, icol) = fe1;
+    fe_2_ref(irow, icol) = fe2;
+    fe_3_ref(irow, icol) = fe3;
+}

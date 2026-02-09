@@ -1,4 +1,6 @@
-# FLUXOS-OVERLAND
+<img src="uevora_logo.png" alt="Universidade de Évora" width="350">
+
+# FLUXOS
 ## Table of Contents
 * [Introduction](#introduction)
 * [Branches](#branches)
@@ -9,15 +11,15 @@
 * [Working Example](#working-example)
 
 ## Introduction
-* Soure code for the FLUXOS-OVERLAND model. The original code (named as FLUXOS) was written in Fortran and consisted of the coupling of 2dmb, +QeS2, MODFLOW and MT3DMS.
+* Soure code for the FLUXOS model. The original code (named as FLUXOS) was written in Fortran and consisted of the coupling of 2dmb, +QeS2, MODFLOW and MT3DMS.
 
 * [Documentation (ReadTheDocs)](https://fluxos-cpp.readthedocs.io)
 
-* Modifications (from FLUXOS to FLUXOS-OVERLAND):
+* Modifications:
 	* Converted to C++
-	* Uses: Armadillo template-based C++ library for linear algebra 
+	* Uses: Armadillo template-based C++ library for linear algebra
 	* Removed: MODFLOW and MT3DMS (currently there is no baseflow)
-	* WINTRA algorithm was integrated for calculation of runoff-soil interactions and nutrient release ([paper](https://onlinelibrary.wiley.com/doi/full/10.1002/hyp.11346)) 
+	* WINTRA algorithm was integrated for calculation of runoff-soil interactions and nutrient release ([paper](https://onlinelibrary.wiley.com/doi/full/10.1002/hyp.11346))
 
 * Reading material:
 	* Theoretical background (original FLUXOS):
@@ -27,13 +29,13 @@
 		* [STC paper](https://www.sciencedirect.com/science/article/pii/S0169772216300948?via%3Dihub)
 		* [JCH paper](https://www.sciencedirect.com/science/article/pii/S0169772216300948?via%3Dihub)
 		* [JAWRA](https://onlinelibrary.wiley.com/doi/full/10.1111/1752-1688.12316)
-	* FLUXOS-OVERLAND
+	* FLUXOS
 		* [Poster](https://www.researchgate.net/publication/333324452_Hydrodynamic_modelling_of_snowmelt_flooding_events_and_nutrient_transport_in_the_Canadian_Prairies_using_the_FLUXOS_model?channel=doi&linkId=5ce70f0a458515712ebda98b&showFulltext=true)
 
 ## Branches
 ### Active
 <!-- * main: All changes made in adesolver and adesolver_wintra have been merged into main -->
-* main: primary branch with latest verified updates to the working code 
+* main: primary branch with latest verified updates to the working code
 * development: used to verify updates from feature branches before merging with main
 * supporting_scripts: feature branch for development of supporting Python and MATLAB scripts
 ### To be Archived
@@ -50,7 +52,7 @@ $ git branch -u origin/main main
 
 ## Compiling
 * CMake: [CMakeLists.txt](CMakeLists.txt) is provided
-* Library dependencies: Armadillo 
+* Library dependencies: Armadillo
 * CMake minimum version: 3.10
 
 <!-- ## Execution (and input files and folder needed) -->
@@ -65,8 +67,8 @@ $ git branch -u origin/main main
 
 <!-- ## Visualization of results (stored inside "Results" folder) -->
 ## Visualization
-* Output stored in "Results" folder may be visualized using [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/): 
- 
+* Output stored in "Results" folder may be visualized using [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/):
+
 [![alt text](https://wci.llnl.gov/sites/wci/files/visit-home.jpg "VisIt")](https://wci.llnl.gov/simulation/computer-codes/visit/)
 
 <!-- ## Supporting scripts (post-processing) -->
@@ -77,5 +79,3 @@ $ git branch -u origin/main main
 ## Working Example
 * See ["Working_example"](Working_example) folder
 * Updates coming soon!
-
-

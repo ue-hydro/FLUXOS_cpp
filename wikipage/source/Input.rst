@@ -1,4 +1,4 @@
-Input/Output
+FLUXOS I/O
 ==================================
 
 .. toctree::

@@ -19,6 +19,11 @@
 #ifndef GLOBVARH_INCLUDED
 #define GLOBVARH_INCLUDED
 
+#include <armadillo>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "jnlohmann/json.hpp"
 using json = nlohmann::json;
 
@@ -65,12 +70,19 @@ public:
         
     conc_SW= std::unique_ptr<std::vector<arma::Mat<double>>>( new  std::vector<arma::mat>);
     
-    soil_mass= std::unique_ptr<arma::Mat<double>>( new  arma::mat(MROWS,MCOLS));
     h0= std::unique_ptr<arma::Mat<double>>( new  arma::mat(MROWS,MCOLS));
     ldry_prev= std::unique_ptr<arma::Mat<float>>( new  arma::fmat(MROWS,MCOLS));
-    
+
     meteo = std::unique_ptr<arma::Mat<float>>( new  arma::fmat(2000,3));
     inflow = std::unique_ptr<arma::Mat<float>>( new  arma::fmat(2000,3));
+
+    // Soil infiltration fields (Horton decay model)
+    soil_infil_rate = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
+    soil_Ks = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
+    soil_f0 = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
+    soil_k = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
+    soil_wetting_time = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
+    soil_type = std::unique_ptr<arma::Mat<double>>( new arma::mat(MROWS,MCOLS,arma::fill::zeros));
   }
     size_t NROWS,NCOLS;
     size_t MROWS,MCOLS,dxy,arbase,
@@ -82,17 +94,25 @@ public:
         ux,uy,                                        // velocities
         qx,qy,                                        // discharge at cell center: u*h [m3/s/m]
         qxf,qyf,                                      // discharges at cell face: u*h [m3/s/m]
-        us,                                         // shear stress velocity 
+        us,                                         // shear stress velocity
         dh,dqx ,dqy,                                  // changes in h[irow][icol], p[irow][icol] and q[irow][icol]
         //sbMROWS,sbMCOLS,                                  // for calc of weight of water (bed slope term) (solver_wet)
         ks, //cfri                                  // Friction (Chezy model is not being used for now)
         fe_1,fe_2,fe_3,fn_1,fn_2,fn_3,twetimetracer,
-        h0,soil_mass,basin_dem;
+        h0,basin_dem;
+    // Soil infiltration fields (Horton decay model)
+    std::unique_ptr<arma::Mat<double>> soil_infil_rate;
+    std::unique_ptr<arma::Mat<double>> soil_Ks;
+    std::unique_ptr<arma::Mat<double>> soil_f0;
+    std::unique_ptr<arma::Mat<double>> soil_k;
+    std::unique_ptr<arma::Mat<double>> soil_wetting_time;
+    std::unique_ptr<arma::Mat<double>> soil_type;
+    bool soil_infiltration_enabled = false;
     std::unique_ptr<std::vector<arma::Mat<double>>> conc_SW;
     std::unique_ptr<arma::Mat<float>> ldry,innerNeumannBCWeir,meteo,inflow,ldry_prev;   
     double hdry,                                    //minimum water depth
         dtfl,tim,                                   // timestep for flow computation
-        D_coef,soil_release_rate,soil_conc_bckgrd,qmelvtotal, qmelv_inc;
+        D_coef,qmelvtotal, qmelv_inc;
 
     std::string output_folder, sim_start_time, dem_file,meteo_file,inflow_file,sim_purp;
 
@@ -106,14 +126,22 @@ public:
     json master_MODSET;
 
     // Modules
-    bool ade_solver, openwq, wintra;
+    bool ade_solver, openwq;
     std::string openwq_masterfile; // openwq
-    double SWEmax, SWEstd;         // wintra
 
     // Restart option
     bool restart_opt;
-    
-    
+
+    // Mesh type: "regular" (default) or "triangular"
+    std::string mesh_type = "regular";
+
+#ifdef USE_TRIMESH
+    // Triangular mesh configuration
+    std::string mesh_file;          // path to mesh file (e.g., .msh)
+    std::string mesh_format;        // "gmsh" or "triangle"
+    json boundary_conditions_json;  // boundary condition config from JSON
+#endif
+
 };
 
 #endif
