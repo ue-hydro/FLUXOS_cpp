@@ -6,7 +6,7 @@
 	"METEO_FILE": "bin/Qmelt_synthetic.fluxos",
 	"OUTPUT": {
 		"OUTPUT_FOLDER": "Results_regular_soil/",
-		"PRINT_STEP": 1800,
+		"PRINT_STEP": 10,
 		"H_MIN_TO_PRINT": 0.001
 	},
 	"ROUGNESS_HEIGHT": 0.005,
@@ -19,6 +19,16 @@
 				"USDA_CLASS": "sandy_loam"
 			}
 		}
+	},
+	"VELOCITY_ARROWS": {
+		"STATUS": true,
+		"MODE": "streamlines",
+		"ARROW_SPACING": 15,
+		"ARROW_MAX_PX": 12,
+		"STREAMLINE_DENSITY": 15,
+		"STREAMLINE_LENGTH": 20,
+		"PARTICLE_COUNT": 2000,
+		"PARTICLE_TAIL": 8
 	},
 	"EXTERNAL_MODULES": {
 		"ADE_TRANSPORT": {
