@@ -23,6 +23,16 @@
 			}
 		}
 	},
+	"VELOCITY_ARROWS": {
+		"STATUS": true,
+		"MODE": "streamlines",
+		"ARROW_SPACING": 15,
+		"ARROW_MAX_PX": 12,
+		"STREAMLINE_DENSITY": 15,
+		"STREAMLINE_LENGTH": 20,
+		"PARTICLE_COUNT": 2000,
+		"PARTICLE_TAIL": 8
+	},
 	"EXTERNAL_MODULES": {
 		"ADE_TRANSPORT": {
 			"STATUS": false,
