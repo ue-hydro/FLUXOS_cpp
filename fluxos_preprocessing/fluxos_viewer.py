@@ -2469,8 +2469,8 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
 
     # ── Pass 1: compute global velocity range + max depth ─────
     print("  Computing global velocity range + max depth...")
-    gvx_min, gvx_max = 0.0, 0.0
-    gvy_min, gvy_max = 0.0, 0.0
+    all_vx = []
+    all_vy = []
     all_depths = []
     for idx in indices:
         r = results[idx]
@@ -2483,11 +2483,21 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
                 h_min, nrows, ncols,
                 meta["xllcorner"], meta["yllcorner"], cs)
         if np.any(wet):
-            gvx_min = min(gvx_min, float(np.min(gvx[wet])))
-            gvx_max = max(gvx_max, float(np.max(gvx[wet])))
-            gvy_min = min(gvy_min, float(np.min(gvy[wet])))
-            gvy_max = max(gvy_max, float(np.max(gvy[wet])))
+            all_vx.append(gvx[wet])
+            all_vy.append(gvy[wet])
             all_depths.append(grid_h[wet])
+
+    # Use 99.5th percentile for velocity range to clip outlier spikes
+    if all_vx:
+        cat_vx = np.concatenate(all_vx)
+        cat_vy = np.concatenate(all_vy)
+        gvx_min = float(np.percentile(cat_vx, 0.5))
+        gvx_max = float(np.percentile(cat_vx, 99.5))
+        gvy_min = float(np.percentile(cat_vy, 0.5))
+        gvy_max = float(np.percentile(cat_vy, 99.5))
+    else:
+        gvx_min, gvx_max = -0.1, 0.1
+        gvy_min, gvy_max = -0.1, 0.1
 
     # Ensure non-zero range
     if gvx_max - gvx_min < 1e-9:

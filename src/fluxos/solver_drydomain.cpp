@@ -94,7 +94,7 @@ void solver_dry(
     const double zp = z_ref(irow, icol);
     const double ze = z_ref(ie, icol);
     const double zn = z_ref(irow, in);
-    const double hp = std::fmax(0.0, z_ref(irow, icol) - z_ref(irow, icol));
+    const double hp = std::fmax(0.0, zp - zbp);
     const double he = std::fmax(0.0, ze - zbe);
     const double hn = std::fmax(0.0, zn - zbn);
     const double qp = qx_ref(irow, icol);
@@ -102,9 +102,9 @@ void solver_dry(
     const double rp = qy_ref(irow, icol);
     const double rn = qy_ref(irow, in);
 
-    // CELL FACE VALUES
-    const double zbpe = 0.5 * (zbe + zbp);
-    const double zbpn = 0.5 * (zbn + zbp);
+    // CELL FACE VALUES — hydrostatic reconstruction (Audusse et al. 2004)
+    const double zbpe = std::fmax(zbe, zbp);
+    const double zbpn = std::fmax(zbn, zbp);
     double hme = 0.5 * (hp + he);
     double qme = 0.5 * (qp + qe);
     double hmn = 0.5 * (hp + hn);
