@@ -463,6 +463,290 @@ def _bilinear_interpolate(grid, r, c):
     return float(val)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ADVECTED PARTICLE TRAIL ENGINE  (earth.nullschool-style)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _bilinear_interpolate_vec(grid, rows, cols):
+    """Vectorized bilinear interpolation for arrays of (row, col) positions.
+
+    grid : float64[H, W]
+    rows, cols : float64[N]
+    Returns : float64[N]
+    """
+    H, W = grid.shape
+    r0 = np.clip(np.floor(rows).astype(np.intp), 0, H - 2)
+    c0 = np.clip(np.floor(cols).astype(np.intp), 0, W - 2)
+    r1 = r0 + 1
+    c1 = c0 + 1
+    fr = np.clip(rows - r0, 0.0, 1.0)
+    fc = np.clip(cols - c0, 0.0, 1.0)
+    return (grid[r0, c0] * (1.0 - fr) * (1.0 - fc) +
+            grid[r0, c1] * (1.0 - fr) * fc +
+            grid[r1, c0] * fr * (1.0 - fc) +
+            grid[r1, c1] * fr * fc)
+
+
+def _rk4_advect(grid_vx, grid_vy, rows, cols, dt):
+    """Vectorized RK4 integration step for particle advection.
+
+    Returns (new_rows, new_cols, speed) where speed = |v| at the new position.
+    Velocity convention: dr = -vy (north = row-decreasing), dc = vx.
+    """
+    def vel_at(r, c):
+        vx = _bilinear_interpolate_vec(grid_vx, r, c)
+        vy = _bilinear_interpolate_vec(grid_vy, r, c)
+        return -vy, vx  # (dr, dc) in pixel space
+
+    k1r, k1c = vel_at(rows, cols)
+    k2r, k2c = vel_at(rows + 0.5 * dt * k1r, cols + 0.5 * dt * k1c)
+    k3r, k3c = vel_at(rows + 0.5 * dt * k2r, cols + 0.5 * dt * k2c)
+    k4r, k4c = vel_at(rows + dt * k3r, cols + dt * k3c)
+
+    new_rows = rows + (dt / 6.0) * (k1r + 2.0 * k2r + 2.0 * k3r + k4r)
+    new_cols = cols + (dt / 6.0) * (k1c + 2.0 * k2c + 2.0 * k3c + k4c)
+
+    vx_f = _bilinear_interpolate_vec(grid_vx, new_rows, new_cols)
+    vy_f = _bilinear_interpolate_vec(grid_vy, new_rows, new_cols)
+    speed = np.sqrt(vx_f ** 2 + vy_f ** 2)
+    return new_rows, new_cols, speed
+
+
+# ── Advected-mode colormap ────────────────────────────────────────────────────
+
+_ADVECTED_STOPS = np.array([
+    # t,     R,    G,    B
+    [0.00,  15,   20,   80],   # deep navy
+    [0.15,  30,   70,  170],   # blue
+    [0.40,  60,  190,  255],   # cyan
+    [0.70, 200,  255,  255],   # light cyan / near-white
+    [0.90, 255,  255,  180],   # warm white
+    [1.00, 255,  230,  80],    # golden yellow
+], dtype=np.float64)
+
+
+def _advected_speed_colormap(speeds, vel_scale):
+    """Vectorized: map speed array -> float32[N, 3] RGB in [0, 1]."""
+    t = np.clip(speeds / max(vel_scale, 1e-12), 0.0, 1.0)
+    stops = _ADVECTED_STOPS
+    ts = stops[:, 0]
+    rgb = np.zeros((len(t), 3), dtype=np.float32)
+    for i in range(len(ts) - 1):
+        mask = (t >= ts[i]) & (t <= ts[i + 1])
+        if not np.any(mask):
+            continue
+        frac = (t[mask] - ts[i]) / max(ts[i + 1] - ts[i], 1e-12)
+        for ch in range(3):
+            v0 = stops[i, 1 + ch] / 255.0
+            v1 = stops[i + 1, 1 + ch] / 255.0
+            rgb[mask, ch] = v0 + (v1 - v0) * frac
+    return rgb
+
+
+def _advected_speed_colormap_scalar(speed, vel_scale):
+    """Scalar version for colorbar drawing. Returns (R, G, B) ints 0-255."""
+    t = max(0.0, min(1.0, speed / max(vel_scale, 1e-12)))
+    stops = _ADVECTED_STOPS
+    ts = stops[:, 0]
+    for i in range(len(ts) - 1):
+        if t <= ts[i + 1]:
+            frac = (t - ts[i]) / max(ts[i + 1] - ts[i], 1e-12)
+            r = int(stops[i, 1] + (stops[i + 1, 1] - stops[i, 1]) * frac)
+            g = int(stops[i, 2] + (stops[i + 1, 2] - stops[i, 2]) * frac)
+            b = int(stops[i, 3] + (stops[i + 1, 3] - stops[i, 3]) * frac)
+            return (r, g, b)
+    return (int(stops[-1, 1]), int(stops[-1, 2]), int(stops[-1, 3]))
+
+
+# ── Velocity field temporal interpolation ─────────────────────────────────────
+
+def _lerp_velocity_fields(vx0, vy0, vx1, vy1, frac):
+    """Linear interpolation between two velocity fields."""
+    return vx0 * (1.0 - frac) + vx1 * frac, vy0 * (1.0 - frac) + vy1 * frac
+
+
+# ── Anti-aliased particle splatting ───────────────────────────────────────────
+
+def _draw_particles_antialiased(canvas, rows, cols, colors, brightness):
+    """Splat particles onto float32[H, W, 3] canvas with sub-pixel AA.
+
+    canvas    : float32[H, W, 3]  -- modified in-place (values in [0, ~2])
+    rows, cols: float64[N]
+    colors    : float32[N, 3]     -- RGB in [0, 1]
+    brightness: float64[N]        -- [0, 1]
+    """
+    H, W = canvas.shape[:2]
+    r_int = np.floor(rows).astype(np.intp)
+    c_int = np.floor(cols).astype(np.intp)
+    fr = (rows - r_int).astype(np.float32)
+    fc = (cols - c_int).astype(np.float32)
+
+    # Bilinear weight distribution across 2×2 neighbourhood
+    for dr in range(2):
+        for dc in range(2):
+            rr = r_int + dr
+            cc = c_int + dc
+            wr = fr if dr == 1 else (1.0 - fr)
+            wc = fc if dc == 1 else (1.0 - fc)
+            w = wr * wc * brightness.astype(np.float32)
+            valid = (rr >= 0) & (rr < H) & (cc >= 0) & (cc < W)
+            idx_r = rr[valid]
+            idx_c = cc[valid]
+            wv = w[valid]
+            for ch in range(3):
+                np.add.at(canvas[:, :, ch], (idx_r, idx_c),
+                          colors[valid, ch] * wv)
+
+
+# ── Particle System ───────────────────────────────────────────────────────────
+
+class ParticleSystem:
+    """Stateful particle system for earth.nullschool-style advection trails."""
+
+    def __init__(self, n_particles, wet_mask, rng_seed=42):
+        self.n = n_particles
+        self.row = np.zeros(n_particles, dtype=np.float64)
+        self.col = np.zeros(n_particles, dtype=np.float64)
+        self.age = np.zeros(n_particles, dtype=np.int32)
+        self.max_age = np.zeros(n_particles, dtype=np.int32)
+        self.speed = np.zeros(n_particles, dtype=np.float64)
+        self.stagnant_count = np.zeros(n_particles, dtype=np.int32)
+        self.alive = np.zeros(n_particles, dtype=bool)
+        self.rng = np.random.default_rng(rng_seed)
+        self.wet_mask = wet_mask
+        self._wet_indices = np.argwhere(wet_mask)
+        self._spawn_at(np.arange(n_particles))
+
+    def _spawn_at(self, indices):
+        """Respawn specific particles at random wet cell locations."""
+        n = len(indices)
+        if len(self._wet_indices) == 0:
+            self.alive[indices] = False
+            return
+        chosen = self.rng.choice(len(self._wet_indices), size=n,
+                                  replace=(n > len(self._wet_indices)))
+        base = self._wet_indices[chosen].astype(np.float64)
+        base += self.rng.uniform(-0.4, 0.4, base.shape)
+        self.row[indices] = base[:, 0]
+        self.col[indices] = base[:, 1]
+        self.age[indices] = 0
+        self.max_age[indices] = self.rng.integers(60, 200, size=n)
+        self.speed[indices] = 0.0
+        self.stagnant_count[indices] = 0
+        self.alive[indices] = True
+
+    def advect(self, grid_vx, grid_vy, dt_pixels):
+        """Advance all alive particles using RK4."""
+        mask = self.alive
+        if not np.any(mask):
+            return
+        idx = np.where(mask)[0]
+        r = self.row[idx]
+        c = self.col[idx]
+        new_r, new_c, spd = _rk4_advect(grid_vx, grid_vy, r, c, dt_pixels)
+        self.row[idx] = new_r
+        self.col[idx] = new_c
+        self.speed[idx] = spd
+        self.age[idx] += 1
+
+        H, W = grid_vx.shape
+        # Kill: out of bounds
+        oob = (new_r < 0) | (new_r >= H - 1) | (new_c < 0) | (new_c >= W - 1)
+        # Kill: in dry cell
+        r_int = np.clip(np.round(new_r).astype(np.intp), 0, H - 1)
+        c_int = np.clip(np.round(new_c).astype(np.intp), 0, W - 1)
+        dry = ~self.wet_mask[r_int, c_int]
+        # Kill: exceeded max age
+        old = self.age[idx] > self.max_age[idx]
+        # Kill: stagnant
+        slow = spd < 0.005
+        self.stagnant_count[idx] = np.where(slow,
+                                             self.stagnant_count[idx] + 1, 0)
+        stagnant = self.stagnant_count[idx] > 15
+        dead = oob | dry | old | stagnant
+        self.alive[idx[dead]] = False
+
+    def respawn_dead(self):
+        """Respawn all dead particles at new random wet locations."""
+        dead_idx = np.where(~self.alive)[0]
+        if len(dead_idx) > 0:
+            self._spawn_at(dead_idx)
+
+    def update_wet_mask(self, new_mask):
+        """Update wet mask (e.g., when flooding extent changes)."""
+        self.wet_mask = new_mask
+        self._wet_indices = np.argwhere(new_mask)
+
+    def get_draw_data(self):
+        """Return (rows, cols, speeds, ages, max_ages) for alive particles."""
+        mask = self.alive
+        return (self.row[mask], self.col[mask], self.speed[mask],
+                self.age[mask], self.max_age[mask])
+
+
+# ── Velocity Field Cache (sliding window) ────────────────────────────────────
+
+class VelocityFieldCache:
+    """Lazy-loading cache with a sliding window of velocity fields."""
+
+    def __init__(self, results, mesh_type, dem, meta, h_min, scale):
+        self.results = results
+        self.mesh_type = mesh_type
+        self.dem = dem
+        self.meta = meta
+        self.h_min = h_min
+        self.scale = scale
+        self._cache = {}        # idx -> (vx_hr, vy_hr, wet_hr)
+        self._times = np.array([r["time"] for r in results], dtype=np.float64)
+        self._nrows, self._ncols = dem.shape
+        self._cs = meta["cellsize"]
+        self._xll = meta["xllcorner"]
+        self._yll = meta["yllcorner"]
+
+    def get(self, idx):
+        """Get upscaled velocity field for timestep index."""
+        if idx not in self._cache:
+            self._evict_if_full()
+            self._load(idx)
+        return self._cache[idx]
+
+    def _load(self, idx):
+        r = self.results[idx]
+        if self.mesh_type == "regular":
+            vx, vy, wet = _build_velocity_grids_regular(
+                self.dem, self.meta, r["data"], self.h_min)
+        else:
+            vx, vy, wet = _build_velocity_grids_triangular(
+                r["points"], r["cells"], r["cell_data"],
+                self.h_min, self._nrows, self._ncols,
+                self._xll, self._yll, self._cs)
+        s = self.scale
+        vx_hr = _upscale_velocity_grid(vx, s)
+        vy_hr = _upscale_velocity_grid(vy, s)
+        wet_hr = _upscale_velocity_grid(
+            wet.astype(np.uint8), s).astype(bool)
+        self._cache[idx] = (vx_hr, vy_hr, wet_hr)
+
+    def _evict_if_full(self):
+        while len(self._cache) > 4:
+            oldest = min(self._cache.keys())
+            del self._cache[oldest]
+
+    def find_bracket(self, sim_time):
+        """Return (idx_lo, idx_hi, frac) for temporal interpolation."""
+        times = self._times
+        if sim_time <= times[0]:
+            return 0, 0, 0.0
+        if sim_time >= times[-1]:
+            n = len(times) - 1
+            return n, n, 0.0
+        idx = int(np.searchsorted(times, sim_time, side='right')) - 1
+        idx = max(0, min(idx, len(times) - 2))
+        t0, t1 = times[idx], times[idx + 1]
+        frac = (sim_time - t0) / max(t1 - t0, 1e-12)
+        return idx, idx + 1, float(frac)
+
+
 def _build_velocity_grids_regular(dem, meta, data, h_min):
     """Build (grid_vx, grid_vy, wet_mask) from regular mesh data."""
     nrows, ncols = dem.shape
@@ -1767,6 +2051,223 @@ def export_video(dem, meta, results, mesh_type, variable, clim,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  ADVECTED PARTICLE TRAIL VIDEO EXPORT  (earth.nullschool style)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _draw_colorbar_advected(pil_img, vel_scale, width=200, height=18, margin=12):
+    """Draw a speed colorbar (blue→cyan→white→yellow) for advected mode."""
+    draw = ImageDraw.Draw(pil_img, "RGBA")
+    img_w, img_h = pil_img.size
+    font = _get_font(14)
+
+    x0 = img_w - width - margin
+    y0 = img_h - height - margin - 20
+    x1 = x0 + width
+
+    # Background panel
+    draw.rectangle([x0 - 6, y0 - 22, x1 + 6, img_h - margin + 6],
+                    fill=(0, 0, 0, 180))
+
+    # Title
+    draw.text((x0, y0 - 18), "Flow speed (m/s)",
+              fill=(180, 210, 255, 220), font=font)
+
+    # Gradient bar
+    for px in range(width):
+        t = px / max(width - 1, 1)
+        speed = t * vel_scale
+        r, g, b = _advected_speed_colormap_scalar(speed, vel_scale)
+        draw.line([(x0 + px, y0), (x0 + px, y0 + height)],
+                  fill=(r, g, b, 220))
+
+    # Labels
+    small_font = _get_font(12)
+    draw.text((x0, y0 + height + 2), "0",
+              fill=(180, 210, 255, 200), font=small_font)
+    draw.text((x1 - 40, y0 + height + 2), f"{vel_scale:.2f}",
+              fill=(180, 210, 255, 200), font=small_font)
+
+
+def export_video_advected(dem, meta, results, mesh_type, variable, clim,
+                          output_path, opacity=180, h_min=0.001,
+                          scale=2, fps=30, max_frames=900,
+                          n_particles=10000, fade_factor=0.96,
+                          dark_factor=0.25):
+    """Export earth.nullschool-style advected particle trail animation as MP4.
+
+    Particles persist across frames, are advected through the velocity field
+    via RK4 integration, and drawn onto a fade-texture canvas that produces
+    smooth comet-like trails on a dark background.
+    """
+    if not _HAS_PIL:
+        print("ERROR: Advected video export requires Pillow. "
+              "Install with: pip install Pillow")
+        sys.exit(1)
+    if not _check_ffmpeg():
+        print("ERROR: Advected video export requires ffmpeg. Install with:")
+        print("  brew install ffmpeg    # macOS")
+        print("  apt install ffmpeg     # Ubuntu/Debian")
+        sys.exit(1)
+
+    nrows, ncols = dem.shape
+    cs = meta["cellsize"]
+
+    # ── Hillshade background (dark) ──────────────────────────────
+    print("  Computing dark hillshade background...")
+    hs = _compute_hillshade(dem, cs)
+    hs_rgba = np.stack([hs, hs, hs, np.full_like(hs, 255)], axis=-1)
+    hs_up = _upscale_nearest(hs_rgba, scale)
+    hillshade_rgb = hs_up[:, :, :3].astype(np.float32)
+    # Darken and add a slight blue tint for cinematic look
+    dark_hs = hillshade_rgb * dark_factor
+    dark_hs[:, :, 2] = np.clip(dark_hs[:, :, 2] * 1.3, 0, 255)  # blue tint
+    dark_hs = dark_hs.astype(np.uint8)
+    out_h, out_w = dark_hs.shape[:2]
+    print(f"  Video resolution: {out_w}x{out_h} ({scale}x)")
+
+    # ── Velocity field cache ──────────────────────────────────────
+    vel_cache = VelocityFieldCache(results, mesh_type, dem, meta, h_min, scale)
+    vel_scale_val = _auto_vel_scale(results, mesh_type, meta, h_min)
+    print(f"  Velocity scale: {vel_scale_val:.4f} m/s (95th percentile)")
+    print(f"  Particles: {n_particles}, fade: {fade_factor}, dark: {dark_factor}")
+
+    # ── Compute timing ────────────────────────────────────────────
+    times = [r["time"] for r in results]
+    sim_start_t = times[0]
+    sim_end_t = times[-1]
+    sim_duration = sim_end_t - sim_start_t
+    if sim_duration <= 0:
+        print("  ERROR: No time range in results.")
+        return
+
+    # Total video frames
+    total_frames = min(max_frames, int(sim_duration / 10.0 * 3))  # ~3 frames per 10s step
+    total_frames = max(total_frames, 60)  # at least 60 frames
+    sim_dt_per_frame = sim_duration / total_frames  # seconds per video frame
+
+    # Pixel size in metres
+    pixel_size_m = cs / scale
+    # dt_pixels: how many pixel-units a 1 m/s flow moves per video frame
+    dt_pixels = sim_dt_per_frame / pixel_size_m
+    # Sub-step if too large
+    max_step = 1.5
+    n_substeps = max(1, int(math.ceil(dt_pixels / max_step)))
+    substep_dt = dt_pixels / n_substeps
+
+    print(f"  Simulation: {format_time(sim_start_t)} → {format_time(sim_end_t)} "
+          f"({len(results)} timesteps)")
+    print(f"  Video: {total_frames} frames @ {fps} fps = "
+          f"{total_frames / fps:.1f}s | {n_substeps} RK4 substeps/frame")
+
+    # ── Initialize particle system ────────────────────────────────
+    # Use wet mask from a mid-simulation timestep for initial spawn
+    mid_idx = min(len(results) - 1, len(results) // 4)
+    vx_init, vy_init, wet_init = vel_cache.get(mid_idx)
+    particles = ParticleSystem(n_particles, wet_init, rng_seed=42)
+
+    # ── Trail canvas ──────────────────────────────────────────────
+    trail_canvas = np.zeros((out_h, out_w, 3), dtype=np.float32)
+
+    # ── Open ffmpeg ───────────────────────────────────────────────
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-s", f"{out_w}x{out_h}",
+        "-r", str(fps),
+        "-i", "-",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-crf", "18",
+        "-preset", "medium",
+        output_path,
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+
+    font = _get_font(max(16, int(out_h / 40)))
+
+    print(f"  Rendering frames...")
+    for frame_i in range(total_frames):
+        sim_time = sim_start_t + frame_i * sim_dt_per_frame
+
+        # (a) Get bracketing velocity fields
+        idx_lo, idx_hi, frac = vel_cache.find_bracket(sim_time)
+        vx_lo, vy_lo, wet_lo = vel_cache.get(idx_lo)
+        vx_hi, vy_hi, wet_hi = vel_cache.get(idx_hi)
+
+        # (b) Interpolate velocity field
+        if idx_lo == idx_hi:
+            vx_now, vy_now = vx_lo, vy_lo
+            wet_now = wet_lo
+        else:
+            vx_now, vy_now = _lerp_velocity_fields(
+                vx_lo, vy_lo, vx_hi, vy_hi, frac)
+            wet_now = wet_lo | wet_hi
+
+        # (c) Update particle wet mask
+        particles.update_wet_mask(wet_now)
+
+        # (d) Advect particles (sub-stepped RK4)
+        for _ in range(n_substeps):
+            particles.advect(vx_now, vy_now, substep_dt)
+
+        # (e) Respawn dead particles
+        particles.respawn_dead()
+
+        # (f) Fade trail canvas
+        trail_canvas *= fade_factor
+
+        # (g) Draw particles onto trail canvas
+        rows, cols, speeds, ages, max_ages = particles.get_draw_data()
+        if len(rows) > 0:
+            colors = _advected_speed_colormap(speeds, vel_scale_val)
+            # Brightness: bright when young, fade near max_age
+            age_frac = ages.astype(np.float64) / np.maximum(
+                max_ages.astype(np.float64), 1.0)
+            brightness = np.clip(1.0 - age_frac ** 1.5, 0.1, 1.0)
+            _draw_particles_antialiased(
+                trail_canvas, rows, cols, colors, brightness)
+
+        # (h) Composite: dark hillshade + trail (additive)
+        trail_rgb = np.clip(trail_canvas * 255.0, 0.0, 255.0)
+        frame_rgb = np.clip(
+            dark_hs.astype(np.float32) + trail_rgb, 0.0, 255.0
+        ).astype(np.uint8)
+
+        # (i) HUD overlays
+        pil_img = Image.fromarray(frame_rgb, "RGB")
+        _draw_text_on_image(pil_img, f"t = {format_time(sim_time)}",
+                            12, 12, font)
+        _draw_colorbar_advected(pil_img, vel_scale_val,
+                                 width=min(200, out_w // 4), margin=12)
+
+        # (j) Pipe to ffmpeg
+        proc.stdin.write(np.array(pil_img).tobytes())
+
+        if frame_i % 50 == 0 or frame_i == total_frames - 1:
+            alive_count = int(np.sum(particles.alive))
+            print(f"    Frame {frame_i + 1}/{total_frames}: "
+                  f"t={format_time(sim_time)}, "
+                  f"{alive_count} alive particles")
+
+    proc.stdin.close()
+    proc.wait()
+
+    if proc.returncode != 0:
+        print("  ERROR: ffmpeg exited with error.")
+        sys.exit(1)
+
+    fsize = os.path.getsize(output_path)
+    print(f"\n  Video saved: {output_path}")
+    print(f"  Size: {fsize / 1024 / 1024:.1f} MB  |  "
+          f"{total_frames} frames  |  {fps} fps  |  "
+          f"{total_frames / fps:.1f}s duration")
+    print(f"\n  Play with:  open {output_path}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN / CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1860,10 +2361,12 @@ Output:
         help="Path to modset JSON config file (reads VELOCITY_ARROWS section).",
     )
     parser.add_argument(
-        "--flow-style", choices=["arrows", "streamlines", "particles"],
+        "--flow-style", choices=["arrows", "streamlines", "particles", "advected"],
         default=None,
         help="Flow visualization style: 'arrows' (classic), 'streamlines' "
-             "(curved flow lines), or 'particles' (animated streaks). "
+             "(curved flow lines), 'particles' (animated streaks), or "
+             "'advected' (earth.nullschool-style persistent particle trails "
+             "with fading tails — requires --export-video mp4). "
              "Default: read from JSON config, or 'streamlines'.",
     )
     parser.add_argument(
@@ -1910,6 +2413,20 @@ Output:
     parser.add_argument(
         "--video-output", type=str, default=None,
         help="Output path for video file.  Default: fluxos_<mesh>.<ext>",
+    )
+
+    # ── Advected particle trail options ──────────────────────────
+    parser.add_argument(
+        "--advected-particles", type=int, default=10000,
+        help="Number of persistent particles for advected mode. Default: 10000",
+    )
+    parser.add_argument(
+        "--advected-fade", type=float, default=0.96,
+        help="Trail fade factor per frame (0.90=short, 0.99=long). Default: 0.96",
+    )
+    parser.add_argument(
+        "--advected-dark", type=float, default=0.25,
+        help="Hillshade darkening factor (0=black, 1=full bright). Default: 0.25",
     )
 
     args = parser.parse_args()
@@ -2002,18 +2519,46 @@ Output:
         flow_config["PARTICLE_TAIL"] = args.particle_tail
 
     # ── Step 4: Export ───────────────────────────────────────
+    # Advected mode requires --export-video mp4
+    if (flow_config and flow_config.get("MODE") == "advected"
+            and not args.export_video):
+        print("NOTE: Advected mode requires --export-video mp4. Adding it automatically.")
+        args.export_video = "mp4"
+
     if args.export_video:
         vscale = args.video_scale if args.video_scale else 2
         ext = args.export_video
-        voutput = args.video_output or f"fluxos_{args.mesh_type}.{ext}"
-        suffix = f" @ {vscale}x" if vscale > 1 else ""
-        print(f"[4/4] Exporting {ext.upper()} video ({args.mesh_type} mesh{suffix})...")
-        export_video(
-            dem, meta, results, args.mesh_type, args.variable, clim,
-            voutput, fmt=ext, opacity=args.opacity, h_min=args.h_min,
-            draw_arrows=draw_arrows, flow_config=flow_config, scale=vscale,
-            fps=args.video_fps, max_frames=args.video_max_frames,
-        )
+
+        # Advected mode: earth.nullschool-style particle trails
+        is_advected = (flow_config and
+                       flow_config.get("MODE") == "advected")
+        if is_advected:
+            voutput = (args.video_output or
+                       f"fluxos_{args.mesh_type}_advected.mp4")
+            suffix = f" @ {vscale}x"
+            print(f"[4/4] Exporting advected particle trail MP4 "
+                  f"({args.mesh_type} mesh{suffix})...")
+            export_video_advected(
+                dem, meta, results, args.mesh_type, args.variable, clim,
+                voutput, opacity=args.opacity, h_min=args.h_min,
+                scale=vscale, fps=args.video_fps,
+                max_frames=args.video_max_frames,
+                n_particles=args.advected_particles,
+                fade_factor=args.advected_fade,
+                dark_factor=args.advected_dark,
+            )
+        else:
+            voutput = args.video_output or f"fluxos_{args.mesh_type}.{ext}"
+            suffix = f" @ {vscale}x" if vscale > 1 else ""
+            print(f"[4/4] Exporting {ext.upper()} video "
+                  f"({args.mesh_type} mesh{suffix})...")
+            export_video(
+                dem, meta, results, args.mesh_type, args.variable, clim,
+                voutput, fmt=ext, opacity=args.opacity, h_min=args.h_min,
+                draw_arrows=draw_arrows, flow_config=flow_config,
+                scale=vscale, fps=args.video_fps,
+                max_frames=args.video_max_frames,
+            )
     else:
         scale = args.scale
         suffix = f" @ {scale}x" if scale > 1 else ""
