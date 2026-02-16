@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLUXOS Flood Simulation — 3D Flow Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a12; }
+canvas#gl { width: 100%; height: 100%; display: block; }
+#controls {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(5,8,20,0.82); color: #b0c4de;
+    padding: 16px 20px; border-radius: 10px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; min-width: 300px;
+    border: 1px solid rgba(60,90,140,0.3);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    user-select: none;
+}
+#controls h2 { font-size: 15px; color: #e0ecff; margin-bottom: 12px;
+    font-weight: 600; letter-spacing: 0.5px; }
+.ctrl-row { margin-bottom: 8px; display: flex; align-items: center;
+    justify-content: space-between; }
+.ctrl-row label { flex: 0 0 100px; color: #8899bb; }
+.ctrl-row input[type=range] { flex: 1; margin: 0 8px; }
+.ctrl-row .val { flex: 0 0 60px; text-align: right; color: #ccddef;
+    font-variant-numeric: tabular-nums; }
+.btn { background: rgba(40,60,100,0.5); color: #b0c4de; border: 1px solid
+    rgba(80,120,180,0.4); border-radius: 5px; padding: 6px 14px;
+    cursor: pointer; font-family: inherit; font-size: 12px;
+    transition: background 0.15s; }
+.btn:hover { background: rgba(60,90,140,0.6); }
+.btn.active { background: rgba(80,140,220,0.4); border-color: rgba(100,160,240,0.6); }
+#info { position: fixed; top: 16px; right: 16px;
+    background: rgba(5,8,20,0.7); color: #8899bb; padding: 10px 14px;
+    border-radius: 8px; font-family: 'SF Mono', monospace; font-size: 11px;
+    border: 1px solid rgba(60,90,140,0.2); pointer-events: none; }
+#info div { margin-bottom: 3px; }
+#info .hl { color: #ccddef; }
+#colorbar-wrap { position: fixed; bottom: 20px; right: 16px;
+    background: rgba(5,8,20,0.7); padding: 8px 12px 6px;
+    border-radius: 8px; border: 1px solid rgba(60,90,140,0.2); }
+#colorbar-wrap .cb-title { font-family: monospace; font-size: 11px;
+    color: #8899bb; margin-bottom: 4px; }
+#colorbar-wrap .cb-labels { display: flex; justify-content: space-between;
+    font-family: monospace; font-size: 10px; color: #8899bb; margin-top: 2px; }
+canvas#colorbar { display: block; border-radius: 3px; }
+#loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: #5577aa; font-family: monospace; font-size: 16px; }
+input[type=range] { -webkit-appearance: none; height: 4px;
+    background: rgba(60,90,140,0.4); border-radius: 2px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #5588cc; cursor: pointer; border: 2px solid #334466; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loading">Loading simulation data...</div>
+
+<div id="controls" style="display:none;">
+    <h2>FLUXOS Flood Simulation</h2>
+    <div class="ctrl-row">
+        <label>Time</label>
+        <input type="range" id="sl-time" min="0" max="100" value="0">
+        <span class="val" id="v-time">0s</span>
+    </div>
+    <div class="ctrl-row" style="justify-content:center; gap:8px; margin:10px 0;">
+        <button class="btn active" id="btn-play">&#9654; Play</button>
+        <button class="btn" id="btn-reset">&#8634; Reset</button>
+        <button class="btn" id="btn-fs">&#x26F6; Fullscreen</button>
+    </div>
+    <div class="ctrl-row">
+        <label>Speed</label>
+        <input type="range" id="sl-speed" min="5" max="300" value="80">
+        <span class="val" id="v-speed">0.8x</span>
+    </div>
+    <div class="ctrl-row">
+        <label>Particles</label>
+        <input type="range" id="sl-particles" min="10" max="18" value="14">
+        <span class="val" id="v-particles">16K</span>
+    </div>
+    <div class="ctrl-row">
+        <label>Trail length</label>
+        <input type="range" id="sl-trail" min="880" max="998" value="970">
+        <span class="val" id="v-trail">0.97</span>
+    </div>
+    <div class="ctrl-row">
+        <label>Exaggeration</label>
+        <input type="range" id="sl-exag" min="0" max="100" value="30">
+        <span class="val" id="v-exag">0.30x</span>
+    </div>
+    <div class="ctrl-row" id="sat-row" style="display:none; justify-content:center; margin-top:6px;">
+        <button class="btn" id="btn-sat">&#127760; Satellite</button>
+    </div>
+</div>
+
+<div id="info" style="display:none;">
+    <div>t = <span class="hl" id="i-time">0s</span></div>
+    <div><span class="hl" id="i-fps">--</span> fps</div>
+    <div><span class="hl" id="i-particles">--</span> particles</div>
+    <div style="margin-top:6px; font-size:10px; color:#667799;">
+        Drag: rotate | Scroll: zoom<br>
+        Shift+drag: pan
+    </div>
+</div>
+
+<div id="colorbar-wrap" style="display:none;">
+    <div class="cb-title">Flow speed (m/s)</div>
+    <canvas id="colorbar" width="180" height="14"></canvas>
+    <div class="cb-labels"><span id="cb-min">0</span><span id="cb-max">--</span></div>
+</div>
+
+<!-- ═══════ GLSL SHADERS ═══════ -->
+
+<!-- Fullscreen quad vertex shader (used for UV-space trail fade + particle update) -->
+<script id="quad-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec2 a_pos;
+varying vec2 v_tex;
+void main() {
+    v_tex = a_pos;
+    gl_Position = vec4(2.0 * a_pos.x - 1.0, 1.0 - 2.0 * a_pos.y, 0.0, 1.0);
+}
+</script>
+
+<!-- Particle update shader (2D, unchanged from working version) -->
+<script id="update-fs" type="x-shader/x-fragment">
+precision highp float;
+uniform sampler2D u_particles;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform sampler2D u_spawn_tex;
+uniform float u_spawn_count;
+uniform float u_time_frac;
+uniform float u_rand_seed;
+uniform float u_speed_factor;
+uniform float u_drop_rate;
+uniform float u_drop_rate_bump;
+uniform vec2 u_vel_range_x;
+uniform vec2 u_vel_range_y;
+uniform vec2 u_grid_res;
+varying vec2 v_tex;
+
+float rand(vec2 co) {
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 lookup_vel(sampler2D tex, vec2 uv) {
+    vec4 t = texture2D(tex, uv);
+    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, t.r);
+    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, t.g);
+    float wet = step(0.5, t.a);
+    return vec2(vx, vy) * wet;
+}
+
+vec2 getSpawnPos(float idx) {
+    float u = (idx + 0.5) / u_spawn_count;
+    vec4 s = texture2D(u_spawn_tex, vec2(u, 0.5));
+    return vec2(s.r + s.b / 255.0, s.g + s.a / 255.0);
+}
+
+void main() {
+    vec4 enc = texture2D(u_particles, v_tex);
+    vec2 pos = vec2(enc.r / 255.0 + enc.b, enc.g / 255.0 + enc.a);
+
+    vec4 curVel = texture2D(u_velocity, pos);
+    bool curWet = curVel.a > 0.5;
+
+    vec2 v0 = lookup_vel(u_velocity, pos);
+    vec2 v1 = lookup_vel(u_velocity_next, pos);
+    vec2 vel = mix(v0, v1, u_time_frac);
+    float spd = length(vel);
+
+    vec2 off = vec2(
+        vel.x * u_speed_factor / u_grid_res.x,
+       -vel.y * u_speed_factor / u_grid_res.y
+    );
+    vec2 np2 = pos + off;
+
+    bool oob = np2.x < 0.0 || np2.x > 1.0 || np2.y < 0.0 || np2.y > 1.0;
+    bool destDry = texture2D(u_velocity, np2).a < 0.5;
+
+    float s1 = rand(pos + u_rand_seed);
+    float drop = u_drop_rate + spd * u_drop_rate_bump;
+
+    bool needRespawn = oob || !curWet || destDry || s1 > (1.0 - drop);
+
+    if (needRespawn) {
+        float ridx = floor(rand(v_tex + u_rand_seed + 1.3) * u_spawn_count);
+        np2 = getSpawnPos(ridx);
+    }
+
+    vec2 f = fract(np2 * 255.0);
+    vec2 i = floor(np2 * 255.0) / 255.0;
+    gl_FragColor = vec4(f.x, f.y, i.x, i.y);
+}
+</script>
+
+<!-- Draw particles in UV space (for trail accumulation) -->
+<script id="draw-uv-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute float a_index;
+uniform sampler2D u_particles;
+uniform float u_particles_res;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform float u_time_frac;
+uniform vec2 u_vel_range_x;
+uniform vec2 u_vel_range_y;
+uniform float u_point_size;
+varying float v_speed_t;
+
+void main() {
+    float col = mod(a_index, u_particles_res);
+    float row = floor(a_index / u_particles_res);
+    vec2 uv = (vec2(col, row) + 0.5) / u_particles_res;
+    vec4 enc = texture2D(u_particles, uv);
+    vec2 pos = vec2(enc.r / 255.0 + enc.b, enc.g / 255.0 + enc.a);
+
+    vec4 t0 = texture2D(u_velocity, pos);
+    vec4 t1 = texture2D(u_velocity_next, pos);
+    vec4 vt = mix(t0, t1, u_time_frac);
+
+    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);
+    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);
+    float spd = length(vec2(vx, vy));
+    float mx = max(abs(u_vel_range_x.y), abs(u_vel_range_y.y));
+    v_speed_t = clamp(spd / mx, 0.0, 1.0);
+
+    float wet = step(0.5, vt.a);
+    gl_PointSize = u_point_size * wet;
+    // Position in UV-space clip coords (same mapping as quad-vs)
+    gl_Position = vec4(2.0 * pos.x - 1.0, 1.0 - 2.0 * pos.y, 0.0, 1.0);
+}
+</script>
+
+<!-- Draw particles in 3D (on terrain surface) -->
+<script id="draw-3d-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute float a_index;
+uniform sampler2D u_particles;
+uniform float u_particles_res;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform sampler2D u_heightmap;
+uniform float u_time_frac;
+uniform vec2 u_vel_range_x;
+uniform vec2 u_vel_range_y;
+uniform float u_point_size;
+uniform float u_z_min;
+uniform float u_z_range;
+uniform float u_exaggeration;
+uniform float u_aspect;      // width/height of terrain in world units
+uniform mat4 u_mvp;
+varying float v_speed_t;
+
+void main() {
+    float col = mod(a_index, u_particles_res);
+    float row = floor(a_index / u_particles_res);
+    vec2 uv = (vec2(col, row) + 0.5) / u_particles_res;
+    vec4 enc = texture2D(u_particles, uv);
+    vec2 pos = vec2(enc.r / 255.0 + enc.b, enc.g / 255.0 + enc.a);
+
+    vec4 t0 = texture2D(u_velocity, pos);
+    vec4 t1 = texture2D(u_velocity_next, pos);
+    vec4 vt = mix(t0, t1, u_time_frac);
+
+    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);
+    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);
+    float spd = length(vec2(vx, vy));
+    float mx = max(abs(u_vel_range_x.y), abs(u_vel_range_y.y));
+    v_speed_t = clamp(spd / mx, 0.0, 1.0);
+
+    float wet = step(0.5, vt.a);
+
+    // Sample heightmap for Z
+    vec4 h = texture2D(u_heightmap, pos);
+    float z_norm = h.r + h.g / 256.0;  // 16-bit decode: R=high byte, G=low byte
+    float valid = step(0.5, h.b);       // B=validity (255=valid, 0=nodata)
+    float height = z_norm * u_z_range + u_z_min;
+
+    // World position: x along width, z along depth (negated for right-hand coords)
+    // Centered at origin, height exaggerated
+    vec3 worldPos = vec3(
+        (pos.x - 0.5) * u_aspect,
+        (height - u_z_min) / u_z_range * u_exaggeration * valid + 0.001,
+        -(pos.y - 0.5)
+    );
+
+    gl_PointSize = u_point_size * wet * 2.0;
+    gl_Position = u_mvp * vec4(worldPos, 1.0);
+}
+</script>
+
+<script id="draw-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_color_ramp;
+varying float v_speed_t;
+void main() {
+    gl_FragColor = texture2D(u_color_ramp, vec2(v_speed_t, 0.5));
+}
+</script>
+
+<!-- Trail fade shader (UV-space FBO) -->
+<script id="screen-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_screen;
+uniform float u_opacity;
+varying vec2 v_tex;
+void main() {
+    vec4 c = texture2D(u_screen, vec2(v_tex.x, 1.0 - v_tex.y));
+    gl_FragColor = vec4(floor(255.0 * c * u_opacity) / 255.0);
+}
+</script>
+
+<!-- Terrain vertex shader -->
+<script id="terrain-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec3 a_position;   // (x_world, y_height, z_world)
+attribute vec2 a_texcoord;   // (u, v) for texture lookup
+uniform mat4 u_mvp;
+varying vec2 v_uv;
+varying float v_height;
+
+void main() {
+    v_uv = a_texcoord;
+    v_height = a_position.y;
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+</script>
+
+<!-- Terrain fragment shader -->
+<script id="terrain-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_hillshade;
+uniform sampler2D u_satellite;
+uniform sampler2D u_trails;
+uniform float u_dark;
+uniform float u_use_satellite;   // 0.0 = hillshade, 1.0 = satellite
+varying vec2 v_uv;
+varying float v_height;
+
+void main() {
+    vec3 base;
+    if (u_use_satellite > 0.5) {
+        base = texture2D(u_satellite, v_uv).rgb * (u_dark * 1.5);
+    } else {
+        base = texture2D(u_hillshade, v_uv).rgb * u_dark;
+        base.b = min(1.0, base.b * 1.3);  // cool blue tint
+    }
+    // Trail FBO is rendered with Y-flipped clip coords, so flip V to align
+    vec3 tr = texture2D(u_trails, vec2(v_uv.x, 1.0 - v_uv.y)).rgb;
+    gl_FragColor = vec4(min(vec3(1.0), base + tr), 1.0);
+}
+</script>
+
+<!-- ═══════ JAVASCRIPT ═══════ -->
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════
+//  MATRIX MATH (minimal mat4 library — no dependencies)
+// ═══════════════════════════════════════════════════════════════════
+
+const Mat4 = {
+    create() { const m = new Float32Array(16); m[0]=m[5]=m[10]=m[15]=1; return m; },
+
+    identity(m) { m.fill(0); m[0]=m[5]=m[10]=m[15]=1; return m; },
+
+    multiply(out, a, b) {
+        for (let i = 0; i < 4; i++) {
+            const a0=a[i], a4=a[i+4], a8=a[i+8], a12=a[i+12];
+            out[i]    = a0*b[0]  + a4*b[1]  + a8*b[2]  + a12*b[3];
+            out[i+4]  = a0*b[4]  + a4*b[5]  + a8*b[6]  + a12*b[7];
+            out[i+8]  = a0*b[8]  + a4*b[9]  + a8*b[10] + a12*b[11];
+            out[i+12] = a0*b[12] + a4*b[13] + a8*b[14] + a12*b[15];
+        }
+        return out;
+    },
+
+    perspective(out, fovy, aspect, near, far) {
+        const f = 1.0 / Math.tan(fovy / 2);
+        const nf = 1 / (near - far);
+        out.fill(0);
+        out[0] = f / aspect;
+        out[5] = f;
+        out[10] = (far + near) * nf;
+        out[11] = -1;
+        out[14] = 2 * far * near * nf;
+        return out;
+    },
+
+    lookAt(out, eye, center, up) {
+        let x0, x1, x2, y0, y1, y2, z0, z1, z2, len;
+        z0 = eye[0]-center[0]; z1 = eye[1]-center[1]; z2 = eye[2]-center[2];
+        len = 1/Math.sqrt(z0*z0+z1*z1+z2*z2);
+        z0*=len; z1*=len; z2*=len;
+        x0 = up[1]*z2 - up[2]*z1;
+        x1 = up[2]*z0 - up[0]*z2;
+        x2 = up[0]*z1 - up[1]*z0;
+        len = Math.sqrt(x0*x0+x1*x1+x2*x2);
+        if(len<1e-6){x0=0;x1=0;x2=0;}else{len=1/len;x0*=len;x1*=len;x2*=len;}
+        y0=z1*x2-z2*x1; y1=z2*x0-z0*x2; y2=z0*x1-z1*x0;
+        len=Math.sqrt(y0*y0+y1*y1+y2*y2);
+        if(len<1e-6){y0=0;y1=0;y2=0;}else{len=1/len;y0*=len;y1*=len;y2*=len;}
+        out[0]=x0;out[1]=y0;out[2]=z0;out[3]=0;
+        out[4]=x1;out[5]=y1;out[6]=z1;out[7]=0;
+        out[8]=x2;out[9]=y2;out[10]=z2;out[11]=0;
+        out[12]=-(x0*eye[0]+x1*eye[1]+x2*eye[2]);
+        out[13]=-(y0*eye[0]+y1*eye[1]+y2*eye[2]);
+        out[14]=-(z0*eye[0]+z1*eye[1]+z2*eye[2]);
+        out[15]=1;
+        return out;
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  ORBIT CAMERA
+// ═══════════════════════════════════════════════════════════════════
+
+class OrbitCamera {
+    constructor() {
+        this.theta = -Math.PI / 4;   // azimuth (radians)
+        this.phi = Math.PI / 5;      // elevation
+        this.distance = 1.8;
+        this.target = [0, 0.15, 0];  // look at center, slightly elevated
+        this.fov = 45 * Math.PI / 180;
+        this.near = 0.01;
+        this.far = 100;
+        this._dragging = false;
+        this._panning = false;
+        this._lastX = 0;
+        this._lastY = 0;
+    }
+
+    getEye() {
+        const ct = Math.cos(this.theta), st = Math.sin(this.theta);
+        const cp = Math.cos(this.phi), sp = Math.sin(this.phi);
+        return [
+            this.target[0] + this.distance * cp * st,
+            this.target[1] + this.distance * sp,
+            this.target[2] + this.distance * cp * ct
+        ];
+    }
+
+    getViewMatrix() {
+        const view = Mat4.create();
+        return Mat4.lookAt(view, this.getEye(), this.target, [0, 1, 0]);
+    }
+
+    getProjectionMatrix(aspect) {
+        const proj = Mat4.create();
+        return Mat4.perspective(proj, this.fov, aspect, this.near, this.far);
+    }
+
+    getMVP(aspect) {
+        const mvp = Mat4.create();
+        return Mat4.multiply(mvp, this.getProjectionMatrix(aspect), this.getViewMatrix());
+    }
+
+    attach(canvas) {
+        canvas.addEventListener('mousedown', e => {
+            if (e.shiftKey) {
+                this._panning = true;
+            } else {
+                this._dragging = true;
+            }
+            this._lastX = e.clientX;
+            this._lastY = e.clientY;
+            e.preventDefault();
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if (!this._dragging && !this._panning) return;
+            const dx = e.clientX - this._lastX;
+            const dy = e.clientY - this._lastY;
+            this._lastX = e.clientX;
+            this._lastY = e.clientY;
+
+            if (this._dragging) {
+                this.theta -= dx * 0.005;
+                this.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05,
+                    this.phi + dy * 0.005));
+            } else if (this._panning) {
+                // Pan in view plane
+                const ct = Math.cos(this.theta), st = Math.sin(this.theta);
+                const scale = this.distance * 0.001;
+                // Right vector (horizontal)
+                this.target[0] -= dx * scale * ct;
+                this.target[2] += dx * scale * st;
+                // Up (just Y)
+                this.target[1] += dy * scale;
+            }
+            e.preventDefault();
+        });
+
+        window.addEventListener('mouseup', () => {
+            this._dragging = false;
+            this._panning = false;
+        });
+
+        canvas.addEventListener('wheel', e => {
+            this.distance *= e.deltaY > 0 ? 1.1 : 0.9;
+            this.distance = Math.max(0.1, Math.min(10, this.distance));
+            e.preventDefault();
+        }, { passive: false });
+
+        // Touch support
+        let lastTouches = null;
+        canvas.addEventListener('touchstart', e => {
+            if (e.touches.length === 1) {
+                this._dragging = true;
+                this._lastX = e.touches[0].clientX;
+                this._lastY = e.touches[0].clientY;
+            }
+            lastTouches = e.touches;
+            e.preventDefault();
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', e => {
+            if (e.touches.length === 1 && this._dragging) {
+                const dx = e.touches[0].clientX - this._lastX;
+                const dy = e.touches[0].clientY - this._lastY;
+                this._lastX = e.touches[0].clientX;
+                this._lastY = e.touches[0].clientY;
+                this.theta -= dx * 0.005;
+                this.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05,
+                    this.phi + dy * 0.005));
+            } else if (e.touches.length === 2 && lastTouches && lastTouches.length === 2) {
+                // Pinch zoom
+                const d0 = Math.hypot(
+                    lastTouches[0].clientX - lastTouches[1].clientX,
+                    lastTouches[0].clientY - lastTouches[1].clientY);
+                const d1 = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY);
+                this.distance *= d0 / Math.max(d1, 1);
+                this.distance = Math.max(0.1, Math.min(10, this.distance));
+            }
+            lastTouches = e.touches;
+            e.preventDefault();
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => {
+            this._dragging = false;
+            lastTouches = null;
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  COLOR RAMP + COLORBAR
+// ═══════════════════════════════════════════════════════════════════
+
+function buildColorRamp() {
+    const stops = [
+        [0.00, 15, 20, 80], [0.15, 30, 70, 170], [0.40, 60, 190, 255],
+        [0.70, 200, 255, 255], [0.90, 255, 255, 180], [1.00, 255, 230, 80]
+    ];
+    const data = new Uint8Array(256 * 4);
+    for (let p = 0; p < 256; p++) {
+        const t = p / 255;
+        let si = 0;
+        for (let i = 0; i < stops.length - 1; i++) {
+            if (t >= stops[i][0] && t <= stops[i+1][0]) { si = i; break; }
+            if (i === stops.length - 2) si = i;
+        }
+        const f = (t - stops[si][0]) / Math.max(stops[si+1][0] - stops[si][0], 1e-6);
+        data[p*4+0] = Math.round(stops[si][1] + (stops[si+1][1] - stops[si][1]) * f);
+        data[p*4+1] = Math.round(stops[si][2] + (stops[si+1][2] - stops[si][2]) * f);
+        data[p*4+2] = Math.round(stops[si][3] + (stops[si+1][3] - stops[si][3]) * f);
+        data[p*4+3] = 255;
+    }
+    return data;
+}
+
+function drawColorbar() {
+    const c = document.getElementById('colorbar');
+    const ctx = c.getContext('2d');
+    const ramp = buildColorRamp();
+    for (let x = 0; x < c.width; x++) {
+        const i = Math.floor(x / c.width * 255) * 4;
+        ctx.fillStyle = `rgb(${ramp[i]},${ramp[i+1]},${ramp[i+2]})`;
+        ctx.fillRect(x, 0, 1, c.height);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  WEBGL HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+function createShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+        throw new Error('Shader: ' + gl.getShaderInfoLog(s));
+    return s;
+}
+function createProgram(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+        throw new Error('Program: ' + gl.getProgramInfoLog(p));
+    return p;
+}
+function createTex(gl, filter, data, w, h) {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    if (data instanceof HTMLImageElement || data instanceof ImageData) {
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    } else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    }
+    return t;
+}
+function createFBO(gl, tex) {
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return fb;
+}
+function bindAttr(gl, buf, attr, size) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(attr);
+    gl.vertexAttribPointer(attr, size, gl.FLOAT, false, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TERRAIN MESH BUILDER
+// ═══════════════════════════════════════════════════════════════════
+
+function sampleHeight(heightData, imgW, imgH, fx, fy) {
+    // Bilinear interpolation of 16-bit height from heightmap pixel data
+    const x = fx * (imgW - 1);
+    const y = fy * (imgH - 1);
+    const x0 = Math.max(0, Math.min(imgW - 2, Math.floor(x)));
+    const y0 = Math.max(0, Math.min(imgH - 2, Math.floor(y)));
+    const x1 = x0 + 1, y1 = y0 + 1;
+    const sx = x - x0, sy = y - y0;
+
+    function decode(px, py) {
+        const idx = (py * imgW + px) * 4;
+        const r = heightData[idx], g = heightData[idx + 1], b = heightData[idx + 2];
+        const zNorm = (r + g / 256.0) / 255.0;
+        return { z: zNorm, valid: b > 128 };
+    }
+
+    const p00 = decode(x0, y0), p10 = decode(x1, y0);
+    const p01 = decode(x0, y1), p11 = decode(x1, y1);
+
+    // If any corner is invalid, use nearest valid
+    const anyValid = p00.valid || p10.valid || p01.valid || p11.valid;
+    if (!anyValid) return { z: 0, valid: false };
+
+    const w00 = p00.valid ? (1-sx)*(1-sy) : 0;
+    const w10 = p10.valid ? sx*(1-sy) : 0;
+    const w01 = p01.valid ? (1-sx)*sy : 0;
+    const w11 = p11.valid ? sx*sy : 0;
+    const wSum = w00 + w10 + w01 + w11;
+
+    return {
+        z: (p00.z*w00 + p10.z*w10 + p01.z*w01 + p11.z*w11) / wSum,
+        valid: anyValid
+    };
+}
+
+function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
+    // Build mesh at half resolution — good balance of smoothness vs performance
+    const stepX = Math.max(1, Math.floor(imgW / 430));
+    const stepY = Math.max(1, Math.floor(imgH / 310));
+    const meshW = Math.floor((imgW - 1) / stepX) + 1;
+    const meshH = Math.floor((imgH - 1) / stepY) + 1;
+
+    const zMin = meta.z_min;
+    const zMax = meta.z_max;
+    const zRange = zMax - zMin;
+    const aspect = imgW / imgH;
+
+    // 5 floats per vertex: x, y, z (world), u, v (texcoord)
+    const verts = new Float32Array(meshW * meshH * 5);
+    let vi = 0;
+
+    for (let row = 0; row < meshH; row++) {
+        for (let col = 0; col < meshW; col++) {
+            const u = Math.min(col * stepX, imgW - 1) / (imgW - 1);
+            const v = Math.min(row * stepY, imgH - 1) / (imgH - 1);
+
+            // Bilinear-interpolated height sample (removes staircase artifacts)
+            const h = sampleHeight(heightData, imgW, imgH, u, v);
+
+            const worldX = (u - 0.5) * aspect;
+            const worldY = h.valid ? h.z * exaggeration : 0;
+            const worldZ = -(v - 0.5);
+
+            verts[vi++] = worldX;
+            verts[vi++] = worldY;
+            verts[vi++] = worldZ;
+            verts[vi++] = u;
+            verts[vi++] = v;
+        }
+    }
+
+    // Build index buffer (triangle list)
+    const nIndices = (meshW - 1) * (meshH - 1) * 6;
+    const useUint32 = meshW * meshH > 65535;
+    const indices = useUint32 ? new Uint32Array(nIndices) : new Uint16Array(nIndices);
+    let ii = 0;
+
+    for (let row = 0; row < meshH - 1; row++) {
+        for (let col = 0; col < meshW - 1; col++) {
+            const tl = row * meshW + col;
+            const tr = tl + 1;
+            const bl = tl + meshW;
+            const br = bl + 1;
+            indices[ii++] = tl; indices[ii++] = bl; indices[ii++] = tr;
+            indices[ii++] = tr; indices[ii++] = bl; indices[ii++] = br;
+        }
+    }
+
+    return { verts, indices, meshW, meshH, useUint32, nIndices, aspect };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  3D FLOOD VIEWER
+// ═══════════════════════════════════════════════════════════════════
+
+class FloodViewer3D {
+    constructor(canvas) {
+        this.gl = canvas.getContext('webgl', {
+            antialias: false, premultipliedAlpha: false, alpha: false
+        });
+        if (!this.gl) throw new Error('WebGL not supported');
+
+        // Check for OES_element_index_uint extension (for large meshes)
+        this._uint32Ext = this.gl.getExtension('OES_element_index_uint');
+
+        this.canvas = canvas;
+        this.camera = new OrbitCamera();
+        this.camera.attach(canvas);
+
+        this.meta = null;
+        this.currentFrame = 0;
+        this.timeFrac = 0;
+        this.playing = true;
+        this.speed = 0.8;
+        this.fadeOpacity = 0.97;
+        this.dropRate = 0.003;
+        this.dropRateBump = 0.01;
+        this.darkFactor = 0.25;
+        this.pointSize = 1.5;
+        this.particleRes = 128;
+        this.numParticles = 128 * 128;
+        this.exaggeration = 0.3;
+        this.frameCache = new Map();
+        this.frameCacheMax = 12;
+        this.speedFactor = 0.5;
+        this._lastT = 0;
+        this._fpsFrames = 0;
+        this._fpsTime = 0;
+        this._fps = 0;
+
+        // Terrain mesh data
+        this.terrainVBO = null;
+        this.terrainIBO = null;
+        this.terrainMesh = null;
+        this.heightmapTex = null;
+        this.heightData = null;
+
+        // Satellite imagery
+        this.satelliteTex = null;
+        this.useSatellite = false;
+    }
+
+    async init() {
+        const resp = await fetch('data/metadata.json');
+        this.meta = await resp.json();
+        const m = this.meta;
+
+        document.getElementById('sl-time').max = m.n_timesteps - 1;
+        document.getElementById('cb-max').textContent =
+            Math.max(Math.abs(m.vx_max), Math.abs(m.vy_max)).toFixed(2);
+
+        if (m.height_exaggeration !== undefined) {
+            this.exaggeration = Math.min(m.height_exaggeration, 1.0);
+            document.getElementById('sl-exag').value = Math.round(this.exaggeration * 100);
+            document.getElementById('v-exag').textContent = this.exaggeration.toFixed(2) + 'x';
+        }
+
+        const simDt = m.times.length > 1 ? m.times[1] - m.times[0] : 10;
+        const dtPerRenderFrame = simDt / 50.0;
+        this.speedFactor = dtPerRenderFrame / m.cellsize;
+
+        const gl = this.gl;
+
+        // Load heightmap image and extract pixel data
+        document.getElementById('loading').textContent = 'Loading heightmap...';
+        const hmImg = await this.loadImageElement('data/heightmap.png');
+        const hmCanvas = document.createElement('canvas');
+        hmCanvas.width = hmImg.width;
+        hmCanvas.height = hmImg.height;
+        const hmCtx = hmCanvas.getContext('2d');
+        hmCtx.drawImage(hmImg, 0, 0);
+        this.heightData = hmCtx.getImageData(0, 0, hmImg.width, hmImg.height).data;
+
+        // Create heightmap WebGL texture
+        this.heightmapTex = createTex(gl, gl.LINEAR, hmImg, 0, 0);
+
+        // Build terrain mesh from heightmap
+        document.getElementById('loading').textContent = 'Building terrain mesh...';
+        this.terrainMesh = buildTerrainMesh(
+            this.heightData, hmImg.width, hmImg.height, m, this.exaggeration);
+
+        // Set camera aspect
+        this.terrainAspect = this.terrainMesh.aspect;
+
+        // Upload terrain mesh to GPU
+        this.terrainVBO = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainVBO);
+        gl.bufferData(gl.ARRAY_BUFFER, this.terrainMesh.verts, gl.STATIC_DRAW);
+
+        this.terrainIBO = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.terrainMesh.indices, gl.STATIC_DRAW);
+
+        console.log(`Terrain mesh: ${this.terrainMesh.meshW}x${this.terrainMesh.meshH} = `
+            + `${this.terrainMesh.meshW * this.terrainMesh.meshH} vertices, `
+            + `${this.terrainMesh.nIndices / 3} triangles`);
+
+        // Compile shaders
+        document.getElementById('loading').textContent = 'Compiling shaders...';
+        this.compileShaders(gl);
+        this.createBuffers(gl);
+        this.initParticleState(gl);
+        this.initTrailTextures(gl);
+
+        // Color ramp
+        this.colorRampTex = createTex(gl, gl.LINEAR, buildColorRamp(), 256, 1);
+
+        // Hillshade
+        document.getElementById('loading').textContent = 'Loading hillshade...';
+        this.hillshadeTex = await this.loadImage(gl, 'data/hillshade.png', gl.LINEAR);
+
+        // Satellite imagery (optional — try to load, show toggle if available)
+        if (m.has_satellite) {
+            try {
+                document.getElementById('loading').textContent = 'Loading satellite...';
+                this.satelliteTex = await this.loadImage(gl, 'data/satellite.jpg', gl.LINEAR);
+                document.getElementById('sat-row').style.display = '';
+                console.log('Satellite imagery loaded');
+            } catch (e) {
+                console.log('No satellite imagery available');
+            }
+        }
+
+        // Find first frame with water
+        document.getElementById('loading').textContent = 'Loading velocity data...';
+        let startFrame = 0;
+        for (let i = 0; i < Math.min(m.n_timesteps, 20); i++) {
+            const f = await this.loadVelFrame(i);
+            console.log(`Frame ${i}: ${f.spawnCount} wet spawn cells`);
+            if (f.spawnCount > 10) { startFrame = i; break; }
+        }
+        this.currentFrame = startFrame;
+        const nextF = Math.min(startFrame + 1, m.n_timesteps - 1);
+        if (!this.frameCache.has(nextF)) await this.loadVelFrame(nextF);
+        console.log(`Starting at frame ${startFrame}, speedFactor: ${this.speedFactor.toFixed(4)}`);
+
+        // Seed particles at wet positions
+        const startEntry = this.frameCache.get(startFrame);
+        if (startEntry && startEntry.spawnCount > 1) {
+            this.initParticlesFromSpawn(gl, startEntry);
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('controls').style.display = '';
+        document.getElementById('info').style.display = '';
+        document.getElementById('colorbar-wrap').style.display = '';
+        drawColorbar();
+
+        this._lastT = performance.now();
+        this.render();
+    }
+
+    compileShaders(gl) {
+        const mkVS = id => createShader(gl, gl.VERTEX_SHADER,
+            document.getElementById(id).textContent);
+        const mkFS = id => createShader(gl, gl.FRAGMENT_SHADER,
+            document.getElementById(id).textContent);
+
+        const quadVS = mkVS('quad-vs');
+        const drawUvVS = mkVS('draw-uv-vs');
+        const draw3dVS = mkVS('draw-3d-vs');
+        const terrainVS = mkVS('terrain-vs');
+
+        this.updateProg = createProgram(gl, quadVS, mkFS('update-fs'));
+        this.drawUvProg = createProgram(gl, drawUvVS, mkFS('draw-fs'));
+        this.draw3dProg = createProgram(gl, draw3dVS, mkFS('draw-fs'));
+        this.screenProg = createProgram(gl, quadVS, mkFS('screen-fs'));
+        this.terrainProg = createProgram(gl, terrainVS, mkFS('terrain-fs'));
+    }
+
+    createBuffers(gl) {
+        this.quadBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
+        gl.bufferData(gl.ARRAY_BUFFER,
+            new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
+
+        this.indexBuf = gl.createBuffer();
+        const idx = new Float32Array(this.numParticles);
+        for (let i = 0; i < this.numParticles; i++) idx[i] = i;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.indexBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+
+    initParticleState(gl) {
+        const n = this.particleRes * this.particleRes * 4;
+        const data = new Uint8Array(n);
+        for (let i = 0; i < this.particleRes * this.particleRes; i++) {
+            const x = Math.random(), y = Math.random();
+            data[i*4+0] = Math.floor(256 * (x * 255 - Math.floor(x * 255)));
+            data[i*4+1] = Math.floor(256 * (y * 255 - Math.floor(y * 255)));
+            data[i*4+2] = Math.floor(x * 255);
+            data[i*4+3] = Math.floor(y * 255);
+        }
+        this.particleTex0 = createTex(gl, gl.NEAREST, data,
+            this.particleRes, this.particleRes);
+        this.particleTex1 = createTex(gl, gl.NEAREST,
+            new Uint8Array(n), this.particleRes, this.particleRes);
+        this.particleFB0 = createFBO(gl, this.particleTex0);
+        this.particleFB1 = createFBO(gl, this.particleTex1);
+    }
+
+    initParticlesFromSpawn(gl, frameEntry) {
+        const wp = frameEntry.wetPositions;
+        const nWet = Math.floor(wp.length / 2);
+        if (nWet < 1) return;
+
+        const n = this.particleRes * this.particleRes;
+        const data = new Uint8Array(n * 4);
+        for (let i = 0; i < n; i++) {
+            const ri = Math.floor(Math.random() * nWet);
+            const x = wp[ri * 2];
+            const y = wp[ri * 2 + 1];
+            data[i*4+0] = Math.floor(256 * (x * 255 - Math.floor(x * 255)));
+            data[i*4+1] = Math.floor(256 * (y * 255 - Math.floor(y * 255)));
+            data[i*4+2] = Math.floor(x * 255);
+            data[i*4+3] = Math.floor(y * 255);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.particleRes, this.particleRes,
+            0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        console.log(`Initialized ${n} particles at ${nWet} wet positions`);
+    }
+
+    // Trail textures: fixed resolution matching terrain UV space
+    initTrailTextures(gl) {
+        const tw = this.meta.width;
+        const th = this.meta.height;
+        this.trailW = tw;
+        this.trailH = th;
+        const empty = new Uint8Array(tw * th * 4);
+        if (this.trailTex0) gl.deleteTexture(this.trailTex0);
+        if (this.trailTex1) gl.deleteTexture(this.trailTex1);
+        if (this.trailFB0) gl.deleteFramebuffer(this.trailFB0);
+        if (this.trailFB1) gl.deleteFramebuffer(this.trailFB1);
+        this.trailTex0 = createTex(gl, gl.LINEAR, empty, tw, th);
+        this.trailTex1 = createTex(gl, gl.LINEAR, empty, tw, th);
+        this.trailFB0 = createFBO(gl, this.trailTex0);
+        this.trailFB1 = createFBO(gl, this.trailTex1);
+    }
+
+    async loadImageElement(url) {
+        return new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => res(img);
+            img.onerror = rej;
+            img.src = url;
+        });
+    }
+
+    async loadImage(gl, url, filter) {
+        return new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => { res(createTex(gl, filter, img, 0, 0)); };
+            img.onerror = rej;
+            img.src = url;
+        });
+    }
+
+    async loadVelFrame(idx) {
+        if (this.frameCache.has(idx)) return this.frameCache.get(idx);
+        const gl = this.gl;
+        const m = this.meta;
+
+        const img = await new Promise((res, rej) => {
+            const im = new Image();
+            im.onload = () => res(im);
+            im.onerror = rej;
+            im.src = `data/velocity/v_${String(idx).padStart(4,'0')}.png`;
+        });
+
+        const tex = createTex(gl, gl.LINEAR, img, 0, 0);
+
+        const oc = document.createElement('canvas');
+        oc.width = img.width; oc.height = img.height;
+        const ctx = oc.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, img.width, img.height).data;
+
+        const wetPositions = [];
+        const step = Math.max(1, Math.floor(img.width * img.height / 50000));
+        for (let i = 0; i < img.width * img.height; i += step) {
+            if (pixels[i * 4 + 3] > 128) {
+                const col = i % img.width;
+                const row = Math.floor(i / img.width);
+                wetPositions.push((col + 0.5) / img.width, (row + 0.5) / img.height);
+            }
+        }
+
+        const maxSpawn = 2048;
+        let nSpawn = Math.floor(wetPositions.length / 2);
+        if (nSpawn > maxSpawn) nSpawn = maxSpawn;
+        if (nSpawn < 1) nSpawn = 1;
+
+        const spawnData = new Uint8Array(nSpawn * 4);
+        for (let i = 0; i < nSpawn; i++) {
+            let si = i;
+            if (wetPositions.length / 2 > maxSpawn) {
+                si = Math.floor(i * (wetPositions.length / 2) / maxSpawn);
+            }
+            const x = si < wetPositions.length / 2 ? wetPositions[si * 2] : 0.5;
+            const y = si < wetPositions.length / 2 ? wetPositions[si * 2 + 1] : 0.5;
+            spawnData[i * 4 + 0] = Math.floor(x * 255);
+            spawnData[i * 4 + 1] = Math.floor(y * 255);
+            spawnData[i * 4 + 2] = Math.floor((x * 255 - Math.floor(x * 255)) * 255);
+            spawnData[i * 4 + 3] = Math.floor((y * 255 - Math.floor(y * 255)) * 255);
+        }
+
+        const spawnTex = createTex(gl, gl.NEAREST, spawnData, nSpawn, 1);
+
+        this.frameCache.set(idx, { velTex: tex, spawnTex, spawnCount: nSpawn, wetPositions });
+        if (this.frameCache.size > this.frameCacheMax) {
+            const oldest = this.frameCache.keys().next().value;
+            const entry = this.frameCache.get(oldest);
+            gl.deleteTexture(entry.velTex);
+            gl.deleteTexture(entry.spawnTex);
+            this.frameCache.delete(oldest);
+        }
+        return this.frameCache.get(idx);
+    }
+
+    preload() {
+        for (let i = 1; i <= 5; i++) {
+            const fi = (this.currentFrame + i) % this.meta.n_timesteps;
+            if (!this.frameCache.has(fi)) this.loadVelFrame(fi);
+        }
+    }
+
+    setParticleCount(power) {
+        const gl = this.gl;
+        this.particleRes = Math.pow(2, Math.ceil(power / 2));
+        this.numParticles = this.particleRes * this.particleRes;
+        if (this.particleFB0) gl.deleteFramebuffer(this.particleFB0);
+        if (this.particleFB1) gl.deleteFramebuffer(this.particleFB1);
+        if (this.particleTex0) gl.deleteTexture(this.particleTex0);
+        if (this.particleTex1) gl.deleteTexture(this.particleTex1);
+        this.initParticleState(gl);
+        const entry = this.frameCache.get(this.currentFrame);
+        if (entry && entry.spawnCount > 1) this.initParticlesFromSpawn(gl, entry);
+        const idx = new Float32Array(this.numParticles);
+        for (let i = 0; i < this.numParticles; i++) idx[i] = i;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.indexBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+
+    rebuildTerrainMesh() {
+        if (!this.heightData || !this.meta) return;
+        const gl = this.gl;
+        const hmImg = { width: this.meta.width, height: this.meta.height };
+        this.terrainMesh = buildTerrainMesh(
+            this.heightData, hmImg.width, hmImg.height, this.meta, this.exaggeration);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainVBO);
+        gl.bufferData(gl.ARRAY_BUFFER, this.terrainMesh.verts, gl.STATIC_DRAW);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.terrainMesh.indices, gl.STATIC_DRAW);
+    }
+
+    // ── Render loop ──
+    render() {
+        const now = performance.now();
+        const dt = (now - this._lastT) / 1000;
+        this._lastT = now;
+
+        // FPS
+        this._fpsFrames++;
+        this._fpsTime += dt;
+        if (this._fpsTime >= 0.5) {
+            this._fps = Math.round(this._fpsFrames / this._fpsTime);
+            this._fpsFrames = 0;
+            this._fpsTime = 0;
+            document.getElementById('i-fps').textContent = this._fps;
+        }
+
+        if (this.playing) {
+            this.timeFrac += dt * this.speed * 1.5;
+            while (this.timeFrac >= 1.0) {
+                this.timeFrac -= 1.0;
+                this.currentFrame = (this.currentFrame + 1) % this.meta.n_timesteps;
+                this.preload();
+            }
+        }
+
+        // Update UI
+        const fi = this.currentFrame;
+        const tSec = this.meta.times[fi] || 0;
+        document.getElementById('sl-time').value = fi;
+        document.getElementById('v-time').textContent = fmtTime(tSec);
+        document.getElementById('i-time').textContent = fmtTime(tSec);
+        document.getElementById('i-particles').textContent =
+            (this.numParticles >= 1000 ?
+                Math.round(this.numParticles/1024) + 'K' : this.numParticles);
+
+        const gl = this.gl;
+        const m = this.meta;
+        const curEntry = this.frameCache.get(fi);
+        const nextFi = (fi + 1) % m.n_timesteps;
+        const nextEntry = this.frameCache.get(nextFi) || curEntry;
+        if (!curEntry) { requestAnimationFrame(() => this.render()); return; }
+
+        const velTex = curEntry.velTex;
+        const velTexNext = nextEntry.velTex;
+        const spawnTex = curEntry.spawnTex;
+        const spawnCount = curEntry.spawnCount;
+
+        // ============================================================
+        // PASS 1: Update particle positions (2D, same as before)
+        // ============================================================
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.particleFB1);
+        gl.viewport(0, 0, this.particleRes, this.particleRes);
+        gl.disable(gl.DEPTH_TEST);
+
+        const up = this.updateProg;
+        gl.useProgram(up);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(up, 'a_pos'), 2);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_particles'), 0);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, velTex);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_velocity'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_velocity_next'), 2);
+
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, spawnTex);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_spawn_tex'), 3);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_spawn_count'), spawnCount);
+
+        gl.uniform1f(gl.getUniformLocation(up, 'u_time_frac'), this.timeFrac);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_rand_seed'), Math.random());
+        gl.uniform1f(gl.getUniformLocation(up, 'u_speed_factor'), this.speedFactor * this.speed);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_drop_rate'), this.dropRate);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_drop_rate_bump'), this.dropRateBump);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_vel_range_x'), m.vx_min, m.vx_max);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_vel_range_y'), m.vy_min, m.vy_max);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_grid_res'), m.width, m.height);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        [this.particleTex0, this.particleTex1] = [this.particleTex1, this.particleTex0];
+        [this.particleFB0, this.particleFB1] = [this.particleFB1, this.particleFB0];
+
+        // ============================================================
+        // PASS 2: Trail accumulation in UV space
+        // ============================================================
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFB1);
+        gl.viewport(0, 0, this.trailW, this.trailH);
+        gl.disable(gl.DEPTH_TEST);
+
+        // 2a: Fade previous trail
+        const sp = this.screenProg;
+        gl.useProgram(sp);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(sp, 'a_pos'), 2);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.trailTex0);
+        gl.uniform1i(gl.getUniformLocation(sp, 'u_screen'), 0);
+        gl.uniform1f(gl.getUniformLocation(sp, 'u_opacity'), this.fadeOpacity);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // 2b: Draw particles in UV space (additive)
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+        const dp = this.drawUvProg;
+        gl.useProgram(dp);
+        bindAttr(gl, this.indexBuf, gl.getAttribLocation(dp, 'a_index'), 1);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_particles'), 0);
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_particles_res'), this.particleRes);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, velTex);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_velocity'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_velocity_next'), 2);
+
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_time_frac'), this.timeFrac);
+        gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_x'), m.vx_min, m.vx_max);
+        gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_y'), m.vy_min, m.vy_max);
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_point_size'), this.pointSize);
+
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this.colorRampTex);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_color_ramp'), 3);
+
+        gl.drawArrays(gl.POINTS, 0, this.numParticles);
+        gl.disable(gl.BLEND);
+
+        [this.trailTex0, this.trailTex1] = [this.trailTex1, this.trailTex0];
+        [this.trailFB0, this.trailFB1] = [this.trailFB1, this.trailFB0];
+
+        // ============================================================
+        // PASS 3: Render terrain mesh with hillshade + trails (3D)
+        // ============================================================
+        const cw = gl.canvas.width, ch = gl.canvas.height;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cw, ch);
+        gl.clearColor(0.04, 0.04, 0.07, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST);
+
+        const mvp = this.camera.getMVP(cw / ch);
+
+        const tp = this.terrainProg;
+        gl.useProgram(tp);
+
+        // Set up terrain vertex attributes (stride = 5 floats = 20 bytes)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainVBO);
+        const aPos = gl.getAttribLocation(tp, 'a_position');
+        const aTex = gl.getAttribLocation(tp, 'a_texcoord');
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 20, 0);
+        gl.enableVertexAttribArray(aTex);
+        gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 20, 12);
+
+        gl.uniformMatrix4fv(gl.getUniformLocation(tp, 'u_mvp'), false, mvp);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.hillshadeTex);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_hillshade'), 0);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.trailTex0);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_trails'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, this.satelliteTex || this.hillshadeTex);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_satellite'), 2);
+
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_dark'), this.darkFactor);
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_use_satellite'),
+            this.useSatellite && this.satelliteTex ? 1.0 : 0.0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
+        const indexType = this.terrainMesh.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+        gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
+
+        // Disable terrain attributes before drawing particles
+        gl.disableVertexAttribArray(aPos);
+        gl.disableVertexAttribArray(aTex);
+
+        // ============================================================
+        // PASS 4: Draw particles in 3D (on terrain surface)
+        // ============================================================
+        gl.depthMask(false);  // Don't write depth for particles
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+        const d3 = this.draw3dProg;
+        gl.useProgram(d3);
+        bindAttr(gl, this.indexBuf, gl.getAttribLocation(d3, 'a_index'), 1);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.uniform1i(gl.getUniformLocation(d3, 'u_particles'), 0);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_particles_res'), this.particleRes);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, velTex);
+        gl.uniform1i(gl.getUniformLocation(d3, 'u_velocity'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+        gl.uniform1i(gl.getUniformLocation(d3, 'u_velocity_next'), 2);
+
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this.colorRampTex);
+        gl.uniform1i(gl.getUniformLocation(d3, 'u_color_ramp'), 3);
+
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this.heightmapTex);
+        gl.uniform1i(gl.getUniformLocation(d3, 'u_heightmap'), 4);
+
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_time_frac'), this.timeFrac);
+        gl.uniform2f(gl.getUniformLocation(d3, 'u_vel_range_x'), m.vx_min, m.vx_max);
+        gl.uniform2f(gl.getUniformLocation(d3, 'u_vel_range_y'), m.vy_min, m.vy_max);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_point_size'), this.pointSize);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_z_min'), m.z_min);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_z_range'), m.z_max - m.z_min);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_exaggeration'), this.exaggeration);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_aspect'), this.terrainAspect);
+        gl.uniformMatrix4fv(gl.getUniformLocation(d3, 'u_mvp'), false, mvp);
+
+        gl.drawArrays(gl.POINTS, 0, this.numParticles);
+
+        gl.disable(gl.BLEND);
+        gl.depthMask(true);
+
+        requestAnimationFrame(() => this.render());
+    }
+}
+
+function fmtTime(s) {
+    if (s < 60) return Math.round(s) + 's';
+    if (s < 3600) return (s/60).toFixed(1) + ' min';
+    return (s/3600).toFixed(1) + ' hr';
+}
+
+// ── Init ──
+const canvas = document.getElementById('gl');
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => {
+    resize();
+    // Trail textures stay at terrain resolution, no resize needed
+});
+
+let viewer;
+(async () => {
+    viewer = new FloodViewer3D(canvas);
+    await viewer.init();
+
+    // Wire controls
+    document.getElementById('sl-time').addEventListener('input', e => {
+        viewer.currentFrame = parseInt(e.target.value);
+        viewer.timeFrac = 0;
+        viewer.preload();
+    });
+    document.getElementById('btn-play').addEventListener('click', () => {
+        viewer.playing = !viewer.playing;
+        const b = document.getElementById('btn-play');
+        b.innerHTML = viewer.playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
+        b.classList.toggle('active', viewer.playing);
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+        viewer.currentFrame = 0;
+        viewer.timeFrac = 0;
+        viewer.initTrailTextures(viewer.gl);
+        viewer.initParticleState(viewer.gl);
+    });
+    document.getElementById('btn-fs').addEventListener('click', () => {
+        document.documentElement.requestFullscreen().catch(() => {});
+    });
+    document.getElementById('sl-speed').addEventListener('input', e => {
+        viewer.speed = parseInt(e.target.value) / 100;
+        document.getElementById('v-speed').textContent = viewer.speed.toFixed(1) + 'x';
+    });
+    document.getElementById('sl-particles').addEventListener('input', e => {
+        const pw = parseInt(e.target.value);
+        viewer.setParticleCount(pw);
+        const n = viewer.numParticles;
+        document.getElementById('v-particles').textContent =
+            n >= 1024 ? Math.round(n/1024) + 'K' : n;
+    });
+    document.getElementById('sl-trail').addEventListener('input', e => {
+        viewer.fadeOpacity = parseInt(e.target.value) / 1000;
+        document.getElementById('v-trail').textContent = viewer.fadeOpacity.toFixed(2);
+    });
+    document.getElementById('sl-exag').addEventListener('input', e => {
+        viewer.exaggeration = parseInt(e.target.value) / 100;
+        document.getElementById('v-exag').textContent = viewer.exaggeration.toFixed(2) + 'x';
+        viewer.rebuildTerrainMesh();
+    });
+    document.getElementById('btn-sat').addEventListener('click', () => {
+        viewer.useSatellite = !viewer.useSatellite;
+        const b = document.getElementById('btn-sat');
+        b.classList.toggle('active', viewer.useSatellite);
+        b.innerHTML = viewer.useSatellite
+            ? '&#127757; Hillshade' : '&#127760; Satellite';
+    });
+})();
+</script>
+</body>
+</html>

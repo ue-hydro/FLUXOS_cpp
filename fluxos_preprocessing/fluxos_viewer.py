@@ -2268,6 +2268,1185 @@ def export_video_advected(dem, meta, results, mesh_type, variable, clim,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  SATELLITE IMAGERY DOWNLOAD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
+                        img_w, img_h, output_path):
+    """Download satellite imagery from Esri World Imagery and stitch to image.
+
+    Uses slippy-map tile convention (z/x/y) with Web Mercator projection.
+    The resulting JPEG is aligned to the DEM bounding box.
+    """
+    import urllib.request
+    import io
+    import struct
+    import zlib
+
+    # Choose zoom level: aim for ~1 pixel per DEM cell
+    lat_mid = (sw_lat + ne_lat) / 2.0
+    lon_span = ne_lon - sw_lon
+    meters_per_pixel_z0 = 156543.03392 * math.cos(math.radians(lat_mid))
+    target_mpp = (lon_span * 111320 * math.cos(math.radians(lat_mid))) / img_w
+    zoom = max(1, min(18, int(round(math.log2(meters_per_pixel_z0 / target_mpp)))))
+    print(f"  Satellite: zoom level {zoom}")
+
+    def lat_lon_to_tile(lat, lon, z):
+        n = 2 ** z
+        x = int((lon + 180.0) / 360.0 * n)
+        lat_r = math.radians(lat)
+        y = int((1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r))
+                 / math.pi) / 2.0 * n)
+        return max(0, min(n - 1, x)), max(0, min(n - 1, y))
+
+    def tile_bounds(tx, ty, z):
+        """Return (west, south, east, north) in degrees for tile (tx, ty)."""
+        n = 2 ** z
+        west = tx / n * 360.0 - 180.0
+        east = (tx + 1) / n * 360.0 - 180.0
+        north = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * ty / n))))
+        south = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (ty + 1) / n))))
+        return west, south, east, north
+
+    tx_min, ty_min = lat_lon_to_tile(ne_lat, sw_lon, zoom)  # NW corner
+    tx_max, ty_max = lat_lon_to_tile(sw_lat, ne_lon, zoom)  # SE corner
+
+    n_tiles_x = tx_max - tx_min + 1
+    n_tiles_y = ty_max - ty_min + 1
+    print(f"  Satellite: {n_tiles_x}x{n_tiles_y} = "
+          f"{n_tiles_x * n_tiles_y} tiles")
+
+    # Download all tiles into a big mosaic (256 px per tile)
+    tile_px = 256
+    mosaic_w = n_tiles_x * tile_px
+    mosaic_h = n_tiles_y * tile_px
+    mosaic = np.full((mosaic_h, mosaic_w, 3), 128, dtype=np.uint8)
+
+    url_template = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+                    "World_Imagery/MapServer/tile/{z}/{y}/{x}")
+
+    for ty in range(ty_min, ty_max + 1):
+        for tx in range(tx_min, tx_max + 1):
+            url = url_template.format(z=zoom, y=ty, x=tx)
+            try:
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "FLUXOS-viewer/1.0"})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    tile_data = resp.read()
+                # Decode JPEG tile using PIL if available, else skip
+                try:
+                    from PIL import Image as PILImage
+                    tile_img = PILImage.open(io.BytesIO(tile_data))
+                    tile_arr = np.array(tile_img.convert("RGB"))
+                except ImportError:
+                    # Minimal JPEG decode not possible without PIL — skip
+                    continue
+                oy = (ty - ty_min) * tile_px
+                ox = (tx - tx_min) * tile_px
+                th, tw = tile_arr.shape[:2]
+                mosaic[oy:oy+th, ox:ox+tw] = tile_arr[:, :, :3]
+            except Exception as e:
+                print(f"    Tile {tx},{ty}: {e}")
+
+    # Compute pixel bounds of the DEM bbox within the mosaic
+    w0, s0, e0, n0 = tile_bounds(tx_min, ty_min, zoom)
+    w1, s1, e1, n1 = tile_bounds(tx_max, ty_max, zoom)
+    mosaic_west = w0
+    mosaic_east = e1
+    mosaic_north = n0
+    mosaic_south = s1
+
+    # Map DEM bbox to pixel coords within mosaic (Mercator projection)
+    def lat_to_merc_y(lat):
+        return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+    merc_n = lat_to_merc_y(mosaic_north)
+    merc_s = lat_to_merc_y(mosaic_south)
+    merc_sw = lat_to_merc_y(sw_lat)
+    merc_ne = lat_to_merc_y(ne_lat)
+
+    px_left = int((sw_lon - mosaic_west) / (mosaic_east - mosaic_west) * mosaic_w)
+    px_right = int((ne_lon - mosaic_west) / (mosaic_east - mosaic_west) * mosaic_w)
+    px_top = int((merc_n - merc_ne) / (merc_n - merc_s) * mosaic_h)
+    px_bot = int((merc_n - merc_sw) / (merc_n - merc_s) * mosaic_h)
+
+    px_left = max(0, min(mosaic_w - 1, px_left))
+    px_right = max(1, min(mosaic_w, px_right))
+    px_top = max(0, min(mosaic_h - 1, px_top))
+    px_bot = max(1, min(mosaic_h, px_bot))
+
+    crop = mosaic[px_top:px_bot, px_left:px_right]
+
+    # Resize to DEM dimensions
+    try:
+        from PIL import Image as PILImage
+        pil_img = PILImage.fromarray(crop)
+        pil_img = pil_img.resize((img_w, img_h), PILImage.LANCZOS)
+        pil_img.save(output_path, "JPEG", quality=85)
+        fsize = os.path.getsize(output_path)
+        print(f"  Satellite: {fsize/1024:.0f} KB "
+              f"({img_w}x{img_h} px)")
+    except ImportError:
+        # Fallback: write raw PNG (no resize)
+        sat_rgba = np.stack([crop[:,:,0], crop[:,:,1], crop[:,:,2],
+                             np.full(crop.shape[:2], 255, np.uint8)], axis=-1)
+        sat_bytes = _write_png(sat_rgba)
+        out_png = output_path.replace(".jpg", ".png")
+        with open(out_png, "wb") as f:
+            f.write(sat_bytes)
+        print(f"  Satellite (PNG fallback): {len(sat_bytes)/1024:.0f} KB")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  INTERACTIVE WEBGL VIEWER EXPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def export_webgl(dem, meta, results, mesh_type, variable, clim,
+                 output_dir="fluxos_web", h_min=0.001, step=5,
+                 n_particles=65536, utm_to_ll=None):
+    """Export FLUXOS results as an interactive WebGL particle viewer.
+
+    Creates a directory with index.html + data files that can be served
+    via any HTTP server for an earth.nullschool-style visualization.
+    """
+    import json as _json
+
+    nrows, ncols = dem.shape
+    cs = meta["cellsize"]
+
+    os.makedirs(output_dir, exist_ok=True)
+    data_dir = os.path.join(output_dir, "data")
+    vel_dir = os.path.join(data_dir, "velocity")
+    os.makedirs(vel_dir, exist_ok=True)
+
+    # ── Subsample timesteps ───────────────────────────────────
+    indices = list(range(0, len(results), step))
+    n_frames = len(indices)
+    print(f"  Subsampling: {n_frames} of {len(results)} timesteps "
+          f"(every {step}th)")
+
+    # ── Pass 1: compute global velocity range ─────────────────
+    print("  Computing global velocity range...")
+    gvx_min, gvx_max = 0.0, 0.0
+    gvy_min, gvy_max = 0.0, 0.0
+    for idx in indices:
+        r = results[idx]
+        if mesh_type == "regular":
+            gvx, gvy, wet = _build_velocity_grids_regular(
+                dem, meta, r["data"], h_min)
+        else:
+            gvx, gvy, wet = _build_velocity_grids_triangular(
+                r["points"], r["cells"], r["cell_data"],
+                h_min, nrows, ncols,
+                meta["xllcorner"], meta["yllcorner"], cs)
+        if np.any(wet):
+            gvx_min = min(gvx_min, float(np.min(gvx[wet])))
+            gvx_max = max(gvx_max, float(np.max(gvx[wet])))
+            gvy_min = min(gvy_min, float(np.min(gvy[wet])))
+            gvy_max = max(gvy_max, float(np.max(gvy[wet])))
+
+    # Ensure non-zero range
+    if gvx_max - gvx_min < 1e-9:
+        gvx_min, gvx_max = -0.1, 0.1
+    if gvy_max - gvy_min < 1e-9:
+        gvy_min, gvy_max = -0.1, 0.1
+
+    print(f"  Velocity range: vx=[{gvx_min:.4f}, {gvx_max:.4f}], "
+          f"vy=[{gvy_min:.4f}, {gvy_max:.4f}] m/s")
+
+    # ── Pass 2: export velocity PNGs ──────────────────────────
+    print(f"  Exporting {n_frames} velocity PNGs...")
+    times = []
+    total_bytes = 0
+    for fi, idx in enumerate(indices):
+        r = results[idx]
+        times.append(float(r["time"]))
+
+        if mesh_type == "regular":
+            gvx, gvy, wet = _build_velocity_grids_regular(
+                dem, meta, r["data"], h_min)
+        else:
+            gvx, gvy, wet = _build_velocity_grids_triangular(
+                r["points"], r["cells"], r["cell_data"],
+                h_min, nrows, ncols,
+                meta["xllcorner"], meta["yllcorner"], cs)
+
+        # Encode vx → R, vy → G, unused → B, wet → A
+        r_ch = ((gvx - gvx_min) / (gvx_max - gvx_min) * 255.0
+                ).clip(0, 255).astype(np.uint8)
+        g_ch = ((gvy - gvy_min) / (gvy_max - gvy_min) * 255.0
+                ).clip(0, 255).astype(np.uint8)
+        b_ch = np.zeros_like(r_ch)
+        a_ch = np.where(wet, np.uint8(255), np.uint8(0))
+
+        rgba = np.stack([r_ch, g_ch, b_ch, a_ch], axis=-1)
+        png_bytes = _write_png(rgba)
+        fname = f"v_{fi:04d}.png"
+        with open(os.path.join(vel_dir, fname), "wb") as f:
+            f.write(png_bytes)
+        total_bytes += len(png_bytes)
+
+        if fi % 50 == 0 or fi == n_frames - 1:
+            print(f"    [{fi+1}/{n_frames}] t={format_time(r['time'])}, "
+                  f"PNG {len(png_bytes)/1024:.0f} KB")
+
+    print(f"  Total velocity data: {total_bytes / 1024 / 1024:.1f} MB")
+
+    # ── Export hillshade PNG ──────────────────────────────────
+    print("  Exporting hillshade...")
+    hs = _compute_hillshade(dem, cs)
+    hs_rgba = np.stack([hs, hs, hs, np.full_like(hs, 255)], axis=-1)
+    hs_bytes = _write_png(hs_rgba)
+    with open(os.path.join(data_dir, "hillshade.png"), "wb") as f:
+        f.write(hs_bytes)
+    print(f"  Hillshade: {len(hs_bytes)/1024:.0f} KB")
+
+    # ── Export heightmap PNG (16-bit encoded) ─────────────────
+    print("  Exporting heightmap...")
+    nan_mask = np.isnan(dem)
+    valid_dem = dem.copy()
+    valid_dem[nan_mask] = 0.0  # fill NaN for encoding
+
+    z_min = float(np.nanmin(dem)) if not np.all(nan_mask) else 0.0
+    z_max = float(np.nanmax(dem)) if not np.all(nan_mask) else 1.0
+    if z_max - z_min < 0.01:
+        z_max = z_min + 1.0  # avoid division by zero
+
+    z_norm = np.clip((valid_dem - z_min) / (z_max - z_min), 0.0, 1.0)
+    z_16bit = (z_norm * 65535.0).astype(np.uint16)
+    r_ch = (z_16bit >> 8).astype(np.uint8)      # high byte
+    g_ch = (z_16bit & 0xFF).astype(np.uint8)     # low byte
+    b_ch = np.where(nan_mask, np.uint8(0), np.uint8(255))  # validity mask
+    a_ch = np.full_like(r_ch, 255)               # alpha = 255 always
+
+    hm_rgba = np.stack([r_ch, g_ch, b_ch, a_ch], axis=-1)
+    hm_bytes = _write_png(hm_rgba)
+    with open(os.path.join(data_dir, "heightmap.png"), "wb") as f:
+        f.write(hm_bytes)
+    print(f"  Heightmap: {len(hm_bytes)/1024:.0f} KB "
+          f"(z_min={z_min:.2f}, z_max={z_max:.2f})")
+
+    # ── Download satellite image ────────────────────────────
+    bbox_ll = None
+    if utm_to_ll is not None:
+        xll = meta["xllcorner"]
+        yll = meta["yllcorner"]
+        sw_lon, sw_lat = utm_to_ll(xll, yll)
+        ne_lon, ne_lat = utm_to_ll(xll + ncols * cs, yll + nrows * cs)
+        bbox_ll = {
+            "sw_lat": float(sw_lat), "sw_lon": float(sw_lon),
+            "ne_lat": float(ne_lat), "ne_lon": float(ne_lon),
+        }
+        print(f"  Bounding box: ({sw_lat:.6f},{sw_lon:.6f}) - "
+              f"({ne_lat:.6f},{ne_lon:.6f})")
+
+        # Download satellite tiles and stitch into a single image
+        sat_path = os.path.join(data_dir, "satellite.jpg")
+        _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
+                            ncols, nrows, sat_path)
+
+    # ── Export metadata JSON ──────────────────────────────────
+    metadata = {
+        "width": int(ncols),
+        "height": int(nrows),
+        "n_timesteps": n_frames,
+        "times": times,
+        "vx_min": float(gvx_min),
+        "vx_max": float(gvx_max),
+        "vy_min": float(gvy_min),
+        "vy_max": float(gvy_max),
+        "cellsize": float(cs),
+        "default_particles": n_particles,
+        "z_min": z_min,
+        "z_max": z_max,
+        "height_exaggeration": 0.3,
+    }
+    if bbox_ll:
+        metadata["bbox"] = bbox_ll
+        metadata["has_satellite"] = True
+    meta_path = os.path.join(data_dir, "metadata.json")
+    with open(meta_path, "w") as f:
+        _json.dump(metadata, f, indent=2)
+
+    # ── Generate HTML viewer ──────────────────────────────────
+    print("  Generating WebGL viewer...")
+    html = _generate_webgl_html()
+    html_path = os.path.join(output_dir, "index.html")
+    with open(html_path, "w") as f:
+        f.write(html)
+
+    print(f"\n  WebGL viewer exported to: {output_dir}/")
+    print(f"  {n_frames} velocity frames + hillshade + metadata + viewer")
+    print(f"\n  To view, start a local server:")
+    print(f"    python3 -m http.server 8080 -d {output_dir}")
+    print(f"  Then open:  http://localhost:8080")
+
+
+def _generate_webgl_html():
+    """Generate the complete self-contained 3D WebGL particle viewer HTML.
+
+    Reads the HTML from the canonical index.html template in the fluxos_web
+    directory (sibling to fluxos_preprocessing).  Falls back to the embedded
+    copy below if the file doesn't exist (e.g. standalone script usage).
+    """
+    import pathlib as _pathlib
+    # Try canonical location first
+    _html_path = _pathlib.Path(__file__).parent.parent / 'fluxos_web' / 'index.html'
+    if _html_path.exists():
+        return _html_path.read_text()
+    # Fallback: embedded (may be out-of-date)
+    return '''\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLUXOS Flood Simulation — Interactive Flow Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a12; }
+canvas#gl { width: 100%; height: 100%; display: block; }
+#controls {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(5,8,20,0.82); color: #b0c4de;
+    padding: 16px 20px; border-radius: 10px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; min-width: 300px;
+    border: 1px solid rgba(60,90,140,0.3);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    user-select: none;
+}
+#controls h2 { font-size: 15px; color: #e0ecff; margin-bottom: 12px;
+    font-weight: 600; letter-spacing: 0.5px; }
+.ctrl-row { margin-bottom: 8px; display: flex; align-items: center;
+    justify-content: space-between; }
+.ctrl-row label { flex: 0 0 100px; color: #8899bb; }
+.ctrl-row input[type=range] { flex: 1; margin: 0 8px; }
+.ctrl-row .val { flex: 0 0 60px; text-align: right; color: #ccddef;
+    font-variant-numeric: tabular-nums; }
+.btn { background: rgba(40,60,100,0.5); color: #b0c4de; border: 1px solid
+    rgba(80,120,180,0.4); border-radius: 5px; padding: 6px 14px;
+    cursor: pointer; font-family: inherit; font-size: 12px;
+    transition: background 0.15s; }
+.btn:hover { background: rgba(60,90,140,0.6); }
+.btn.active { background: rgba(80,140,220,0.4); border-color: rgba(100,160,240,0.6); }
+#info { position: fixed; top: 16px; right: 16px;
+    background: rgba(5,8,20,0.7); color: #8899bb; padding: 10px 14px;
+    border-radius: 8px; font-family: 'SF Mono', monospace; font-size: 11px;
+    border: 1px solid rgba(60,90,140,0.2); pointer-events: none; }
+#info div { margin-bottom: 3px; }
+#info .hl { color: #ccddef; }
+#colorbar-wrap { position: fixed; bottom: 20px; right: 16px;
+    background: rgba(5,8,20,0.7); padding: 8px 12px 6px;
+    border-radius: 8px; border: 1px solid rgba(60,90,140,0.2); }
+#colorbar-wrap .cb-title { font-family: monospace; font-size: 11px;
+    color: #8899bb; margin-bottom: 4px; }
+#colorbar-wrap .cb-labels { display: flex; justify-content: space-between;
+    font-family: monospace; font-size: 10px; color: #8899bb; margin-top: 2px; }
+canvas#colorbar { display: block; border-radius: 3px; }
+#loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: #5577aa; font-family: monospace; font-size: 16px; }
+input[type=range] { -webkit-appearance: none; height: 4px;
+    background: rgba(60,90,140,0.4); border-radius: 2px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #5588cc; cursor: pointer; border: 2px solid #334466; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loading">Loading simulation data...</div>
+
+<div id="controls" style="display:none;">
+    <h2>FLUXOS Flood Simulation</h2>
+    <div class="ctrl-row">
+        <label>Time</label>
+        <input type="range" id="sl-time" min="0" max="100" value="0">
+        <span class="val" id="v-time">0s</span>
+    </div>
+    <div class="ctrl-row" style="justify-content:center; gap:8px; margin:10px 0;">
+        <button class="btn active" id="btn-play">&#9654; Play</button>
+        <button class="btn" id="btn-reset">&#8634; Reset</button>
+        <button class="btn" id="btn-fs">&#x26F6; Fullscreen</button>
+    </div>
+    <div class="ctrl-row">
+        <label>Speed</label>
+        <input type="range" id="sl-speed" min="5" max="300" value="80">
+        <span class="val" id="v-speed">0.8x</span>
+    </div>
+    <div class="ctrl-row">
+        <label>Particles</label>
+        <input type="range" id="sl-particles" min="10" max="18" value="14">
+        <span class="val" id="v-particles">65K</span>
+    </div>
+    <div class="ctrl-row">
+        <label>Trail length</label>
+        <input type="range" id="sl-trail" min="880" max="998" value="970">
+        <span class="val" id="v-trail">0.96</span>
+    </div>
+</div>
+
+<div id="info" style="display:none;">
+    <div>t = <span class="hl" id="i-time">0s</span></div>
+    <div><span class="hl" id="i-fps">--</span> fps</div>
+    <div><span class="hl" id="i-particles">--</span> particles</div>
+</div>
+
+<div id="colorbar-wrap" style="display:none;">
+    <div class="cb-title">Flow speed (m/s)</div>
+    <canvas id="colorbar" width="180" height="14"></canvas>
+    <div class="cb-labels"><span id="cb-min">0</span><span id="cb-max">--</span></div>
+</div>
+
+<!-- ═══════ GLSL SHADERS ═══════ -->
+
+<script id="quad-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec2 a_pos;
+varying vec2 v_tex;
+void main() {
+    v_tex = a_pos;
+    gl_Position = vec4(1.0 - 2.0 * a_pos, 0.0, 1.0);
+}
+</script>
+
+<script id="update-fs" type="x-shader/x-fragment">
+precision highp float;
+uniform sampler2D u_particles;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform sampler2D u_spawn_tex;    // 1D texture (N×1): RG=x coord, BA=y coord of wet cells
+uniform float u_spawn_count;      // number of entries in spawn texture
+uniform float u_time_frac;
+uniform float u_rand_seed;
+uniform float u_speed_factor;
+uniform float u_drop_rate;
+uniform float u_drop_rate_bump;
+uniform vec2 u_vel_range_x;
+uniform vec2 u_vel_range_y;
+uniform vec2 u_grid_res;
+varying vec2 v_tex;
+
+float rand(vec2 co) {
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 lookup_vel(sampler2D tex, vec2 uv) {
+    vec4 t = texture2D(tex, uv);
+    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, t.r);
+    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, t.g);
+    float wet = step(0.5, t.a);
+    return vec2(vx, vy) * wet;
+}
+
+// Decode a spawn position from the spawn lookup texture
+vec2 getSpawnPos(float idx) {
+    float u = (idx + 0.5) / u_spawn_count;
+    vec4 s = texture2D(u_spawn_tex, vec2(u, 0.5));
+    return vec2(s.r + s.b / 255.0, s.g + s.a / 255.0);
+}
+
+void main() {
+    vec4 enc = texture2D(u_particles, v_tex);
+    vec2 pos = vec2(enc.r / 255.0 + enc.b, enc.g / 255.0 + enc.a);
+
+    // Check current wetness
+    vec4 curVel = texture2D(u_velocity, pos);
+    bool curWet = curVel.a > 0.5;
+
+    vec2 v0 = lookup_vel(u_velocity, pos);
+    vec2 v1 = lookup_vel(u_velocity_next, pos);
+    vec2 vel = mix(v0, v1, u_time_frac);
+    float spd = length(vel);
+
+    // Convert velocity (m/s) to texture-coordinate offset
+    vec2 off = vec2(
+        vel.x * u_speed_factor / u_grid_res.x,
+       -vel.y * u_speed_factor / u_grid_res.y
+    );
+    vec2 np2 = pos + off;
+
+    bool oob = np2.x < 0.0 || np2.x > 1.0 || np2.y < 0.0 || np2.y > 1.0;
+    bool destDry = texture2D(u_velocity, np2).a < 0.5;
+
+    float s1 = rand(pos + u_rand_seed);
+    float drop = u_drop_rate + spd * u_drop_rate_bump;
+
+    bool needRespawn = oob || !curWet || destDry || s1 > (1.0 - drop);
+
+    if (needRespawn) {
+        // Sample a random wet cell from the spawn lookup texture
+        float ridx = floor(rand(v_tex + u_rand_seed + 1.3) * u_spawn_count);
+        np2 = getSpawnPos(ridx);
+    }
+
+    // encode position as 16-bit per axis
+    vec2 f = fract(np2 * 255.0);
+    vec2 i = floor(np2 * 255.0) / 255.0;
+    gl_FragColor = vec4(f.x, f.y, i.x, i.y);
+}
+</script>
+
+<script id="draw-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute float a_index;
+uniform sampler2D u_particles;
+uniform float u_particles_res;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform float u_time_frac;
+uniform vec2 u_vel_range_x;
+uniform vec2 u_vel_range_y;
+uniform float u_point_size;
+varying float v_speed_t;
+
+void main() {
+    float col = mod(a_index, u_particles_res);
+    float row = floor(a_index / u_particles_res);
+    vec2 uv = (vec2(col, row) + 0.5) / u_particles_res;
+    vec4 enc = texture2D(u_particles, uv);
+    vec2 pos = vec2(enc.r / 255.0 + enc.b, enc.g / 255.0 + enc.a);
+
+    vec4 t0 = texture2D(u_velocity, pos);
+    vec4 t1 = texture2D(u_velocity_next, pos);
+    vec4 vt = mix(t0, t1, u_time_frac);
+
+    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);
+    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);
+    float spd = length(vec2(vx, vy));
+    float mx = max(abs(u_vel_range_x.y), abs(u_vel_range_y.y));
+    v_speed_t = clamp(spd / mx, 0.0, 1.0);
+
+    float wet = step(0.5, vt.a);
+    gl_PointSize = u_point_size * wet;
+    gl_Position = vec4(2.0 * pos.x - 1.0, 1.0 - 2.0 * pos.y, 0.0, 1.0);
+}
+</script>
+
+<script id="draw-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_color_ramp;
+varying float v_speed_t;
+void main() {
+    gl_FragColor = texture2D(u_color_ramp, vec2(v_speed_t, 0.5));
+}
+</script>
+
+<script id="screen-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_screen;
+uniform float u_opacity;
+varying vec2 v_tex;
+void main() {
+    vec4 c = texture2D(u_screen, 1.0 - v_tex);
+    gl_FragColor = vec4(floor(255.0 * c * u_opacity) / 255.0);
+}
+</script>
+
+<script id="composite-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_hillshade;
+uniform sampler2D u_trails;
+uniform float u_dark;
+varying vec2 v_tex;
+void main() {
+    vec3 hs = texture2D(u_hillshade, v_tex).rgb * u_dark;
+    hs.b = min(1.0, hs.b * 1.3);
+    vec3 tr = texture2D(u_trails, v_tex).rgb;
+    gl_FragColor = vec4(min(vec3(1.0), hs + tr), 1.0);
+}
+</script>
+
+<!-- ═══════ JAVASCRIPT ═══════ -->
+<script>
+'use strict';
+
+// ── Color ramp: deep navy → blue → cyan → white → yellow ──
+function buildColorRamp() {
+    const stops = [
+        [0.00, 15, 20, 80], [0.15, 30, 70, 170], [0.40, 60, 190, 255],
+        [0.70, 200, 255, 255], [0.90, 255, 255, 180], [1.00, 255, 230, 80]
+    ];
+    const data = new Uint8Array(256 * 4);
+    for (let p = 0; p < 256; p++) {
+        const t = p / 255;
+        let si = 0;
+        for (let i = 0; i < stops.length - 1; i++) {
+            if (t >= stops[i][0] && t <= stops[i+1][0]) { si = i; break; }
+            if (i === stops.length - 2) si = i;
+        }
+        const f = (t - stops[si][0]) / Math.max(stops[si+1][0] - stops[si][0], 1e-6);
+        data[p*4+0] = Math.round(stops[si][1] + (stops[si+1][1] - stops[si][1]) * f);
+        data[p*4+1] = Math.round(stops[si][2] + (stops[si+1][2] - stops[si][2]) * f);
+        data[p*4+2] = Math.round(stops[si][3] + (stops[si+1][3] - stops[si][3]) * f);
+        data[p*4+3] = 255;
+    }
+    return data;
+}
+
+function drawColorbar() {
+    const c = document.getElementById('colorbar');
+    const ctx = c.getContext('2d');
+    const ramp = buildColorRamp();
+    for (let x = 0; x < c.width; x++) {
+        const i = Math.floor(x / c.width * 255) * 4;
+        ctx.fillStyle = `rgb(${ramp[i]},${ramp[i+1]},${ramp[i+2]})`;
+        ctx.fillRect(x, 0, 1, c.height);
+    }
+}
+
+// ── WebGL helpers ──
+function createShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+        throw new Error('Shader: ' + gl.getShaderInfoLog(s));
+    return s;
+}
+function createProgram(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+        throw new Error('Program: ' + gl.getProgramInfoLog(p));
+    return p;
+}
+function createTex(gl, filter, data, w, h) {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    if (data instanceof HTMLImageElement || data instanceof ImageData) {
+        // Critical: prevent browser from premultiplying alpha, which would corrupt velocity data
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    } else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    }
+    return t;
+}
+function createFBO(gl, tex) {
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return fb;
+}
+function bindAttr(gl, buf, attr, size) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(attr);
+    gl.vertexAttribPointer(attr, size, gl.FLOAT, false, 0, 0);
+}
+
+// ── Viewer class ──
+class FloodViewer {
+    constructor(canvas) {
+        this.gl = canvas.getContext('webgl', { antialias: false, premultipliedAlpha: false, alpha: false });
+        if (!this.gl) throw new Error('WebGL not supported');
+        this.canvas = canvas;
+        this.meta = null;
+        this.currentFrame = 0;
+        this.timeFrac = 0;
+        this.playing = true;
+        this.speed = 0.8;
+        this.fadeOpacity = 0.97;
+        this.dropRate = 0.003;
+        this.dropRateBump = 0.01;
+        this.darkFactor = 0.25;
+        this.pointSize = 1.5;
+        this.particleRes = 128;
+        this.numParticles = 128 * 128;  // 16K particles — good for sparse flood domains
+        this.frameCache = new Map();
+        this.frameCacheMax = 12;
+        this.speedFactor = 0.5;
+        this._lastT = 0;
+        this._fpsFrames = 0;
+        this._fpsTime = 0;
+        this._fps = 0;
+    }
+
+    async init() {
+        const resp = await fetch('data/metadata.json');
+        this.meta = await resp.json();
+        const m = this.meta;
+
+        document.getElementById('sl-time').max = m.n_timesteps - 1;
+        document.getElementById('cb-max').textContent =
+            Math.max(Math.abs(m.vx_max), Math.abs(m.vy_max)).toFixed(2);
+
+        const simDt = m.times.length > 1 ? m.times[1] - m.times[0] : 10;
+        // speedFactor: velocity (m/s) × speedFactor / grid_res → texture offset per frame
+        // = dt_sec_per_render_frame / cellsize_m
+        // (shader divides by grid_res for each axis separately)
+        const dtPerRenderFrame = simDt / 50.0;  // ~50 render frames per data timestep
+        this.speedFactor = dtPerRenderFrame / m.cellsize;  // cells per frame for 1 m/s
+
+        const gl = this.gl;
+        this.compileShaders(gl);
+        this.createBuffers(gl);
+        this.initParticleState(gl);
+        this.initScreenTextures(gl);
+
+        // Color ramp texture
+        const rampData = buildColorRamp();
+        this.colorRampTex = createTex(gl, gl.LINEAR, rampData, 256, 1);
+
+        // Load hillshade
+        this.hillshadeTex = await this.loadImage(gl, 'data/hillshade.png', gl.LINEAR);
+
+        // Find first frame with water and load it
+        let startFrame = 0;
+        for (let i = 0; i < Math.min(m.n_timesteps, 20); i++) {
+            const f = await this.loadVelFrame(i);
+            console.log(`Frame ${i}: ${f.spawnCount} wet spawn cells`);
+            if (f.spawnCount > 10) { startFrame = i; break; }
+        }
+        this.currentFrame = startFrame;
+        const nextF = Math.min(startFrame + 1, m.n_timesteps - 1);
+        if (!this.frameCache.has(nextF)) await this.loadVelFrame(nextF);
+        console.log(`Starting at frame ${startFrame}, speedFactor: ${this.speedFactor.toFixed(4)}, simDt: ${simDt}s`);
+
+        // Re-initialize particles at wet cell positions from the start frame
+        const startEntry = this.frameCache.get(startFrame);
+        if (startEntry && startEntry.spawnCount > 1) {
+            this.initParticlesFromSpawn(gl, startEntry);
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('controls').style.display = '';
+        document.getElementById('info').style.display = '';
+        document.getElementById('colorbar-wrap').style.display = '';
+        drawColorbar();
+
+        this._lastT = performance.now();
+        this.render();
+    }
+
+    compileShaders(gl) {
+        const quadVS = createShader(gl, gl.VERTEX_SHADER,
+            document.getElementById('quad-vs').textContent);
+        const drawVS = createShader(gl, gl.VERTEX_SHADER,
+            document.getElementById('draw-vs').textContent);
+
+        const mkFrag = id => createShader(gl, gl.FRAGMENT_SHADER,
+            document.getElementById(id).textContent);
+
+        this.updateProg = createProgram(gl, quadVS, mkFrag('update-fs'));
+        this.drawProg = createProgram(gl, drawVS, mkFrag('draw-fs'));
+        this.screenProg = createProgram(gl, quadVS, mkFrag('screen-fs'));
+        this.compositeProg = createProgram(gl, quadVS, mkFrag('composite-fs'));
+    }
+
+    createBuffers(gl) {
+        // Fullscreen quad
+        this.quadBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
+        gl.bufferData(gl.ARRAY_BUFFER,
+            new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
+
+        // Particle index buffer
+        this.indexBuf = gl.createBuffer();
+        const idx = new Float32Array(this.numParticles);
+        for (let i = 0; i < this.numParticles; i++) idx[i] = i;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.indexBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+
+    initParticleState(gl) {
+        const n = this.particleRes * this.particleRes * 4;
+        const data = new Uint8Array(n);
+        for (let i = 0; i < this.particleRes * this.particleRes; i++) {
+            const x = Math.random(), y = Math.random();
+            data[i*4+0] = Math.floor(256 * (x * 255 - Math.floor(x * 255)));
+            data[i*4+1] = Math.floor(256 * (y * 255 - Math.floor(y * 255)));
+            data[i*4+2] = Math.floor(x * 255);
+            data[i*4+3] = Math.floor(y * 255);
+        }
+        this.particleTex0 = createTex(gl, gl.NEAREST, data,
+            this.particleRes, this.particleRes);
+        this.particleTex1 = createTex(gl, gl.NEAREST,
+            new Uint8Array(n), this.particleRes, this.particleRes);
+        this.particleFB0 = createFBO(gl, this.particleTex0);
+        this.particleFB1 = createFBO(gl, this.particleTex1);
+    }
+
+    // Initialize particles at wet cell positions from a frame entry
+    initParticlesFromSpawn(gl, frameEntry) {
+        const wp = frameEntry.wetPositions;
+        const nWet = Math.floor(wp.length / 2);
+        if (nWet < 1) return;
+
+        const n = this.particleRes * this.particleRes;
+        const data = new Uint8Array(n * 4);
+        for (let i = 0; i < n; i++) {
+            const ri = Math.floor(Math.random() * nWet);
+            const x = wp[ri * 2];
+            const y = wp[ri * 2 + 1];
+            data[i*4+0] = Math.floor(256 * (x * 255 - Math.floor(x * 255)));
+            data[i*4+1] = Math.floor(256 * (y * 255 - Math.floor(y * 255)));
+            data[i*4+2] = Math.floor(x * 255);
+            data[i*4+3] = Math.floor(y * 255);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.particleRes, this.particleRes,
+            0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        console.log(`Initialized ${n} particles at ${nWet} wet positions`);
+    }
+
+    initScreenTextures(gl) {
+        const w = gl.canvas.width, h = gl.canvas.height;
+        const empty = new Uint8Array(w * h * 4);
+        if (this.screenTex0) gl.deleteTexture(this.screenTex0);
+        if (this.screenTex1) gl.deleteTexture(this.screenTex1);
+        if (this.screenFB0) gl.deleteFramebuffer(this.screenFB0);
+        if (this.screenFB1) gl.deleteFramebuffer(this.screenFB1);
+        this.screenTex0 = createTex(gl, gl.NEAREST, empty, w, h);
+        this.screenTex1 = createTex(gl, gl.NEAREST, empty, w, h);
+        this.screenFB0 = createFBO(gl, this.screenTex0);
+        this.screenFB1 = createFBO(gl, this.screenTex1);
+    }
+
+    async loadImage(gl, url, filter) {
+        return new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => {
+                const t = createTex(gl, filter, img, 0, 0);
+                res(t);
+            };
+            img.onerror = rej;
+            img.src = url;
+        });
+    }
+
+    // Load a velocity frame PNG and extract wet cell positions for spawn texture
+    async loadVelFrame(idx) {
+        if (this.frameCache.has(idx)) return this.frameCache.get(idx);
+        const gl = this.gl;
+        const m = this.meta;
+
+        // Load as Image
+        const img = await new Promise((res, rej) => {
+            const im = new Image();
+            im.onload = () => res(im);
+            im.onerror = rej;
+            im.src = `data/velocity/v_${String(idx).padStart(4,'0')}.png`;
+        });
+
+        // Create velocity WebGL texture
+        const tex = createTex(gl, gl.LINEAR, img, 0, 0);
+
+        // Extract wet cell positions by drawing to an offscreen canvas
+        const oc = document.createElement('canvas');
+        oc.width = img.width; oc.height = img.height;
+        const ctx = oc.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, img.width, img.height).data;
+
+        // Collect wet cell positions (subsample if too many)
+        const wetPositions = [];
+        const step = Math.max(1, Math.floor(img.width * img.height / 50000)); // check at most 50K pixels
+        for (let i = 0; i < img.width * img.height; i += step) {
+            if (pixels[i * 4 + 3] > 128) { // alpha > 0.5 → wet
+                const col = i % img.width;
+                const row = Math.floor(i / img.width);
+                wetPositions.push((col + 0.5) / img.width, (row + 0.5) / img.height);
+            }
+        }
+
+        // Build spawn texture (Nx1 RGBA, positions encoded in RG + BA for precision)
+        const maxSpawn = 2048;  // keep within WebGL 1 min texture dimension limit
+        let nSpawn = Math.floor(wetPositions.length / 2);
+        if (nSpawn > maxSpawn) nSpawn = maxSpawn;
+        if (nSpawn < 1) nSpawn = 1; // at least one entry (will be 0.5, 0.5)
+
+        const spawnData = new Uint8Array(nSpawn * 4);
+        for (let i = 0; i < nSpawn; i++) {
+            let si = i;
+            if (wetPositions.length / 2 > maxSpawn) {
+                // subsample uniformly
+                si = Math.floor(i * (wetPositions.length / 2) / maxSpawn);
+            }
+            const x = si < wetPositions.length / 2 ? wetPositions[si * 2] : 0.5;
+            const y = si < wetPositions.length / 2 ? wetPositions[si * 2 + 1] : 0.5;
+            // Encode: R=high byte of x, G=high byte of y, B=low byte of x, A=low byte of y
+            spawnData[i * 4 + 0] = Math.floor(x * 255);         // x high
+            spawnData[i * 4 + 1] = Math.floor(y * 255);         // y high
+            spawnData[i * 4 + 2] = Math.floor((x * 255 - Math.floor(x * 255)) * 255); // x low
+            spawnData[i * 4 + 3] = Math.floor((y * 255 - Math.floor(y * 255)) * 255); // y low
+        }
+
+        const spawnTex = createTex(gl, gl.NEAREST, spawnData, nSpawn, 1);
+
+        this.frameCache.set(idx, { velTex: tex, spawnTex: spawnTex, spawnCount: nSpawn, wetPositions: wetPositions });
+        if (this.frameCache.size > this.frameCacheMax) {
+            const oldest = this.frameCache.keys().next().value;
+            const entry = this.frameCache.get(oldest);
+            gl.deleteTexture(entry.velTex);
+            gl.deleteTexture(entry.spawnTex);
+            this.frameCache.delete(oldest);
+        }
+        return this.frameCache.get(idx);
+    }
+
+    preload() {
+        for (let i = 1; i <= 5; i++) {
+            const fi = (this.currentFrame + i) % this.meta.n_timesteps;
+            if (!this.frameCache.has(fi)) this.loadVelFrame(fi);
+        }
+    }
+
+    setParticleCount(power) {
+        const gl = this.gl;
+        this.particleRes = Math.pow(2, Math.ceil(power / 2));
+        this.numParticles = this.particleRes * this.particleRes;
+        if (this.particleFB0) gl.deleteFramebuffer(this.particleFB0);
+        if (this.particleFB1) gl.deleteFramebuffer(this.particleFB1);
+        if (this.particleTex0) gl.deleteTexture(this.particleTex0);
+        if (this.particleTex1) gl.deleteTexture(this.particleTex1);
+        this.initParticleState(gl);
+        // Re-seed at wet positions if available
+        const entry = this.frameCache.get(this.currentFrame);
+        if (entry && entry.spawnCount > 1) this.initParticlesFromSpawn(gl, entry);
+        const idx = new Float32Array(this.numParticles);
+        for (let i = 0; i < this.numParticles; i++) idx[i] = i;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.indexBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+
+    // ── Render loop ──
+    render() {
+        const now = performance.now();
+        const dt = (now - this._lastT) / 1000;
+        this._lastT = now;
+
+        // FPS counter
+        this._fpsFrames++;
+        this._fpsTime += dt;
+        if (this._fpsTime >= 0.5) {
+            this._fps = Math.round(this._fpsFrames / this._fpsTime);
+            this._fpsFrames = 0;
+            this._fpsTime = 0;
+            document.getElementById('i-fps').textContent = this._fps;
+        }
+
+        if (this.playing) {
+            this.timeFrac += dt * this.speed * 1.5;
+            while (this.timeFrac >= 1.0) {
+                this.timeFrac -= 1.0;
+                this.currentFrame = (this.currentFrame + 1) % this.meta.n_timesteps;
+                this.preload();
+            }
+        }
+
+        // Update UI
+        const fi = this.currentFrame;
+        const tSec = this.meta.times[fi] || 0;
+        document.getElementById('sl-time').value = fi;
+        document.getElementById('v-time').textContent = fmtTime(tSec);
+        document.getElementById('i-time').textContent = fmtTime(tSec);
+        document.getElementById('i-particles').textContent =
+            (this.numParticles >= 1000 ?
+                Math.round(this.numParticles/1024) + 'K' : this.numParticles);
+
+        const gl = this.gl;
+        const m = this.meta;
+        const curEntry = this.frameCache.get(fi);
+        const nextFi = (fi + 1) % m.n_timesteps;
+        const nextEntry = this.frameCache.get(nextFi) || curEntry;
+        if (!curEntry) { requestAnimationFrame(() => this.render()); return; }
+
+        const velTex = curEntry.velTex;
+        const velTexNext = nextEntry.velTex;
+        const spawnTex = curEntry.spawnTex;
+        const spawnCount = curEntry.spawnCount;
+
+        // (1) Update particles
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.particleFB1);
+        gl.viewport(0, 0, this.particleRes, this.particleRes);
+        const up = this.updateProg;
+        gl.useProgram(up);
+
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(up, 'a_pos'), 2);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_particles'), 0);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, velTex);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_velocity'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_velocity_next'), 2);
+
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, spawnTex);
+        gl.uniform1i(gl.getUniformLocation(up, 'u_spawn_tex'), 3);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_spawn_count'), spawnCount);
+
+        gl.uniform1f(gl.getUniformLocation(up, 'u_time_frac'), this.timeFrac);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_rand_seed'), Math.random());
+        gl.uniform1f(gl.getUniformLocation(up, 'u_speed_factor'), this.speedFactor * this.speed);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_drop_rate'), this.dropRate);
+        gl.uniform1f(gl.getUniformLocation(up, 'u_drop_rate_bump'), this.dropRateBump);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_vel_range_x'), m.vx_min, m.vx_max);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_vel_range_y'), m.vy_min, m.vy_max);
+        gl.uniform2f(gl.getUniformLocation(up, 'u_grid_res'), m.width, m.height);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Swap particle textures
+        [this.particleTex0, this.particleTex1] = [this.particleTex1, this.particleTex0];
+        [this.particleFB0, this.particleFB1] = [this.particleFB1, this.particleFB0];
+
+        // (2) Fade screen + draw particles
+        const cw = gl.canvas.width, ch = gl.canvas.height;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.screenFB1);
+        gl.viewport(0, 0, cw, ch);
+
+        // Fade previous screen
+        const sp = this.screenProg;
+        gl.useProgram(sp);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(sp, 'a_pos'), 2);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.screenTex0);
+        gl.uniform1i(gl.getUniformLocation(sp, 'u_screen'), 0);
+        gl.uniform1f(gl.getUniformLocation(sp, 'u_opacity'), this.fadeOpacity);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Draw particles on top (additive)
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+        const dp = this.drawProg;
+        gl.useProgram(dp);
+        bindAttr(gl, this.indexBuf, gl.getAttribLocation(dp, 'a_index'), 1);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTex0);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_particles'), 0);
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_particles_res'), this.particleRes);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, velTex);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_velocity'), 1);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_velocity_next'), 2);
+
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_time_frac'), this.timeFrac);
+        gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_x'), m.vx_min, m.vx_max);
+        gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_y'), m.vy_min, m.vy_max);
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_point_size'), this.pointSize);
+
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this.colorRampTex);
+        gl.uniform1i(gl.getUniformLocation(dp, 'u_color_ramp'), 3);
+
+        gl.drawArrays(gl.POINTS, 0, this.numParticles);
+        gl.disable(gl.BLEND);
+
+        // Swap screen textures
+        [this.screenTex0, this.screenTex1] = [this.screenTex1, this.screenTex0];
+        [this.screenFB0, this.screenFB1] = [this.screenFB1, this.screenFB0];
+
+        // (3) Composite to canvas
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cw, ch);
+
+        const cp = this.compositeProg;
+        gl.useProgram(cp);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(cp, 'a_pos'), 2);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.hillshadeTex);
+        gl.uniform1i(gl.getUniformLocation(cp, 'u_hillshade'), 0);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.screenTex0);
+        gl.uniform1i(gl.getUniformLocation(cp, 'u_trails'), 1);
+
+        gl.uniform1f(gl.getUniformLocation(cp, 'u_dark'), this.darkFactor);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        requestAnimationFrame(() => this.render());
+    }
+}
+
+function fmtTime(s) {
+    if (s < 60) return Math.round(s) + 's';
+    if (s < 3600) return (s/60).toFixed(1) + ' min';
+    return (s/3600).toFixed(1) + ' hr';
+}
+
+// ── Init ──
+const canvas = document.getElementById('gl');
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => {
+    resize();
+    if (viewer) viewer.initScreenTextures(viewer.gl);
+});
+
+let viewer;
+(async () => {
+    viewer = new FloodViewer(canvas);
+    await viewer.init();
+
+    // Wire controls
+    document.getElementById('sl-time').addEventListener('input', e => {
+        viewer.currentFrame = parseInt(e.target.value);
+        viewer.timeFrac = 0;
+        viewer.preload();
+    });
+    document.getElementById('btn-play').addEventListener('click', () => {
+        viewer.playing = !viewer.playing;
+        const b = document.getElementById('btn-play');
+        b.innerHTML = viewer.playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
+        b.classList.toggle('active', viewer.playing);
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+        viewer.currentFrame = 0;
+        viewer.timeFrac = 0;
+        viewer.initScreenTextures(viewer.gl);
+        viewer.initParticleState(viewer.gl);
+    });
+    document.getElementById('btn-fs').addEventListener('click', () => {
+        document.documentElement.requestFullscreen().catch(() => {});
+    });
+    document.getElementById('sl-speed').addEventListener('input', e => {
+        viewer.speed = parseInt(e.target.value) / 100;
+        document.getElementById('v-speed').textContent = viewer.speed.toFixed(1) + 'x';
+    });
+    document.getElementById('sl-particles').addEventListener('input', e => {
+        const pw = parseInt(e.target.value);
+        viewer.setParticleCount(pw);
+        const n = viewer.numParticles;
+        document.getElementById('v-particles').textContent =
+            n >= 1024 ? Math.round(n/1024) + 'K' : n;
+    });
+    document.getElementById('sl-trail').addEventListener('input', e => {
+        viewer.fadeOpacity = parseInt(e.target.value) / 1000;
+        document.getElementById('v-trail').textContent = viewer.fadeOpacity.toFixed(2);
+    });
+})();
+</script>
+</body>
+</html>
+'''
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN / CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2429,6 +3608,24 @@ Output:
         help="Hillshade darkening factor (0=black, 1=full bright). Default: 0.25",
     )
 
+    # ── WebGL interactive viewer export ──────────────────────
+    parser.add_argument(
+        "--export-webgl", action="store_true", default=False,
+        help="Export an interactive WebGL particle viewer (HTML + data files).",
+    )
+    parser.add_argument(
+        "--webgl-output", type=str, default="fluxos_web",
+        help="Output directory for WebGL viewer. Default: fluxos_web/",
+    )
+    parser.add_argument(
+        "--webgl-step", type=int, default=5,
+        help="Subsample every Nth timestep for WebGL export. Default: 5",
+    )
+    parser.add_argument(
+        "--webgl-particles", type=int, default=65536,
+        help="Default particle count in viewer. Default: 65536",
+    )
+
     args = parser.parse_args()
 
     # ── Validate ─────────────────────────────────────────────
@@ -2519,6 +3716,17 @@ Output:
         flow_config["PARTICLE_TAIL"] = args.particle_tail
 
     # ── Step 4: Export ───────────────────────────────────────
+    if args.export_webgl:
+        print(f"[4/4] Exporting interactive WebGL viewer "
+              f"({args.mesh_type} mesh)...")
+        export_webgl(
+            dem, meta, results, args.mesh_type, args.variable, clim,
+            output_dir=args.webgl_output, h_min=args.h_min,
+            step=args.webgl_step, n_particles=args.webgl_particles,
+            utm_to_ll=utm_to_ll,
+        )
+        return
+
     # Advected mode requires --export-video mp4
     if (flow_config and flow_config.get("MODE") == "advected"
             and not args.export_video):
