@@ -41,6 +41,9 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 #colorbar-wrap { position: fixed; bottom: 20px; right: 16px;
     background: rgba(5,8,20,0.7); padding: 8px 12px 6px;
     border-radius: 8px; border: 1px solid rgba(60,90,140,0.2); }
+#conc-colorbar-wrap { position: fixed; bottom: 80px; right: 16px;
+    background: rgba(5,8,20,0.7); padding: 8px 12px 6px;
+    border-radius: 8px; border: 1px solid rgba(60,90,140,0.2); }
 #colorbar-wrap .cb-title { font-family: monospace; font-size: 11px;
     color: #8899bb; margin-bottom: 4px; }
 #colorbar-wrap .cb-labels { display: flex; justify-content: space-between;
@@ -96,6 +99,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <button class="btn active" id="btn-water">&#128167; Water</button>
         <button class="btn active" id="btn-particles">&#10024; Particles</button>
         <button class="btn" id="btn-sat" style="display:none;">&#127760; Satellite</button>
+        <button class="btn" id="btn-conc" style="display:none;">&#9762; Concentration</button>
     </div>
 </div>
 
@@ -113,6 +117,12 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     <div class="cb-title">Flow speed (m/s)</div>
     <canvas id="colorbar" width="180" height="14"></canvas>
     <div class="cb-labels"><span id="cb-min">0</span><span id="cb-max">--</span></div>
+</div>
+
+<div id="conc-colorbar-wrap" style="display:none;">
+    <div class="cb-title">Concentration (mg/L)</div>
+    <canvas id="conc-colorbar" width="180" height="14"></canvas>
+    <div class="cb-labels"><span id="conc-cb-min">0</span><span id="conc-cb-max">--</span></div>
 </div>
 
 <!-- ═══════ GLSL SHADERS ═══════ -->
@@ -439,6 +449,82 @@ void main() {
     vec3 deep = vec3(0.05, 0.15, 0.5);   // dark blue
     vec3 col = mix(shallow, deep, t);
     float alpha = mix(0.35, 0.75, t);
+    gl_FragColor = vec4(col, alpha);
+}
+</script>
+
+<!-- Concentration overlay vertex shader (reuses terrain mesh) -->
+<script id="conc-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec3 a_position;
+attribute vec2 a_texcoord;
+uniform mat4 u_mvp;
+uniform sampler2D u_concentration;
+uniform sampler2D u_heightmap;
+uniform float u_h_max;
+uniform float u_z_range;
+uniform float u_exaggeration;
+uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_next;
+uniform float u_time_frac;
+varying vec2 v_uv;
+varying float v_conc_t;
+
+void main() {
+    v_uv = a_texcoord;
+
+    // Sample concentration
+    float conc = texture2D(u_concentration, a_texcoord).r;
+    float conc_wet = texture2D(u_concentration, a_texcoord).a;
+    v_conc_t = conc * step(0.5, conc_wet);
+
+    // Sample water depth for surface elevation
+    vec4 v0 = texture2D(u_velocity, a_texcoord);
+    vec4 v1 = texture2D(u_velocity_next, a_texcoord);
+    float d0 = v0.b * u_h_max;
+    float d1 = v1.b * u_h_max;
+    float wet0 = step(0.5, v0.a);
+    float wet1 = step(0.5, v1.a);
+    float depth = mix(d0 * wet0, d1 * wet1, u_time_frac);
+
+    // Sample terrain height
+    vec4 hm = texture2D(u_heightmap, a_texcoord);
+    float z_norm = hm.r + hm.g / 256.0;
+    float valid = step(0.5, hm.b);
+
+    float terrain_y = z_norm * u_exaggeration * valid;
+    float water_offset = depth / u_z_range * u_exaggeration;
+    float bump = step(0.001, depth) * 0.004;  // slightly above water surface
+
+    vec3 pos = a_position;
+    pos.y = terrain_y + water_offset + bump;
+    gl_Position = u_mvp * vec4(pos, 1.0);
+}
+</script>
+
+<!-- Concentration overlay fragment shader -->
+<script id="conc-fs" type="x-shader/x-fragment">
+precision mediump float;
+varying vec2 v_uv;
+varying float v_conc_t;
+
+// Viridis-like yellow-orange-red heat ramp
+vec3 concColor(float t) {
+    // Green to yellow to orange to red
+    vec3 c0 = vec3(0.0, 0.5, 0.0);   // green (low)
+    vec3 c1 = vec3(1.0, 1.0, 0.0);   // yellow
+    vec3 c2 = vec3(1.0, 0.5, 0.0);   // orange
+    vec3 c3 = vec3(1.0, 0.0, 0.0);   // red (high)
+    if (t < 0.333) return mix(c0, c1, t * 3.0);
+    if (t < 0.666) return mix(c1, c2, (t - 0.333) * 3.0);
+    return mix(c2, c3, (t - 0.666) * 3.0);
+}
+
+void main() {
+    if (v_conc_t < 0.004) discard;  // no concentration
+    float t = clamp(v_conc_t, 0.0, 1.0);
+    vec3 col = concColor(t);
+    float alpha = mix(0.4, 0.85, t);
     gl_FragColor = vec4(col, alpha);
 }
 </script>
@@ -881,6 +967,9 @@ class FloodViewer3D {
         // Water level surface
         this.showWater = true;
         this.showParticles = true;
+        // Concentration overlay
+        this.showConcentration = false;
+        this.concFrameCache = new Map();
     }
 
     async init() {
@@ -964,6 +1053,39 @@ class FloodViewer3D {
             }
         }
 
+        // Concentration data (optional)
+        if (m.has_concentration) {
+            document.getElementById('btn-conc').style.display = '';
+            document.getElementById('conc-cb-max').textContent =
+                m.conc_max ? m.conc_max.toFixed(1) : '--';
+            // Draw concentration colorbar
+            const ccb = document.getElementById('conc-colorbar');
+            const cctx = ccb.getContext('2d');
+            for (let x = 0; x < ccb.width; x++) {
+                const t = x / ccb.width;
+                let r2, g2, b2;
+                if (t < 0.333) {
+                    const f = t * 3.0;
+                    r2 = Math.round(f * 255);
+                    g2 = Math.round((0.5 + 0.5 * f) * 255);
+                    b2 = Math.round((1 - f) * 0);
+                } else if (t < 0.666) {
+                    const f = (t - 0.333) * 3.0;
+                    r2 = 255;
+                    g2 = Math.round((1.0 - 0.5 * f) * 255);
+                    b2 = 0;
+                } else {
+                    const f = (t - 0.666) * 3.0;
+                    r2 = 255;
+                    g2 = Math.round((0.5 - 0.5 * f) * 255);
+                    b2 = 0;
+                }
+                cctx.fillStyle = `rgb(${r2},${g2},${b2})`;
+                cctx.fillRect(x, 0, 1, ccb.height);
+            }
+            console.log('Concentration data available, conc_max=' + m.conc_max);
+        }
+
         // Find first frame with water
         document.getElementById('loading').textContent = 'Loading velocity data...';
         let startFrame = 0;
@@ -975,6 +1097,12 @@ class FloodViewer3D {
         this.currentFrame = startFrame;
         const nextF = Math.min(startFrame + 1, m.n_timesteps - 1);
         if (!this.frameCache.has(nextF)) await this.loadVelFrame(nextF);
+
+        // Preload concentration frames if available
+        if (m.has_concentration) {
+            await this.loadConcFrame(startFrame);
+            this.loadConcFrame(nextF);  // fire-and-forget for next frame
+        }
         console.log(`Starting at frame ${startFrame}, speedFactor: ${this.speedFactor.toFixed(4)}`);
 
         // Seed particles at wet positions
@@ -1010,6 +1138,7 @@ class FloodViewer3D {
         this.screenProg = createProgram(gl, quadVS, mkFS('screen-fs'));
         this.terrainProg = createProgram(gl, terrainVS, mkFS('terrain-fs'));
         this.waterProg = createProgram(gl, mkVS('water-vs'), mkFS('water-fs'));
+        this.concProg = createProgram(gl, mkVS('conc-vs'), mkFS('conc-fs'));
     }
 
     createBuffers(gl) {
@@ -1162,10 +1291,31 @@ class FloodViewer3D {
         return this.frameCache.get(idx);
     }
 
+    async loadConcFrame(idx) {
+        if (this.concFrameCache.has(idx)) return this.concFrameCache.get(idx);
+        const gl = this.gl;
+        try {
+            const tex = await this.loadImage(gl,
+                `data/conc/c_${String(idx).padStart(4,'0')}.png`, gl.LINEAR);
+            this.concFrameCache.set(idx, tex);
+            if (this.concFrameCache.size > this.frameCacheMax) {
+                const oldest = this.concFrameCache.keys().next().value;
+                gl.deleteTexture(this.concFrameCache.get(oldest));
+                this.concFrameCache.delete(oldest);
+            }
+            return tex;
+        } catch (e) {
+            return null;
+        }
+    }
+
     preload() {
         for (let i = 1; i <= 5; i++) {
             const fi = (this.currentFrame + i) % this.meta.n_timesteps;
             if (!this.frameCache.has(fi)) this.loadVelFrame(fi);
+            if (this.meta.has_concentration && !this.concFrameCache.has(fi)) {
+                this.loadConcFrame(fi);
+            }
         }
     }
 
@@ -1246,6 +1396,12 @@ class FloodViewer3D {
         const velTexNext = nextEntry.velTex;
         const spawnTex = curEntry.spawnTex;
         const spawnCount = curEntry.spawnCount;
+
+        // Lazy-load concentration frames when needed
+        if (m.has_concentration && this.showConcentration) {
+            if (!this.concFrameCache.has(fi)) this.loadConcFrame(fi);
+            if (!this.concFrameCache.has(nextFi)) this.loadConcFrame(nextFi);
+        }
 
         // ============================================================
         // PASS 1: Update particle positions (2D, same as before)
@@ -1457,6 +1613,64 @@ class FloodViewer3D {
         }
 
         // ============================================================
+        // PASS 3c: Draw concentration overlay (on water surface)
+        // ============================================================
+        if (this.showConcentration && m.has_concentration) {
+            const concTex = this.concFrameCache.get(fi);
+            const concTexNext = this.concFrameCache.get(nextFi) || concTex;
+            if (concTex) {
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                gl.depthMask(false);
+                gl.enable(gl.POLYGON_OFFSET_FILL);
+                gl.polygonOffset(-2.0, -2.0);
+
+                const cp = this.concProg;
+                gl.useProgram(cp);
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainVBO);
+                const cPos = gl.getAttribLocation(cp, 'a_position');
+                const cTex = gl.getAttribLocation(cp, 'a_texcoord');
+                gl.enableVertexAttribArray(cPos);
+                gl.vertexAttribPointer(cPos, 3, gl.FLOAT, false, 20, 0);
+                gl.enableVertexAttribArray(cTex);
+                gl.vertexAttribPointer(cTex, 2, gl.FLOAT, false, 20, 12);
+
+                gl.uniformMatrix4fv(gl.getUniformLocation(cp, 'u_mvp'), false, mvp);
+
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, concTex);
+                gl.uniform1i(gl.getUniformLocation(cp, 'u_concentration'), 0);
+
+                gl.activeTexture(gl.TEXTURE1);
+                gl.bindTexture(gl.TEXTURE_2D, this.heightmapTex);
+                gl.uniform1i(gl.getUniformLocation(cp, 'u_heightmap'), 1);
+
+                gl.activeTexture(gl.TEXTURE2);
+                gl.bindTexture(gl.TEXTURE_2D, velTex);
+                gl.uniform1i(gl.getUniformLocation(cp, 'u_velocity'), 2);
+
+                gl.activeTexture(gl.TEXTURE3);
+                gl.bindTexture(gl.TEXTURE_2D, velTexNext);
+                gl.uniform1i(gl.getUniformLocation(cp, 'u_velocity_next'), 3);
+
+                gl.uniform1f(gl.getUniformLocation(cp, 'u_time_frac'), this.timeFrac);
+                gl.uniform1f(gl.getUniformLocation(cp, 'u_h_max'), m.h_max);
+                gl.uniform1f(gl.getUniformLocation(cp, 'u_z_range'), m.z_max - m.z_min);
+                gl.uniform1f(gl.getUniformLocation(cp, 'u_exaggeration'), this.exaggeration);
+
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
+                gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
+
+                gl.disableVertexAttribArray(cPos);
+                gl.disableVertexAttribArray(cTex);
+                gl.disable(gl.POLYGON_OFFSET_FILL);
+                gl.disable(gl.BLEND);
+                gl.depthMask(true);
+            }
+        }
+
+        // ============================================================
         // PASS 4: Draw particles in 3D (on water surface)
         // ============================================================
         if (this.showParticles) {
@@ -1590,6 +1804,13 @@ let viewer;
         viewer.showParticles = !viewer.showParticles;
         const b = document.getElementById('btn-particles');
         b.classList.toggle('active', viewer.showParticles);
+    });
+    document.getElementById('btn-conc').addEventListener('click', () => {
+        viewer.showConcentration = !viewer.showConcentration;
+        const b = document.getElementById('btn-conc');
+        b.classList.toggle('active', viewer.showConcentration);
+        const cbw = document.getElementById('conc-colorbar-wrap');
+        cbw.style.display = viewer.showConcentration ? '' : 'none';
     });
 })();
 </script>

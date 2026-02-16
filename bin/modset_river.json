@@ -12,7 +12,7 @@
 	},
 	"OUTPUT": {
 		"OUTPUT_FOLDER": "Results_river/",
-		"PRINT_STEP": 100,
+		"PRINT_STEP": 50,
 		"H_MIN_TO_PRINT": 0.001
 	},
 	"ROUGNESS_HEIGHT": 0.005,
@@ -28,7 +28,7 @@
 	},
 	"EXTERNAL_MODULES": {
 		"ADE_TRANSPORT": {
-			"STATUS": false,
+			"STATUS": true,
 			"D_COEF": 0.5
 		},
 		"OPENWQ": {
