@@ -1,0 +1,39 @@
+{
+	"COMMENT": "River channel simulation - point inflow at upstream river entry",
+	"DEM_FILE": "bin/Rosa_2m.asc",
+	"SIM_DATETIME_START": "2009-01-01 00:00:00",
+	"RESTART": false,
+	"INFLOW_FILE": {
+		"FILENAME": "bin/Flow_river.fluxos",
+		"DISCHARGE_LOCATION": {
+			"X_COORDINATE": 426107,
+			"Y_COORDINATE": 5785362
+		}
+	},
+	"OUTPUT": {
+		"OUTPUT_FOLDER": "Results_river/",
+		"PRINT_STEP": 100,
+		"H_MIN_TO_PRINT": 0.001
+	},
+	"ROUGNESS_HEIGHT": 0.005,
+	"SOIL_INFILTRATION": {
+		"STATUS": true,
+		"SOIL_MAP": "",
+		"SOIL_TYPES": {
+			"1": {
+				"NAME": "Sandy Loam",
+				"USDA_CLASS": "sandy_loam"
+			}
+		}
+	},
+	"EXTERNAL_MODULES": {
+		"ADE_TRANSPORT": {
+			"STATUS": false,
+			"D_COEF": 0.5
+		},
+		"OPENWQ": {
+			"STATUS": false,
+			"MASTERFILE_DIR": ""
+		}
+	}
+}
