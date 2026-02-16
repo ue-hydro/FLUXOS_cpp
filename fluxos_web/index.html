@@ -152,8 +152,10 @@ float rand(vec2 co) {
 
 vec2 lookup_vel(sampler2D tex, vec2 uv) {
     vec4 t = texture2D(tex, uv);
-    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, t.r);
-    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, t.g);
+    // R channel = ux (row/northing direction) → drives v-axis movement
+    // G channel = uy (col/easting direction) → drives u-axis movement
+    float vx = mix(u_vel_range_y.x, u_vel_range_y.y, t.g);  // easting vel from G
+    float vy = mix(u_vel_range_x.x, u_vel_range_x.y, t.r);  // northing vel from R
     float wet = step(0.5, t.a);
     return vec2(vx, vy) * wet;
 }
@@ -226,8 +228,9 @@ void main() {
     vec4 t1 = texture2D(u_velocity_next, pos);
     vec4 vt = mix(t0, t1, u_time_frac);
 
-    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);
-    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);
+    // R=ux (northing vel), G=uy (easting vel) — swap to get correct axes
+    float vx = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);  // easting from G
+    float vy = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);  // northing from R
     float spd = length(vec2(vx, vy));
     float mx = max(abs(u_vel_range_x.y), abs(u_vel_range_y.y));
     v_speed_t = clamp(spd / mx, 0.0, 1.0);
@@ -256,6 +259,7 @@ uniform float u_z_min;
 uniform float u_z_range;
 uniform float u_exaggeration;
 uniform float u_aspect;      // width/height of terrain in world units
+uniform float u_h_max;       // max water depth (for decoding velocity B channel)
 uniform mat4 u_mvp;
 varying float v_speed_t;
 
@@ -270,8 +274,9 @@ void main() {
     vec4 t1 = texture2D(u_velocity_next, pos);
     vec4 vt = mix(t0, t1, u_time_frac);
 
-    float vx = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);
-    float vy = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);
+    // R=ux (northing vel), G=uy (easting vel) — swap to get correct axes
+    float vx = mix(u_vel_range_y.x, u_vel_range_y.y, vt.g);  // easting from G
+    float vy = mix(u_vel_range_x.x, u_vel_range_x.y, vt.r);  // northing from R
     float spd = length(vec2(vx, vy));
     float mx = max(abs(u_vel_range_x.y), abs(u_vel_range_y.y));
     v_speed_t = clamp(spd / mx, 0.0, 1.0);
@@ -282,13 +287,20 @@ void main() {
     vec4 h = texture2D(u_heightmap, pos);
     float z_norm = h.r + h.g / 256.0;  // 16-bit decode: R=high byte, G=low byte
     float valid = step(0.5, h.b);       // B=validity (255=valid, 0=nodata)
-    float height = z_norm * u_z_range + u_z_min;
+
+    // Sample water depth from velocity B channel and float on water surface
+    float d0 = t0.b * u_h_max;
+    float d1 = t1.b * u_h_max;
+    float w0 = step(0.5, t0.a);
+    float w1 = step(0.5, t1.a);
+    float depth = mix(d0 * w0, d1 * w1, u_time_frac);
+    float water_offset = depth / u_z_range * u_exaggeration;
 
     // World position: x along width, z along depth (negated for right-hand coords)
-    // Centered at origin, height exaggerated
+    // Particles ride on water surface (terrain + water depth + small bump)
     vec3 worldPos = vec3(
         (pos.x - 0.5) * u_aspect,
-        (height - u_z_min) / u_z_range * u_exaggeration * valid + 0.001,
+        z_norm * u_exaggeration * valid + water_offset + 0.003,
         -(pos.y - 0.5)
     );
 
@@ -340,12 +352,17 @@ precision mediump float;
 uniform sampler2D u_hillshade;
 uniform sampler2D u_satellite;
 uniform sampler2D u_trails;
+uniform sampler2D u_heightmap;
 uniform float u_dark;
 uniform float u_use_satellite;   // 0.0 = hillshade, 1.0 = satellite
 varying vec2 v_uv;
 varying float v_height;
 
 void main() {
+    // Discard NoData fragments at basin boundary for clean clipping
+    float valid = texture2D(u_heightmap, v_uv).b;
+    if (valid < 0.5) discard;
+
     vec3 base;
     if (u_use_satellite > 0.5) {
         base = texture2D(u_satellite, v_uv).rgb * (u_dark * 1.5);
@@ -551,7 +568,7 @@ class OrbitCamera {
 
             if (this._dragging) {
                 this.theta -= dx * 0.005;
-                this.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05,
+                this.phi = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01,
                     this.phi + dy * 0.005));
             } else if (this._panning) {
                 // Pan in view plane
@@ -573,7 +590,7 @@ class OrbitCamera {
 
         canvas.addEventListener('wheel', e => {
             this.distance *= e.deltaY > 0 ? 1.1 : 0.9;
-            this.distance = Math.max(0.1, Math.min(10, this.distance));
+            this.distance = Math.max(0.005, Math.min(50, this.distance));
             e.preventDefault();
         }, { passive: false });
 
@@ -596,7 +613,7 @@ class OrbitCamera {
                 this._lastX = e.touches[0].clientX;
                 this._lastY = e.touches[0].clientY;
                 this.theta -= dx * 0.005;
-                this.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05,
+                this.phi = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01,
                     this.phi + dy * 0.005));
             } else if (e.touches.length === 2 && lastTouches && lastTouches.length === 2) {
                 // Pinch zoom
@@ -607,7 +624,7 @@ class OrbitCamera {
                     e.touches[0].clientX - e.touches[1].clientX,
                     e.touches[0].clientY - e.touches[1].clientY);
                 this.distance *= d0 / Math.max(d1, 1);
-                this.distance = Math.max(0.1, Math.min(10, this.distance));
+                this.distance = Math.max(0.005, Math.min(50, this.distance));
             }
             lastTouches = e.touches;
             e.preventDefault();
@@ -759,10 +776,13 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
 
     // 5 floats per vertex: x, y, z (world), u, v (texcoord)
     const verts = new Float32Array(meshW * meshH * 5);
+    // Per-vertex validity mask (for skipping NoData triangles)
+    const valid = new Uint8Array(meshW * meshH);
     let vi = 0;
 
     for (let row = 0; row < meshH; row++) {
         for (let col = 0; col < meshW; col++) {
+            const idx = row * meshW + col;
             const u = Math.min(col * stepX, imgW - 1) / (imgW - 1);
             const v = Math.min(row * stepY, imgH - 1) / (imgH - 1);
 
@@ -773,6 +793,7 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
             const worldY = h.valid ? h.z * exaggeration : 0;
             const worldZ = -(v - 0.5);
 
+            valid[idx] = h.valid ? 1 : 0;
             verts[vi++] = worldX;
             verts[vi++] = worldY;
             verts[vi++] = worldZ;
@@ -781,10 +802,10 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
         }
     }
 
-    // Build index buffer (triangle list)
-    const nIndices = (meshW - 1) * (meshH - 1) * 6;
+    // Build index buffer — skip triangles where any vertex is NoData
+    const maxIndices = (meshW - 1) * (meshH - 1) * 6;
     const useUint32 = meshW * meshH > 65535;
-    const indices = useUint32 ? new Uint32Array(nIndices) : new Uint16Array(nIndices);
+    const indices = useUint32 ? new Uint32Array(maxIndices) : new Uint16Array(maxIndices);
     let ii = 0;
 
     for (let row = 0; row < meshH - 1; row++) {
@@ -793,11 +814,18 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
             const tr = tl + 1;
             const bl = tl + meshW;
             const br = bl + 1;
-            indices[ii++] = tl; indices[ii++] = bl; indices[ii++] = tr;
-            indices[ii++] = tr; indices[ii++] = bl; indices[ii++] = br;
+            // Upper triangle: tl-bl-tr
+            if (valid[tl] && valid[bl] && valid[tr]) {
+                indices[ii++] = tl; indices[ii++] = bl; indices[ii++] = tr;
+            }
+            // Lower triangle: tr-bl-br
+            if (valid[tr] && valid[bl] && valid[br]) {
+                indices[ii++] = tr; indices[ii++] = bl; indices[ii++] = br;
+            }
         }
     }
 
+    const nIndices = ii;
     return { verts, indices, meshW, meshH, useUint32, nIndices, aspect };
 }
 
@@ -1361,6 +1389,10 @@ class FloodViewer3D {
         gl.bindTexture(gl.TEXTURE_2D, this.satelliteTex || this.hillshadeTex);
         gl.uniform1i(gl.getUniformLocation(tp, 'u_satellite'), 2);
 
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this.heightmapTex);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_heightmap'), 3);
+
         gl.uniform1f(gl.getUniformLocation(tp, 'u_dark'), this.darkFactor);
         gl.uniform1f(gl.getUniformLocation(tp, 'u_use_satellite'),
             this.useSatellite && this.satelliteTex ? 1.0 : 0.0);
@@ -1425,7 +1457,7 @@ class FloodViewer3D {
         }
 
         // ============================================================
-        // PASS 4: Draw particles in 3D (on terrain surface)
+        // PASS 4: Draw particles in 3D (on water surface)
         // ============================================================
         if (this.showParticles) {
         gl.depthMask(false);  // Don't write depth for particles
@@ -1465,6 +1497,7 @@ class FloodViewer3D {
         gl.uniform1f(gl.getUniformLocation(d3, 'u_z_range'), m.z_max - m.z_min);
         gl.uniform1f(gl.getUniformLocation(d3, 'u_exaggeration'), this.exaggeration);
         gl.uniform1f(gl.getUniformLocation(d3, 'u_aspect'), this.terrainAspect);
+        gl.uniform1f(gl.getUniformLocation(d3, 'u_h_max'), m.h_max || 0);
         gl.uniformMatrix4fv(gl.getUniformLocation(d3, 'u_mvp'), false, mvp);
 
         gl.drawArrays(gl.POINTS, 0, this.numParticles);
