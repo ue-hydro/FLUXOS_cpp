@@ -74,7 +74,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     </div>
     <div class="ctrl-row">
         <label>Speed</label>
-        <input type="range" id="sl-speed" min="5" max="300" value="80">
+        <input type="range" id="sl-speed" min="5" max="2000" value="80">
         <span class="val" id="v-speed">0.8x</span>
     </div>
     <div class="ctrl-row">
@@ -94,6 +94,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     </div>
     <div class="ctrl-row" style="justify-content:center; gap:8px; margin-top:6px;">
         <button class="btn active" id="btn-water">&#128167; Water</button>
+        <button class="btn active" id="btn-particles">&#10024; Particles</button>
         <button class="btn" id="btn-sat" style="display:none;">&#127760; Satellite</button>
     </div>
 </div>
@@ -361,11 +362,12 @@ void main() {
 <!-- Water surface vertex shader -->
 <script id="water-vs" type="x-shader/x-vertex">
 precision mediump float;
-attribute vec3 a_position;   // terrain mesh positions
+attribute vec3 a_position;   // terrain mesh positions (x, y_terrain, z)
 attribute vec2 a_texcoord;   // (u, v) for texture lookup
 uniform mat4 u_mvp;
 uniform sampler2D u_velocity;       // current velocity frame (B=depth)
 uniform sampler2D u_velocity_next;  // next velocity frame
+uniform sampler2D u_heightmap;      // terrain heightmap for precise elevation
 uniform float u_time_frac;
 uniform float u_h_max;              // global max depth (for decoding B channel)
 uniform float u_z_range;
@@ -379,16 +381,27 @@ void main() {
     // Sample water depth from B channel of velocity texture
     vec4 v0 = texture2D(u_velocity, a_texcoord);
     vec4 v1 = texture2D(u_velocity_next, a_texcoord);
-    float d0 = v0.b * u_h_max;   // texture2D returns [0,1], B encodes depth/h_max
+    float d0 = v0.b * u_h_max;
     float d1 = v1.b * u_h_max;
     float wet0 = step(0.5, v0.a);
     float wet1 = step(0.5, v1.a);
     float depth = mix(d0 * wet0, d1 * wet1, u_time_frac);
     v_depth = depth;
 
-    // Lift the terrain position by the water depth
+    // Sample precise terrain height from heightmap (16-bit decode)
+    vec4 hm = texture2D(u_heightmap, a_texcoord);
+    float z_norm = hm.r + hm.g / 256.0;
+    float valid = step(0.5, hm.b);
+
+    // Compute water surface height = terrain + depth (both in normalized units)
+    float terrain_y = z_norm * u_exaggeration * valid;
+    float water_offset = depth / u_z_range * u_exaggeration;
+
+    // Add small constant bump so thin water layers are visibly above terrain
+    float bump = step(0.001, depth) * 0.002;
+
     vec3 pos = a_position;
-    pos.y += depth / u_z_range * u_exaggeration;
+    pos.y = terrain_y + water_offset + bump;
 
     gl_Position = u_mvp * vec4(pos, 1.0);
 }
@@ -839,6 +852,7 @@ class FloodViewer3D {
         this.useSatellite = false;
         // Water level surface
         this.showWater = true;
+        this.showParticles = true;
     }
 
     async init() {
@@ -1208,6 +1222,14 @@ class FloodViewer3D {
         // ============================================================
         // PASS 1: Update particle positions (2D, same as before)
         // ============================================================
+        if (!this.showParticles) {
+            // Clear trail FBO so no stale trails appear on terrain
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFB0);
+            gl.viewport(0, 0, this.trailW, this.trailH);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+        if (this.showParticles) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.particleFB1);
         gl.viewport(0, 0, this.particleRes, this.particleRes);
         gl.disable(gl.DEPTH_TEST);
@@ -1299,6 +1321,7 @@ class FloodViewer3D {
 
         [this.trailTex0, this.trailTex1] = [this.trailTex1, this.trailTex0];
         [this.trailFB0, this.trailFB1] = [this.trailFB1, this.trailFB0];
+        } // end if (showParticles) — passes 1 & 2
 
         // ============================================================
         // PASS 3: Render terrain mesh with hillshade + trails (3D)
@@ -1357,6 +1380,9 @@ class FloodViewer3D {
             gl.enable(gl.BLEND);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             gl.depthMask(false);
+            // Offset water surface to avoid depth fighting with terrain
+            gl.enable(gl.POLYGON_OFFSET_FILL);
+            gl.polygonOffset(-1.0, -1.0);
 
             const wp = this.waterProg;
             gl.useProgram(wp);
@@ -1379,6 +1405,10 @@ class FloodViewer3D {
             gl.bindTexture(gl.TEXTURE_2D, velTexNext);
             gl.uniform1i(gl.getUniformLocation(wp, 'u_velocity_next'), 1);
 
+            gl.activeTexture(gl.TEXTURE2);
+            gl.bindTexture(gl.TEXTURE_2D, this.heightmapTex);
+            gl.uniform1i(gl.getUniformLocation(wp, 'u_heightmap'), 2);
+
             gl.uniform1f(gl.getUniformLocation(wp, 'u_time_frac'), this.timeFrac);
             gl.uniform1f(gl.getUniformLocation(wp, 'u_h_max'), m.h_max);
             gl.uniform1f(gl.getUniformLocation(wp, 'u_z_range'), m.z_max - m.z_min);
@@ -1389,6 +1419,7 @@ class FloodViewer3D {
 
             gl.disableVertexAttribArray(wPos);
             gl.disableVertexAttribArray(wTex);
+            gl.disable(gl.POLYGON_OFFSET_FILL);
             gl.disable(gl.BLEND);
             gl.depthMask(true);
         }
@@ -1396,6 +1427,7 @@ class FloodViewer3D {
         // ============================================================
         // PASS 4: Draw particles in 3D (on terrain surface)
         // ============================================================
+        if (this.showParticles) {
         gl.depthMask(false);  // Don't write depth for particles
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
@@ -1439,6 +1471,7 @@ class FloodViewer3D {
 
         gl.disable(gl.BLEND);
         gl.depthMask(true);
+        } // end if (showParticles) — pass 4
 
         requestAnimationFrame(() => this.render());
     }
@@ -1519,6 +1552,11 @@ let viewer;
         viewer.showWater = !viewer.showWater;
         const b = document.getElementById('btn-water');
         b.classList.toggle('active', viewer.showWater);
+    });
+    document.getElementById('btn-particles').addEventListener('click', () => {
+        viewer.showParticles = !viewer.showParticles;
+        const b = document.getElementById('btn-particles');
+        b.classList.toggle('active', viewer.showParticles);
     });
 })();
 </script>
