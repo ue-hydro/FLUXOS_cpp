@@ -713,10 +713,10 @@ class VelocityFieldCache:
     def _load(self, idx):
         r = self.results[idx]
         if self.mesh_type == "regular":
-            vx, vy, wet = _build_velocity_grids_regular(
+            vx, vy, wet, _h = _build_velocity_grids_regular(
                 self.dem, self.meta, r["data"], self.h_min)
         else:
-            vx, vy, wet = _build_velocity_grids_triangular(
+            vx, vy, wet, _h = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 self.h_min, self._nrows, self._ncols,
                 self._xll, self._yll, self._cs)
@@ -748,7 +748,7 @@ class VelocityFieldCache:
 
 
 def _build_velocity_grids_regular(dem, meta, data, h_min):
-    """Build (grid_vx, grid_vy, wet_mask) from regular mesh data."""
+    """Build (grid_vx, grid_vy, wet_mask, grid_h) from regular mesh data."""
     nrows, ncols = dem.shape
     cs = meta["cellsize"]
     xll = meta["xllcorner"]
@@ -766,20 +766,23 @@ def _build_velocity_grids_regular(dem, meta, data, h_min):
 
     grid_vx = np.zeros((nrows, ncols))
     grid_vy = np.zeros((nrows, ncols))
+    grid_h = np.zeros((nrows, ncols))
     wet_mask = np.zeros((nrows, ncols), dtype=bool)
     wet = h_depth > h_min
     grid_vx[row_idx[wet], col_idx[wet]] = vx[wet]
     grid_vy[row_idx[wet], col_idx[wet]] = vy[wet]
+    grid_h[row_idx[wet], col_idx[wet]] = h_depth[wet]
     wet_mask[row_idx[wet], col_idx[wet]] = True
-    return grid_vx, grid_vy, wet_mask
+    return grid_vx, grid_vy, wet_mask, grid_h
 
 
 def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
                                       nrows, ncols, xll, yll, cs):
-    """Build (grid_vx, grid_vy, wet_mask) from triangular mesh data."""
+    """Build (grid_vx, grid_vy, wet_mask, grid_h) from triangular mesh data."""
     if "h" not in cell_data:
         return (np.zeros((nrows, ncols)), np.zeros((nrows, ncols)),
-                np.zeros((nrows, ncols), dtype=bool))
+                np.zeros((nrows, ncols), dtype=bool),
+                np.zeros((nrows, ncols)))
 
     h = cell_data["h"]
     vx, vy = _extract_velocity_triangular(cell_data)
@@ -788,6 +791,7 @@ def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
     # Bin cells into pixel-sized blocks and average
     grid_vx = np.zeros((nrows, ncols))
     grid_vy = np.zeros((nrows, ncols))
+    grid_h = np.zeros((nrows, ncols))
     grid_cnt = np.zeros((nrows, ncols))
 
     for ci in range(n_cells):
@@ -802,12 +806,14 @@ def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
         if 0 <= row < nrows and 0 <= col < ncols:
             grid_vx[row, col] += vx[ci]
             grid_vy[row, col] += vy[ci]
+            grid_h[row, col] += h[ci]
             grid_cnt[row, col] += 1
 
     valid = grid_cnt > 0
     grid_vx[valid] /= grid_cnt[valid]
     grid_vy[valid] /= grid_cnt[valid]
-    return grid_vx, grid_vy, valid
+    grid_h[valid] /= grid_cnt[valid]
+    return grid_vx, grid_vy, valid, grid_h
 
 
 def _draw_thick_line(img, r0, c0, r1, c1, rgba, width=1):
@@ -1591,10 +1597,10 @@ def _generate_frames(dem, meta, results, mesh_type, variable, clim,
         # Overlay flow visualisation (drawn at high-res)
         if draw_arrows and vel_scale is not None:
             if mesh_type == "regular":
-                gvx, gvy, wmask = _build_velocity_grids_regular(
+                gvx, gvy, wmask, _h = _build_velocity_grids_regular(
                     dem, meta, r["data"], h_min)
             else:
-                gvx, gvy, wmask = _build_velocity_grids_triangular(
+                gvx, gvy, wmask, _h = _build_velocity_grids_triangular(
                     r["points"], r["cells"], r["cell_data"],
                     h_min, nrows, ncols, xll, yll, cs)
             gvx_hr = _upscale_velocity_grid(gvx, scale)
@@ -2272,16 +2278,22 @@ def export_video_advected(dem, meta, results, mesh_type, variable, clim,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
-                        img_w, img_h, output_path):
-    """Download satellite imagery from Esri World Imagery and stitch to image.
+                        img_w, img_h, output_path,
+                        basin_mask=None):
+    """Download satellite imagery from Esri World Imagery and reproject to
+    match a DEM grid.
 
-    Uses slippy-map tile convention (z/x/y) with Web Mercator projection.
-    The resulting JPEG is aligned to the DEM bounding box.
+    The DEM lives in UTM (locally equirectangular), so its pixel grid maps
+    linearly to lat/lon over small areas.  Satellite tiles are in Web
+    Mercator, where the Y-axis is nonlinear in latitude.  To align them we
+    resample every output pixel individually: compute the lat/lon for that
+    DEM cell, convert lat to Mercator-Y, and bilinearly sample the mosaic.
+
+    If *basin_mask* is provided (a bool array, shape == (img_h, img_w),
+    True = valid DEM cell), pixels outside the basin are darkened.
     """
     import urllib.request
     import io
-    import struct
-    import zlib
 
     # Choose zoom level: aim for ~1 pixel per DEM cell
     lat_mid = (sw_lat + ne_lat) / 2.0
@@ -2304,8 +2316,10 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
         n = 2 ** z
         west = tx / n * 360.0 - 180.0
         east = (tx + 1) / n * 360.0 - 180.0
-        north = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * ty / n))))
-        south = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (ty + 1) / n))))
+        north = math.degrees(math.atan(math.sinh(
+            math.pi * (1 - 2 * ty / n))))
+        south = math.degrees(math.atan(math.sinh(
+            math.pi * (1 - 2 * (ty + 1) / n))))
         return west, south, east, north
 
     tx_min, ty_min = lat_lon_to_tile(ne_lat, sw_lon, zoom)  # NW corner
@@ -2333,13 +2347,11 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
                     "User-Agent": "FLUXOS-viewer/1.0"})
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     tile_data = resp.read()
-                # Decode JPEG tile using PIL if available, else skip
                 try:
                     from PIL import Image as PILImage
                     tile_img = PILImage.open(io.BytesIO(tile_data))
                     tile_arr = np.array(tile_img.convert("RGB"))
                 except ImportError:
-                    # Minimal JPEG decode not possible without PIL — skip
                     continue
                 oy = (ty - ty_min) * tile_px
                 ox = (tx - tx_min) * tile_px
@@ -2348,48 +2360,78 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
             except Exception as e:
                 print(f"    Tile {tx},{ty}: {e}")
 
-    # Compute pixel bounds of the DEM bbox within the mosaic
-    w0, s0, e0, n0 = tile_bounds(tx_min, ty_min, zoom)
-    w1, s1, e1, n1 = tile_bounds(tx_max, ty_max, zoom)
-    mosaic_west = w0
-    mosaic_east = e1
-    mosaic_north = n0
-    mosaic_south = s1
+    # ── Reproject: Mercator mosaic → equirectangular DEM grid ──
+    # Compute the geographic bounds of the full tile mosaic
+    w0, _, _, n0 = tile_bounds(tx_min, ty_min, zoom)
+    _, s1, e1, _ = tile_bounds(tx_max, ty_max, zoom)
+    mosaic_west, mosaic_east = w0, e1
+    mosaic_north, mosaic_south = n0, s1
 
-    # Map DEM bbox to pixel coords within mosaic (Mercator projection)
     def lat_to_merc_y(lat):
         return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
 
     merc_n = lat_to_merc_y(mosaic_north)
     merc_s = lat_to_merc_y(mosaic_south)
-    merc_sw = lat_to_merc_y(sw_lat)
-    merc_ne = lat_to_merc_y(ne_lat)
+    merc_range = merc_n - merc_s
+    lon_range = mosaic_east - mosaic_west
 
-    px_left = int((sw_lon - mosaic_west) / (mosaic_east - mosaic_west) * mosaic_w)
-    px_right = int((ne_lon - mosaic_west) / (mosaic_east - mosaic_west) * mosaic_w)
-    px_top = int((merc_n - merc_ne) / (merc_n - merc_s) * mosaic_h)
-    px_bot = int((merc_n - merc_sw) / (merc_n - merc_s) * mosaic_h)
+    # Build output image by sampling the Mercator mosaic per-pixel.
+    # For each output row r (0=north=top), compute the latitude, convert
+    # to Mercator-Y, and find the mosaic row.  Longitude is linear.
+    out = np.full((img_h, img_w, 3), 40, dtype=np.uint8)
 
-    px_left = max(0, min(mosaic_w - 1, px_left))
-    px_right = max(1, min(mosaic_w, px_right))
-    px_top = max(0, min(mosaic_h - 1, px_top))
-    px_bot = max(1, min(mosaic_h, px_bot))
+    # Pre-compute mosaic column for each output column (lon is linear)
+    col_lons = sw_lon + (np.arange(img_w) + 0.5) / img_w * (ne_lon - sw_lon)
+    mosaic_cols = ((col_lons - mosaic_west) / lon_range * mosaic_w).astype(
+        np.float64)
 
-    crop = mosaic[px_top:px_bot, px_left:px_right]
+    for r in range(img_h):
+        # DEM row 0 = north (top), row img_h-1 = south (bottom)
+        frac = (r + 0.5) / img_h          # 0..1 from north to south
+        lat = ne_lat - frac * (ne_lat - sw_lat)  # linear in lat (equirect)
 
-    # Resize to DEM dimensions
+        # Convert this latitude to a mosaic row (Mercator Y)
+        merc_y = lat_to_merc_y(lat)
+        mosaic_row_f = (merc_n - merc_y) / merc_range * mosaic_h
+
+        # Bilinear Y interpolation
+        ry0 = max(0, min(mosaic_h - 2, int(mosaic_row_f)))
+        ry1 = ry0 + 1
+        fy = mosaic_row_f - ry0
+
+        for c in range(img_w):
+            mx = mosaic_cols[c]
+            cx0 = max(0, min(mosaic_w - 2, int(mx)))
+            cx1 = cx0 + 1
+            fx = mx - cx0
+
+            # Bilinear sample
+            p00 = mosaic[ry0, cx0].astype(np.float64)
+            p10 = mosaic[ry0, cx1].astype(np.float64)
+            p01 = mosaic[ry1, cx0].astype(np.float64)
+            p11 = mosaic[ry1, cx1].astype(np.float64)
+            val = (p00 * (1 - fx) * (1 - fy) + p10 * fx * (1 - fy) +
+                   p01 * (1 - fx) * fy + p11 * fx * fy)
+            out[r, c] = np.clip(val, 0, 255).astype(np.uint8)
+
+    # ── Clip to basin (darken outside valid DEM cells) ─────────
+    if basin_mask is not None:
+        # Darken pixels outside the basin
+        outside = ~basin_mask
+        out[outside] = (out[outside].astype(np.float32) * 0.25).astype(
+            np.uint8)
+
+    # ── Save ───────────────────────────────────────────────────
     try:
         from PIL import Image as PILImage
-        pil_img = PILImage.fromarray(crop)
-        pil_img = pil_img.resize((img_w, img_h), PILImage.LANCZOS)
+        pil_img = PILImage.fromarray(out)
         pil_img.save(output_path, "JPEG", quality=85)
         fsize = os.path.getsize(output_path)
         print(f"  Satellite: {fsize/1024:.0f} KB "
               f"({img_w}x{img_h} px)")
     except ImportError:
-        # Fallback: write raw PNG (no resize)
-        sat_rgba = np.stack([crop[:,:,0], crop[:,:,1], crop[:,:,2],
-                             np.full(crop.shape[:2], 255, np.uint8)], axis=-1)
+        sat_rgba = np.stack([out[:, :, 0], out[:, :, 1], out[:, :, 2],
+                             np.full(out.shape[:2], 255, np.uint8)], axis=-1)
         sat_bytes = _write_png(sat_rgba)
         out_png = output_path.replace(".jpg", ".png")
         with open(out_png, "wb") as f:
@@ -2425,17 +2467,18 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     print(f"  Subsampling: {n_frames} of {len(results)} timesteps "
           f"(every {step}th)")
 
-    # ── Pass 1: compute global velocity range ─────────────────
-    print("  Computing global velocity range...")
+    # ── Pass 1: compute global velocity range + max depth ─────
+    print("  Computing global velocity range + max depth...")
     gvx_min, gvx_max = 0.0, 0.0
     gvy_min, gvy_max = 0.0, 0.0
+    all_depths = []
     for idx in indices:
         r = results[idx]
         if mesh_type == "regular":
-            gvx, gvy, wet = _build_velocity_grids_regular(
+            gvx, gvy, wet, grid_h = _build_velocity_grids_regular(
                 dem, meta, r["data"], h_min)
         else:
-            gvx, gvy, wet = _build_velocity_grids_triangular(
+            gvx, gvy, wet, grid_h = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 h_min, nrows, ncols,
                 meta["xllcorner"], meta["yllcorner"], cs)
@@ -2444,6 +2487,7 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
             gvx_max = max(gvx_max, float(np.max(gvx[wet])))
             gvy_min = min(gvy_min, float(np.min(gvy[wet])))
             gvy_max = max(gvy_max, float(np.max(gvy[wet])))
+            all_depths.append(grid_h[wet])
 
     # Ensure non-zero range
     if gvx_max - gvx_min < 1e-9:
@@ -2451,11 +2495,21 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     if gvy_max - gvy_min < 1e-9:
         gvy_min, gvy_max = -0.1, 0.1
 
+    # Use 99.9th percentile for h_max to avoid outlier artefacts
+    if all_depths:
+        all_h = np.concatenate(all_depths)
+        gh_max = float(np.percentile(all_h, 99.9))
+    else:
+        gh_max = 1.0
+    if gh_max < 1e-6:
+        gh_max = 1.0
+
     print(f"  Velocity range: vx=[{gvx_min:.4f}, {gvx_max:.4f}], "
           f"vy=[{gvy_min:.4f}, {gvy_max:.4f}] m/s")
+    print(f"  Max water depth: {gh_max:.4f} m")
 
-    # ── Pass 2: export velocity PNGs ──────────────────────────
-    print(f"  Exporting {n_frames} velocity PNGs...")
+    # ── Pass 2: export velocity + depth PNGs ──────────────────
+    print(f"  Exporting {n_frames} velocity+depth PNGs...")
     times = []
     total_bytes = 0
     for fi, idx in enumerate(indices):
@@ -2463,20 +2517,20 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         times.append(float(r["time"]))
 
         if mesh_type == "regular":
-            gvx, gvy, wet = _build_velocity_grids_regular(
+            gvx, gvy, wet, grid_h = _build_velocity_grids_regular(
                 dem, meta, r["data"], h_min)
         else:
-            gvx, gvy, wet = _build_velocity_grids_triangular(
+            gvx, gvy, wet, grid_h = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 h_min, nrows, ncols,
                 meta["xllcorner"], meta["yllcorner"], cs)
 
-        # Encode vx → R, vy → G, unused → B, wet → A
+        # Encode vx → R, vy → G, depth → B, wet → A
         r_ch = ((gvx - gvx_min) / (gvx_max - gvx_min) * 255.0
                 ).clip(0, 255).astype(np.uint8)
         g_ch = ((gvy - gvy_min) / (gvy_max - gvy_min) * 255.0
                 ).clip(0, 255).astype(np.uint8)
-        b_ch = np.zeros_like(r_ch)
+        b_ch = (grid_h / gh_max * 255.0).clip(0, 255).astype(np.uint8)
         a_ch = np.where(wet, np.uint8(255), np.uint8(0))
 
         rgba = np.stack([r_ch, g_ch, b_ch, a_ch], axis=-1)
@@ -2540,10 +2594,12 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         print(f"  Bounding box: ({sw_lat:.6f},{sw_lon:.6f}) - "
               f"({ne_lat:.6f},{ne_lon:.6f})")
 
-        # Download satellite tiles and stitch into a single image
+        # Download satellite tiles, reproject, and clip to basin
         sat_path = os.path.join(data_dir, "satellite.jpg")
+        basin_mask = ~np.isnan(dem)   # True where DEM is valid
         _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
-                            ncols, nrows, sat_path)
+                            ncols, nrows, sat_path,
+                            basin_mask=basin_mask)
 
     # ── Export metadata JSON ──────────────────────────────────
     metadata = {
@@ -2559,7 +2615,8 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         "default_particles": n_particles,
         "z_min": z_min,
         "z_max": z_max,
-        "height_exaggeration": 0.3,
+        "h_max": float(gh_max),
+        "height_exaggeration": 0.1,
     }
     if bbox_ll:
         metadata["bbox"] = bbox_ll
