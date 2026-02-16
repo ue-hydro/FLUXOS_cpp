@@ -713,10 +713,10 @@ class VelocityFieldCache:
     def _load(self, idx):
         r = self.results[idx]
         if self.mesh_type == "regular":
-            vx, vy, wet, _h = _build_velocity_grids_regular(
+            vx, vy, wet, _h, _conc = _build_velocity_grids_regular(
                 self.dem, self.meta, r["data"], self.h_min)
         else:
-            vx, vy, wet, _h = _build_velocity_grids_triangular(
+            vx, vy, wet, _h, _conc = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 self.h_min, self._nrows, self._ncols,
                 self._xll, self._yll, self._cs)
@@ -748,7 +748,7 @@ class VelocityFieldCache:
 
 
 def _build_velocity_grids_regular(dem, meta, data, h_min):
-    """Build (grid_vx, grid_vy, wet_mask, grid_h) from regular mesh data."""
+    """Build (grid_vx, grid_vy, wet_mask, grid_h, grid_conc) from regular mesh data."""
     nrows, ncols = dem.shape
     cs = meta["cellsize"]
     xll = meta["xllcorner"]
@@ -767,31 +767,41 @@ def _build_velocity_grids_regular(dem, meta, data, h_min):
     grid_vx = np.zeros((nrows, ncols))
     grid_vy = np.zeros((nrows, ncols))
     grid_h = np.zeros((nrows, ncols))
+    grid_conc = np.zeros((nrows, ncols))
     wet_mask = np.zeros((nrows, ncols), dtype=bool)
     wet = h_depth > h_min
     grid_vx[row_idx[wet], col_idx[wet]] = vx[wet]
     grid_vy[row_idx[wet], col_idx[wet]] = vy[wet]
     grid_h[row_idx[wet], col_idx[wet]] = h_depth[wet]
     wet_mask[row_idx[wet], col_idx[wet]] = True
-    return grid_vx, grid_vy, wet_mask, grid_h
+
+    # Extract concentration (column 11) if available
+    if data.shape[1] > 11:
+        conc = data[:, 11]
+        conc_valid = np.where(conc >= 0, conc, 0.0)  # -1 = inactive
+        grid_conc[row_idx[wet], col_idx[wet]] = conc_valid[wet]
+    return grid_vx, grid_vy, wet_mask, grid_h, grid_conc
 
 
 def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
                                       nrows, ncols, xll, yll, cs):
-    """Build (grid_vx, grid_vy, wet_mask, grid_h) from triangular mesh data."""
+    """Build (grid_vx, grid_vy, wet_mask, grid_h, grid_conc) from triangular mesh data."""
     if "h" not in cell_data:
         return (np.zeros((nrows, ncols)), np.zeros((nrows, ncols)),
                 np.zeros((nrows, ncols), dtype=bool),
+                np.zeros((nrows, ncols)),
                 np.zeros((nrows, ncols)))
 
     h = cell_data["h"]
     vx, vy = _extract_velocity_triangular(cell_data)
+    conc_data = cell_data.get("conc_SW", np.zeros_like(h))
     n_cells = len(cells)
 
     # Bin cells into pixel-sized blocks and average
     grid_vx = np.zeros((nrows, ncols))
     grid_vy = np.zeros((nrows, ncols))
     grid_h = np.zeros((nrows, ncols))
+    grid_conc = np.zeros((nrows, ncols))
     grid_cnt = np.zeros((nrows, ncols))
 
     for ci in range(n_cells):
@@ -807,13 +817,16 @@ def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
             grid_vx[row, col] += vx[ci]
             grid_vy[row, col] += vy[ci]
             grid_h[row, col] += h[ci]
+            c = conc_data[ci] if ci < len(conc_data) else 0.0
+            grid_conc[row, col] += max(0.0, c)
             grid_cnt[row, col] += 1
 
     valid = grid_cnt > 0
     grid_vx[valid] /= grid_cnt[valid]
     grid_vy[valid] /= grid_cnt[valid]
     grid_h[valid] /= grid_cnt[valid]
-    return grid_vx, grid_vy, valid, grid_h
+    grid_conc[valid] /= grid_cnt[valid]
+    return grid_vx, grid_vy, valid, grid_h, grid_conc
 
 
 def _draw_thick_line(img, r0, c0, r1, c1, rgba, width=1):
@@ -1597,10 +1610,10 @@ def _generate_frames(dem, meta, results, mesh_type, variable, clim,
         # Overlay flow visualisation (drawn at high-res)
         if draw_arrows and vel_scale is not None:
             if mesh_type == "regular":
-                gvx, gvy, wmask, _h = _build_velocity_grids_regular(
+                gvx, gvy, wmask, _h, _conc = _build_velocity_grids_regular(
                     dem, meta, r["data"], h_min)
             else:
-                gvx, gvy, wmask, _h = _build_velocity_grids_triangular(
+                gvx, gvy, wmask, _h, _conc = _build_velocity_grids_triangular(
                     r["points"], r["cells"], r["cell_data"],
                     h_min, nrows, ncols, xll, yll, cs)
             gvx_hr = _upscale_velocity_grid(gvx, scale)
@@ -2472,13 +2485,15 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     all_vx = []
     all_vy = []
     all_depths = []
+    all_concs = []
+    has_concentration = False
     for idx in indices:
         r = results[idx]
         if mesh_type == "regular":
-            gvx, gvy, wet, grid_h = _build_velocity_grids_regular(
+            gvx, gvy, wet, grid_h, grid_conc = _build_velocity_grids_regular(
                 dem, meta, r["data"], h_min)
         else:
-            gvx, gvy, wet, grid_h = _build_velocity_grids_triangular(
+            gvx, gvy, wet, grid_h, grid_conc = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 h_min, nrows, ncols,
                 meta["xllcorner"], meta["yllcorner"], cs)
@@ -2486,6 +2501,10 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
             all_vx.append(gvx[wet])
             all_vy.append(gvy[wet])
             all_depths.append(grid_h[wet])
+            conc_wet = grid_conc[wet]
+            if np.any(conc_wet > 0):
+                has_concentration = True
+            all_concs.append(conc_wet)
 
     # Use 99.5th percentile for velocity range to clip outlier spikes
     if all_vx:
@@ -2514,12 +2533,37 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     if gh_max < 1e-6:
         gh_max = 1.0
 
+    # Concentration max: use 95th percentile of significant values
+    # The ADE solver produces very skewed distributions, so filter to
+    # values above 1% of the overall max to focus on the actual plume.
+    conc_max = 0.0
+    if has_concentration and all_concs:
+        cat_conc = np.concatenate(all_concs)
+        cat_conc_pos = cat_conc[cat_conc > 0]
+        if len(cat_conc_pos) > 0:
+            raw_max = float(cat_conc_pos.max())
+            # Keep only values above 1% of max (the actual plume)
+            threshold = raw_max * 0.01
+            plume = cat_conc_pos[cat_conc_pos >= threshold]
+            if len(plume) > 0:
+                conc_max = float(np.percentile(plume, 95))
+            else:
+                conc_max = raw_max
+    if conc_max < 1e-6:
+        conc_max = 1.0  # fallback
+
     print(f"  Velocity range: vx=[{gvx_min:.4f}, {gvx_max:.4f}], "
           f"vy=[{gvy_min:.4f}, {gvy_max:.4f}] m/s")
     print(f"  Max water depth: {gh_max:.4f} m")
+    if has_concentration:
+        print(f"  Max concentration: {conc_max:.4f} mg/L")
 
-    # ── Pass 2: export velocity + depth PNGs ──────────────────
+    # ── Pass 2: export velocity + depth + concentration PNGs ──
     print(f"  Exporting {n_frames} velocity+depth PNGs...")
+    if has_concentration:
+        conc_dir = os.path.join(data_dir, "conc")
+        os.makedirs(conc_dir, exist_ok=True)
+        print(f"  Also exporting {n_frames} concentration PNGs...")
     times = []
     total_bytes = 0
     for fi, idx in enumerate(indices):
@@ -2527,10 +2571,10 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         times.append(float(r["time"]))
 
         if mesh_type == "regular":
-            gvx, gvy, wet, grid_h = _build_velocity_grids_regular(
+            gvx, gvy, wet, grid_h, grid_conc = _build_velocity_grids_regular(
                 dem, meta, r["data"], h_min)
         else:
-            gvx, gvy, wet, grid_h = _build_velocity_grids_triangular(
+            gvx, gvy, wet, grid_h, grid_conc = _build_velocity_grids_triangular(
                 r["points"], r["cells"], r["cell_data"],
                 h_min, nrows, ncols,
                 meta["xllcorner"], meta["yllcorner"], cs)
@@ -2550,11 +2594,23 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
             f.write(png_bytes)
         total_bytes += len(png_bytes)
 
+        # Export concentration PNG: R=concentration, G=0, B=0, A=wet
+        if has_concentration:
+            c_r = (grid_conc / conc_max * 255.0).clip(0, 255).astype(np.uint8)
+            c_g = np.zeros_like(c_r)
+            c_b = np.zeros_like(c_r)
+            c_a = np.where(wet & (grid_conc > 0), np.uint8(255), np.uint8(0))
+            c_rgba = np.stack([c_r, c_g, c_b, c_a], axis=-1)
+            c_bytes = _write_png(c_rgba)
+            with open(os.path.join(conc_dir, f"c_{fi:04d}.png"), "wb") as f:
+                f.write(c_bytes)
+            total_bytes += len(c_bytes)
+
         if fi % 50 == 0 or fi == n_frames - 1:
             print(f"    [{fi+1}/{n_frames}] t={format_time(r['time'])}, "
                   f"PNG {len(png_bytes)/1024:.0f} KB")
 
-    print(f"  Total velocity data: {total_bytes / 1024 / 1024:.1f} MB")
+    print(f"  Total data: {total_bytes / 1024 / 1024:.1f} MB")
 
     # ── Export hillshade PNG ──────────────────────────────────
     print("  Exporting hillshade...")
@@ -2628,6 +2684,9 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         "h_max": float(gh_max),
         "height_exaggeration": 0.1,
     }
+    if has_concentration:
+        metadata["has_concentration"] = True
+        metadata["conc_max"] = float(conc_max)
     if bbox_ll:
         metadata["bbox"] = bbox_ll
         metadata["has_satellite"] = True
