@@ -91,8 +91,12 @@ void solver_wet(
     double re = qy_ref(ie, icol);
     double rn = qy_ref(irow, in);
 
-    const double zbpe = 0.5 * (zbe + zbp);
-    const double zbpn = 0.5 * (zbn + zbp);
+    // Hydrostatic reconstruction: use fmax of bed elevations at face
+    // (Audusse et al. 2004 — preserves lake-at-rest / C-property)
+    const double zbpe = std::fmax(zbe, zbp);
+    const double zbpn = std::fmax(zbn, zbp);
+
+    // Cell-center water depths (original, before reconstruction)
     double hp = std::fmax(0.0, zp - zbp);
     const double hp0 = std::fmax(std::fmax(hdryl, hp), kspl);
     const double hw = std::fmax(0.0, zw - zbw);
@@ -101,13 +105,25 @@ void solver_wet(
     double hn = std::fmax(0.0, zn - zbn);
     double hnn_orig = std::fmax(0.0, znn - zbnn);
 
-    // CELL FACE VALUES
-    double hme = 0.5 * (hp + he);
+    // Reconstructed face depths (water depth as seen from each side of the face)
+    const double hp_e = std::fmax(0.0, zp - zbpe);   // P side of east face
+    const double he_e = std::fmax(0.0, ze - zbpe);   // E side of east face
+    const double hp_n = std::fmax(0.0, zp - zbpn);   // P side of north face
+    const double hn_n = std::fmax(0.0, zn - zbpn);   // N side of north face
+
+    // CELL FACE VALUES (use reconstructed depths)
+    double hme = 0.5 * (hp_e + he_e);
     double qme = 0.5 * (qp + qe);
     double rme = 0.5 * (rp + re);
-    double hmn = 0.5 * (hp + hn);
+    double hmn = 0.5 * (hp_n + hn_n);
     double qmn = 0.5 * (qp + qn);
     double rmn = 0.5 * (rp + rn);
+
+    // Hydrostatic pressure source correction for cell P
+    // Mismatch between original cell depth and reconstructed face depth
+    // S = 0.5 * g * (h_orig^2 - h_recon^2)
+    const double src_e = 0.5 * gaccl * (hp * hp - hp_e * hp_e);
+    const double src_n = 0.5 * gaccl * (hp * hp - hp_n * hp_n);
 
     double dze = ze - zp;
     double dqe = qe - qp;
@@ -266,13 +282,15 @@ void solver_wet(
     const double fe2p = 0.5 * gaccl * (hme * hme);
     const double fn3p = 0.5 * gaccl * (hmn * hmn);
 
-    // SUM OF ALL FLUXES
+    // SUM OF ALL FLUXES (include hydrostatic pressure source correction)
+    // The src_e/src_n terms absorb the bed-slope source from hydrostatic
+    // reconstruction into the momentum flux (Audusse et al. 2004)
     double fe1 = fe1c + fe1r;
-    double fe2 = fe2c + fe2r + fe2p;
+    double fe2 = fe2c + fe2r + fe2p - src_e;
     double fe3 = fe3c + fe3r;
     double fn1 = fn1c + fn1r;
     double fn2 = fn2c + fn2r;
-    double fn3 = fn3c + fn3r + fn3p;
+    double fn3 = fn3c + fn3r + fn3p - src_n;
 
     // BOUNDARY CONDITIONS (WEIR DISCHARGE RATE)
     if(icol == 1 || icol == NCOLSl) {
