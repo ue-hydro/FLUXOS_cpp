@@ -55,6 +55,14 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 canvas#colorbar { display: block; border-radius: 3px; }
 #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
     color: #5577aa; font-family: monospace; font-size: 16px; }
+#loading.load-error { color: #ff6b6b; font-size: 14px; max-width: 600px;
+    background: rgba(10,10,18,0.95); padding: 24px 28px; border-radius: 10px;
+    border: 1px solid rgba(255,80,80,0.4); line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all; text-align: left; }
+#loading.load-error .error-title { font-size: 18px; color: #ff4444;
+    margin-bottom: 12px; font-weight: bold; }
+#loading.load-error .error-hint { color: #8899bb; font-size: 12px;
+    margin-top: 16px; word-break: normal; }
 input[type=range] { -webkit-appearance: none; height: 4px;
     background: rgba(60,90,140,0.4); border-radius: 2px; outline: none; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
@@ -977,8 +985,27 @@ class FloodViewer3D {
     }
 
     async init() {
-        const resp = await fetch('data/metadata.json');
-        this.meta = await resp.json();
+        let resp;
+        try {
+            resp = await fetch('data/metadata.json');
+        } catch (netErr) {
+            const err = new Error('Network error fetching metadata.json — the server may be unreachable or blocking CORS.');
+            err.url = 'data/metadata.json';
+            throw err;
+        }
+        if (!resp.ok) {
+            const err = new Error('Server returned HTTP ' + resp.status + ' for metadata.json');
+            err.url = resp.url;
+            err.status = resp.status;
+            throw err;
+        }
+        try {
+            this.meta = await resp.json();
+        } catch (parseErr) {
+            const err = new Error('metadata.json is not valid JSON — server may be returning an HTML error page.');
+            err.url = resp.url;
+            throw err;
+        }
         const m = this.meta;
 
         document.getElementById('sl-time').max = m.n_timesteps - 1;
@@ -1090,14 +1117,17 @@ class FloodViewer3D {
             console.log('Concentration data available, conc_max=' + m.conc_max);
         }
 
-        // Find first frame with water
+        // Start at ~30 min into the simulation
         document.getElementById('loading').textContent = 'Loading velocity data...';
         let startFrame = 0;
-        for (let i = 0; i < Math.min(m.n_timesteps, 20); i++) {
-            const f = await this.loadVelFrame(i);
-            console.log(`Frame ${i}: ${f.spawnCount} wet spawn cells`);
-            if (f.spawnCount > 10) { startFrame = i; break; }
+        if (m.times) {
+            for (let i = 0; i < m.times.length; i++) {
+                if (m.times[i] >= 1800) { startFrame = i; break; }
+            }
+        } else {
+            startFrame = Math.min(12, m.n_timesteps - 1);
         }
+        await this.loadVelFrame(startFrame);
         this.currentFrame = startFrame;
         const nextF = Math.min(startFrame + 1, m.n_timesteps - 1);
         if (!this.frameCache.has(nextF)) await this.loadVelFrame(nextF);
@@ -1105,7 +1135,7 @@ class FloodViewer3D {
         // Preload concentration frames if available
         if (m.has_concentration) {
             await this.loadConcFrame(startFrame);
-            this.loadConcFrame(nextF);  // fire-and-forget for next frame
+            this.loadConcFrame(nextF);
         }
         console.log(`Starting at frame ${startFrame}, speedFactor: ${this.speedFactor.toFixed(4)}`);
 
@@ -1114,6 +1144,25 @@ class FloodViewer3D {
         if (startEntry && startEntry.spawnCount > 1) {
             this.initParticlesFromSpawn(gl, startEntry);
         }
+
+        // Set camera close to the ground, pointing at the injection source
+        this.camera.target = [0.19, 0.01, -0.15];
+        this.camera.distance = 0.7;
+        this.camera.phi = Math.PI / 12;      // low angle (~15°)
+        this.camera.theta = -Math.PI / 4;    // looking from southwest (-45°)
+
+        // Set playback speed to 4x
+        this.speed = 4.0;
+        document.getElementById('sl-speed').value = 400;
+        document.getElementById('v-speed').textContent = '4.0x';
+
+        // Enable satellite view by default
+        this.useSatellite = true;
+        document.getElementById('btn-sat').classList.add('active');
+        document.getElementById('btn-sat').innerHTML = '&#127757; Hillshade';
+
+        // Update time slider to match start frame
+        document.getElementById('sl-time').value = startFrame;
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('controls').style.display = '';
@@ -1219,7 +1268,11 @@ class FloodViewer3D {
         return new Promise((res, rej) => {
             const img = new Image();
             img.onload = () => res(img);
-            img.onerror = rej;
+            img.onerror = () => {
+                const err = new Error('Failed to load image: ' + url);
+                err.url = url;
+                rej(err);
+            };
             img.src = url;
         });
     }
@@ -1228,7 +1281,11 @@ class FloodViewer3D {
         return new Promise((res, rej) => {
             const img = new Image();
             img.onload = () => { res(createTex(gl, filter, img, 0, 0)); };
-            img.onerror = rej;
+            img.onerror = () => {
+                const err = new Error('Failed to load image: ' + url);
+                err.url = url;
+                rej(err);
+            };
             img.src = url;
         });
     }
@@ -1238,11 +1295,16 @@ class FloodViewer3D {
         const gl = this.gl;
         const m = this.meta;
 
+        const velUrl = `data/velocity/v_${String(idx).padStart(4,'0')}.png`;
         const img = await new Promise((res, rej) => {
             const im = new Image();
             im.onload = () => res(im);
-            im.onerror = rej;
-            im.src = `data/velocity/v_${String(idx).padStart(4,'0')}.png`;
+            im.onerror = () => {
+                const err = new Error('Failed to load velocity frame: ' + velUrl);
+                err.url = velUrl;
+                rej(err);
+            };
+            im.src = velUrl;
         });
 
         const tex = createTex(gl, gl.LINEAR, img, 0, 0);
@@ -1746,10 +1808,41 @@ window.addEventListener('resize', () => {
     // Trail textures stay at terrain resolution, no resize needed
 });
 
+function showError(stage, detail) {
+    const el = document.getElementById('loading');
+    el.className = 'load-error';
+    el.style.display = '';
+    const hints = [
+        'Check that the data/ folder is in the same directory as index.html on your server.',
+        'Verify your server serves .json files with Content-Type: application/json.',
+        'Open the browser developer console (F12) for more details.'
+    ];
+    el.innerHTML =
+        '<div class="error-title">Failed to load viewer</div>' +
+        '<div>' + stage + '</div>' +
+        (detail ? '<div style="margin-top:8px;color:#cc9966;">' + detail + '</div>' : '') +
+        '<div class="error-hint">' + hints.join('<br>') + '</div>';
+}
+
 let viewer;
 (async () => {
-    viewer = new FloodViewer3D(canvas);
-    await viewer.init();
+    const initTimeout = setTimeout(() => {
+        showError('Loading timed out after 30 seconds.',
+                  'The server may be very slow or a resource may have stalled.');
+    }, 30000);
+    try {
+        viewer = new FloodViewer3D(canvas);
+        await viewer.init();
+        clearTimeout(initTimeout);
+    } catch (err) {
+        clearTimeout(initTimeout);
+        console.error('FLUXOS viewer init failed:', err);
+        showError(
+            err.message || 'Unknown error during initialization',
+            err.url ? ('URL: ' + err.url + (err.status ? '  (HTTP ' + err.status + ')' : '')) : ''
+        );
+        return;
+    }
 
     // Wire controls
     document.getElementById('sl-time').addEventListener('input', e => {
