@@ -41,4 +41,9 @@ float read_inflow(
     GlobVar& ds,
     std::ofstream& logFLUXOSfile);
 
+void read_steady_state_config(
+    const nlohmann::json& master_json,
+    GlobVar& ds,
+    std::ofstream& logFLUXOSfile);
+
 #endif

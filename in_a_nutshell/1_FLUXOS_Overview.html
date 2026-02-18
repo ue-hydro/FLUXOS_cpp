@@ -537,6 +537,34 @@
         .process-item h4 { font-size: 1.2rem; color: var(--dark); margin-bottom: 8px; }
         .process-item p { font-size: 0.95rem; color: var(--text-light); }
 
+        /* Reference citation tags */
+        .ref-tag {
+            display: inline-block;
+            font-size: 0.78rem;
+            font-style: italic;
+            color: var(--text-light);
+            opacity: 0.85;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
+        /* "Why this method?" rationale box */
+        .highlight-box.rationale {
+            background: linear-gradient(135deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.08));
+            border-left-color: #d97706;
+            padding: 12px 18px;
+            margin-top: 8px;
+        }
+
+        .highlight-box.rationale .rationale-label {
+            font-weight: 700;
+            font-size: 0.8rem;
+            color: #d97706;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+
         @media print {
             .slide {
                 page-break-after: always;
@@ -853,10 +881,11 @@
                 <h2>SWE: Conservative Vector Form</h2>
             </div>
             <div class="slide-content">
-                <div class="equation-box" style="margin-bottom: 20px;">
+                <div class="equation-box" style="margin-bottom: 8px;">
                     <div class="label">2D Shallow Water Equations &mdash; Hyperbolic Conservation Law</div>
                     <div class="equation">&part;<strong>U</strong>/&part;t + &part;<strong>F</strong>(<strong>U</strong>)/&part;x + &part;<strong>G</strong>(<strong>U</strong>)/&part;y = <strong>S</strong></div>
                 </div>
+                <p class="ref-tag">Saint-Venant (1871) &middot; Manning (1891) &middot; Elder (1959) after Boussinesq (1877)</p>
                 <div class="two-column" style="gap: 30px;">
                     <div class="column">
                         <div class="card primary">
@@ -894,8 +923,12 @@
                         </div>
                     </div>
                 </div>
-                <div class="highlight-box" style="margin-top: 12px;">
+                <div class="highlight-box" style="margin-top: 8px;">
                     <strong>h</strong> = water depth &ensp;|&ensp; <strong>u, v</strong> = depth-averaged velocities &ensp;|&ensp; <strong>q<sub>x</sub></strong> = hu, <strong>q<sub>y</sub></strong> = hv (unit discharge) &ensp;|&ensp; <strong>g</strong> = 9.81 m/s&sup2; &ensp;|&ensp; <strong>n</strong> = Manning coefficient
+                </div>
+                <div class="highlight-box rationale" style="margin-top: 6px;">
+                    <div class="rationale-label">Why conservation form?</div>
+                    <p style="font-size: 0.88rem;">Ensures mass and momentum are preserved exactly across shocks, wetting fronts, and hydraulic jumps &mdash; essential for flood simulation where discontinuities arise naturally.</p>
                 </div>
             </div>
             <div class="slide-footer">
@@ -914,6 +947,7 @@
                     <div class="column">
                         <div class="card primary">
                             <h3>Cell-Centered Godunov Scheme</h3>
+                            <p class="ref-tag">Godunov (1959); LeVeque (2002)</p>
                             <ul style="margin-left: 15px; margin-bottom: 12px;">
                                 <li style="font-size: 0.95rem;">Domain divided into non-overlapping control volumes (cells)</li>
                                 <li style="font-size: 0.95rem;">Fluxes computed at cell faces via Riemann solver</li>
@@ -934,6 +968,7 @@
                     <div class="column">
                         <div class="card secondary">
                             <h3>CFL Adaptive Time-Stepping</h3>
+                            <p class="ref-tag">Courant, Friedrichs &amp; Lewy (1928)</p>
                             <p style="font-size: 0.95rem; margin-bottom: 10px;">Time step is recomputed every iteration as the global minimum over all wet cells:</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-bottom: 10px;">
                                 <div class="label">Regular mesh</div>
@@ -952,8 +987,9 @@
                                 <li style="font-size: 0.9rem;"><strong>c</strong> = &radic;(gh) = wave celerity</li>
                             </ul>
                         </div>
-                        <div class="highlight-box warning" style="margin-top: 10px;">
-                            <strong>CFL &lt; 1</strong> is required for stability. Typical value: 0.5. Smaller cells or faster flows &rarr; smaller &Delta;t.
+                        <div class="highlight-box rationale" style="margin-top: 10px;">
+                            <div class="rationale-label">Why Godunov-type FVM?</div>
+                            <p style="font-size: 0.88rem;">Naturally handles shocks and wetting/drying without artificial viscosity. CFL-adaptive stepping (CFL &lt; 1; typical 0.5) guarantees stability while maximizing computational efficiency.</p>
                         </div>
                     </div>
                 </div>
@@ -974,6 +1010,7 @@
                     <div class="column">
                         <div class="card primary">
                             <h3>Roe Flux Structure</h3>
+                            <p class="ref-tag">Roe (1981); Toro (2001)</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 15px; margin-top: 8px;">
                                 <div class="equation" style="font-size: 1.05rem;">
                                     <strong>F</strong> = &frac12;(<strong>F</strong><sub>L</sub> + <strong>F</strong><sub>R</sub>) &minus; &frac12; <strong>R</strong>|<strong>&Lambda;</strong>|<strong>R</strong><sup>&minus;1</sup> &middot; (<strong>U</strong><sub>R</sub> &minus; <strong>U</strong><sub>L</sub>)
@@ -1000,7 +1037,7 @@
                     <div class="column">
                         <div class="card secondary">
                             <h3>Hydrostatic Reconstruction</h3>
-                            <p style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.85;"><em>Audusse et al. (2004)</em> &mdash; preserves lake-at-rest (C-property)</p>
+                            <p class="ref-tag">Audusse et al. (2004) &mdash; preserves lake-at-rest (C-property)</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-bottom: 8px;">
                                 <div class="equation" style="font-size: 1rem; text-align: left;">
                                     z<sub>b,face</sub> = max(z<sub>b,L</sub>, z<sub>b,R</sub>)
@@ -1025,6 +1062,10 @@
                         </div>
                     </div>
                 </div>
+                <div class="highlight-box rationale" style="margin-top: 8px;">
+                    <div class="rationale-label">Why Roe + hydrostatic reconstruction?</div>
+                    <p style="font-size: 0.88rem;">Roe&rsquo;s solver resolves all 3 wave families (shocks, rarefactions, shear) with minimal numerical diffusion. Hydrostatic reconstruction preserves the lake-at-rest state exactly, preventing spurious flows over irregular bathymetry.</p>
+                </div>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
@@ -1042,6 +1083,7 @@
                     <div class="column">
                         <div class="card primary" style="margin-bottom: 12px;">
                             <h3>Ritter Dry-Front Solution</h3>
+                            <p class="ref-tag">Ritter (1892)</p>
                             <p style="font-size: 0.9rem; margin-bottom: 8px;">At wet-dry interfaces, analytical dam-break solution replaces Roe flux:</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 12px;">
                                 <div class="equation" style="font-size: 1.05rem; text-align: left;">
@@ -1059,6 +1101,7 @@
                         </div>
                         <div class="card" style="border-left: 5px solid #0891b2;">
                             <h3>Velocity Desingularization</h3>
+                            <p class="ref-tag">Kurganov &amp; Petrova (2007)</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #155e75, #0a1628); padding: 12px; margin-top: 8px;">
                                 <div class="equation" style="font-size: 1.05rem;">
                                     u = 2hq / (h&sup2; + max(h&sup2;, &epsilon;&sup2;))
@@ -1086,8 +1129,9 @@
                                 <li style="font-size: 0.9rem;">No additional time-step restriction</li>
                             </ul>
                         </div>
-                        <div class="highlight-box success" style="margin-top: 12px;">
-                            <strong>Mass Balance Limiter:</strong> After computing fluxes, total outflow from each cell is checked against available volume. If outflow exceeds supply, fluxes are scaled proportionally &mdash; guarantees h &ge; 0 everywhere.
+                        <div class="highlight-box rationale" style="margin-top: 10px;">
+                            <div class="rationale-label">Why Ritter + semi-implicit friction?</div>
+                            <p style="font-size: 0.88rem;">Ritter&rsquo;s analytical dam-break replaces the Riemann solver at wet-dry fronts, avoiding zero-depth singularities. Semi-implicit Manning friction is unconditionally stable &mdash; no stiff time-step restriction at shallow depths. Mass balance limiter guarantees h &ge; 0.</p>
                         </div>
                     </div>
                 </div>
@@ -1111,6 +1155,7 @@
                     <div class="column">
                         <div class="card primary">
                             <h3>MUSCL Reconstruction</h3>
+                            <p class="ref-tag">van Leer (1979)</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 14px; margin-top: 8px;">
                                 <div class="equation" style="font-size: 1.05rem;">
                                     &phi;<sub>face</sub> = &phi;<sub>i</sub> + &Phi;<sub>i</sub> &middot; (&nabla;&phi;<sub>i</sub> &middot; (<strong>x</strong><sub>face</sub> &minus; <strong>x</strong><sub>i</sub>))
@@ -1135,6 +1180,7 @@
                     <div class="column">
                         <div class="card secondary">
                             <h3>Barth-Jespersen Limiter</h3>
+                            <p class="ref-tag">Barth &amp; Jespersen (1989)</p>
                             <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 14px; margin-top: 8px;">
                                 <div class="equation" style="font-size: 1.05rem;">
                                     &Phi;<sub>i</sub> = min<sub>edges</sub> &ensp; min(1, &alpha;<sub>e</sub>)
@@ -1157,6 +1203,10 @@
                         </div>
                     </div>
                 </div>
+                <div class="highlight-box rationale" style="margin-top: 8px;">
+                    <div class="rationale-label">Why MUSCL + Barth-Jespersen?</div>
+                    <p style="font-size: 0.88rem;">MUSCL achieves 2nd-order spatial accuracy on unstructured meshes, critical for resolving flow features on complex terrain. Barth-Jespersen prevents spurious oscillations near discontinuities while preserving maximum accuracy in smooth regions.</p>
+                </div>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
@@ -1170,9 +1220,10 @@
                 <h2>ADE Solver: Two-Pass Formulation</h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1rem; margin-bottom: 15px;">
+                <p style="font-size: 1rem; margin-bottom: 6px;">
                     Advection-Diffusion Equation &part;(hC)/&part;t + &nabla;&middot;(<strong>u</strong>hC) = &nabla;&middot;(Dh&nabla;C) solved with a two-pass explicit scheme:
                 </p>
+                <p class="ref-tag" style="margin-bottom: 10px;">Fick (1855); Leonard (1991)</p>
                 <div class="two-column" style="gap: 30px;">
                     <div class="column">
                         <div class="card primary">
@@ -1212,8 +1263,9 @@
                         </div>
                     </div>
                 </div>
-                <div class="highlight-box success" style="margin-top: 12px; text-align: center;">
-                    <strong>Stable, mass-conservative, inherently parallel</strong> &mdash; no race conditions, no global assembly. Works identically on regular and triangular meshes.
+                <div class="highlight-box rationale" style="margin-top: 10px;">
+                    <div class="rationale-label">Why two-pass upwind ADE?</div>
+                    <p style="font-size: 0.88rem;">Two-pass design eliminates read-write race conditions, enabling fully parallel GPU execution. First-order upwind is unconditionally TVD, preventing unphysical concentration overshoots. Mass-conservative by construction on both mesh types.</p>
                 </div>
             </div>
             <div class="slide-footer">
@@ -1228,12 +1280,13 @@
                 <h2>Soil Infiltration: Horton Decay Model</h2>
             </div>
             <div class="slide-content">
-                <div class="equation-box" style="background: linear-gradient(135deg, var(--secondary), #047857); margin-bottom: 18px;">
+                <div class="equation-box" style="background: linear-gradient(135deg, var(--secondary), #047857); margin-bottom: 6px;">
                     <div class="label">Horton Infiltration Rate</div>
                     <div class="equation" style="font-size: 1.3rem;">
                         f(t) = K<sub>s</sub> + (f<sub>0</sub> &minus; K<sub>s</sub>) &middot; exp(&minus;k &middot; t<sub>wet</sub>)
                     </div>
                 </div>
+                <p class="ref-tag" style="margin-bottom: 12px;">Horton (1933); Rawls, Brakensiek &amp; Miller (1983)</p>
                 <div class="two-column" style="gap: 30px;">
                     <div class="column">
                         <div class="card primary">
@@ -1265,8 +1318,9 @@
                                 <tr><td>Clay</td><td>0.6</td><td>1.8</td></tr>
                             </table>
                         </div>
-                        <div class="highlight-box info" style="margin-top: 10px;">
-                            <strong>Backward compatible:</strong> No <code>SOIL_INFILTRATION</code> section in JSON config = module disabled. Existing setups work unchanged.
+                        <div class="highlight-box rationale" style="margin-top: 8px;">
+                            <div class="rationale-label">Why Horton decay?</div>
+                            <p style="font-size: 0.85rem;">Computationally cheap (one exponential per cell per timestep), widely validated for overland flow, requires only standard USDA soil parameters. Per-cell independent &mdash; trivially parallelizable. Backward compatible: no config section = module disabled.</p>
                         </div>
                     </div>
                 </div>
@@ -1343,9 +1397,22 @@
                         <td>Horton decay (per cell)</td>
                     </tr>
                 </table>
-                <div class="highlight-box success" style="margin-top: 15px; text-align: center;">
+                <div class="highlight-box success" style="margin-top: 12px; text-align: center;">
                     <strong>Same conservation laws, same physical models</strong> &mdash; choose regular mesh for speed, triangular mesh for complex geometries and higher accuracy.
                 </div>
+                <p class="ref-tag" style="display: block; margin-top: 8px; text-align: center;">
+                    <strong style="font-style: normal; color: var(--text);">Key References:</strong>
+                    Saint-Venant (1871) &bull;
+                    Godunov (1959) &bull;
+                    Roe (1981) &bull;
+                    van Leer (1979) &bull;
+                    Barth &amp; Jespersen (1989) &bull;
+                    Audusse et al. (2004) &bull;
+                    Horton (1933) &bull;
+                    Rawls et al. (1983) &bull;
+                    Toro (2001) &bull;
+                    LeVeque (2002)
+                </p>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>

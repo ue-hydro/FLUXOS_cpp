@@ -354,3 +354,38 @@ float read_inflow(
     tim = tinflows;
     return tim;
 }
+
+// ============================================================================
+// Steady-state configuration
+// Reads optional STEADY_STATE section from JSON config.
+// If missing or STATUS=false, steady-state detection is disabled.
+// ============================================================================
+void read_steady_state_config(
+    const nlohmann::json& master_json,
+    GlobVar& ds,
+    std::ofstream& logFLUXOSfile)
+{
+    auto it = master_json.find("STEADY_STATE");
+    if (it == master_json.end()) {
+        ds.steady_state_enabled = false;
+        logFLUXOSfile << "Steady-state: DISABLED (no STEADY_STATE section)\n";
+        return;
+    }
+
+    const auto& ss_json = *it;
+
+    auto status_it = ss_json.find("STATUS");
+    if (status_it == ss_json.end() || !status_it->get<bool>()) {
+        ds.steady_state_enabled = false;
+        logFLUXOSfile << "Steady-state: DISABLED\n";
+        return;
+    }
+
+    ds.steady_state_enabled = true;
+    ds.steady_state_tolerance = ss_json.value("TOLERANCE", 1.0e-6);
+    ds.steady_state_min_time = ss_json.value("MIN_TIME", 0.0);
+
+    logFLUXOSfile << "Steady-state: ENABLED"
+                  << " | tolerance = " << ds.steady_state_tolerance << " m"
+                  << " | min_time = " << ds.steady_state_min_time << " s\n";
+}

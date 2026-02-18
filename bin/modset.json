@@ -10,6 +10,11 @@
 		"H_MIN_TO_PRINT": 0.001
 	},
 	"ROUGNESS_HEIGHT": 0.005,
+	"STEADY_STATE": {
+		"STATUS": false,
+		"TOLERANCE": 1e-5,
+		"MIN_TIME": 0
+	},
 	"EXTERNAL_MODULES": {
 		"ADE_TRANSPORT": {
 			"STATUS": false,
