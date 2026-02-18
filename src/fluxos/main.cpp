@@ -202,6 +202,11 @@ int main(int argc, char* argv[])
     ds.soil_infiltration_enabled = soil_config.enabled;
 
     // #######################################################
+    // Steady-state configuration
+    // #######################################################
+    read_steady_state_config(ds.master_MODSET, ds, logFLUXOSfile);
+
+    // #######################################################
     // Provide info to console
     // #######################################################
     logFLUXOSfile << "Simulation: " + ds.sim_purp + "\n\n";
@@ -421,8 +426,10 @@ int main(int argc, char* argv[])
     // #######################################################
     // Courant Condition: determine maximum time step for numerical stabilitity
     // #######################################################
-    while(ds.tim <= ds.ntim) 
-    {   
+    bool steady_state_reached = false;
+
+    while(ds.tim <= ds.ntim)
+    {
         // Reset vars
         ds.dtfl=9.e10;
         hpall = 0.0f;
@@ -749,6 +756,77 @@ int main(int argc, char* argv[])
         }
         
         // #######################################################
+        // Steady-state convergence check
+        // #######################################################
+        if (ds.steady_state_enabled && ds.tim > ds.steady_state_min_time && hpall > 0)
+        {
+            double max_dh = 0.0;
+
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                // Triangular mesh: compare h to h0
+#ifdef USE_CUDA
+                tri_cuda_mem.copy_solution_to_host(tri_sol);
+#endif
+                for (size_t ci = 0; ci < tri_mesh.num_cells; ci++) {
+                    double dh = std::fabs(tri_sol.h[ci] - tri_sol.h0[ci]);
+                    max_dh = std::fmax(max_dh, dh);
+                }
+            } else {
+#endif // USE_TRIMESH
+
+                // Regular mesh: compare h to h0
+#ifdef USE_CUDA
+                cuda_mem.copy_output_fields_to_host(ds);
+#endif
+                {
+                    const unsigned int NCOLS_local = ds.NCOLS;
+                    const unsigned int NROWS_local = ds.NROWS;
+                    arma::Mat<double>& h_ref = *ds.h;
+                    arma::Mat<double>& h0_ref = *ds.h0;
+
+                    #pragma omp parallel for collapse(2) reduction(max:max_dh) schedule(static)
+                    for (unsigned int icol = 1; icol <= NCOLS_local; icol++) {
+                        for (unsigned int irow = 1; irow <= NROWS_local; irow++) {
+                            double dh = std::fabs(h_ref(irow,icol) - h0_ref(irow,icol));
+                            max_dh = std::fmax(max_dh, dh);
+                        }
+                    }
+                }
+
+#ifdef USE_TRIMESH
+            }
+#endif
+
+            // MPI global reduction
+#ifdef USE_MPI
+#ifdef USE_TRIMESH
+            if (use_trimesh) {
+                max_dh = tri_mpi_domain.global_max(max_dh);
+            } else {
+#endif
+                max_dh = mpi_domain.global_max(max_dh);
+#ifdef USE_TRIMESH
+            }
+#endif
+#endif
+
+            if (max_dh < ds.steady_state_tolerance) {
+                steady_state_reached = true;
+                if (is_root) {
+                    std::cout << "STEADY STATE reached at t=" << ds.tim
+                              << "s | max|dh|=" << max_dh
+                              << " < tol=" << ds.steady_state_tolerance << std::endl;
+                    logFLUXOSfile << "STEADY STATE reached at t=" << std::to_string(ds.tim)
+                                  << "s | max|dh|=" << std::to_string(max_dh)
+                                  << " < tol=" << std::to_string(ds.steady_state_tolerance) << "\n";
+                }
+                // Force final output
+                print_next = ds.tim;
+            }
+        }
+
+        // #######################################################
         // PRINT RESULTS
         // #######################################################
         if (ds.tim>=print_next)
@@ -814,8 +892,11 @@ int main(int argc, char* argv[])
 
          }
 
+        // Exit loop if steady state was reached (after final output)
+        if (steady_state_reached) break;
+
     }
-    
+
     // #######################################################
     // Simulation complete
     // #######################################################

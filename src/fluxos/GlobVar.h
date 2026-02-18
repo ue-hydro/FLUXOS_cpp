@@ -132,6 +132,11 @@ public:
     // Restart option
     bool restart_opt;
 
+    // Steady-state configuration
+    bool steady_state_enabled = false;
+    double steady_state_tolerance = 1.0e-6;  // max|Δh| threshold [m]
+    double steady_state_min_time = 0.0;      // minimum sim time before checking [s]
+
     // Mesh type: "regular" (default) or "triangular"
     std::string mesh_type = "regular";
 
