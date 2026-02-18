@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLUXOS - Supporting Scripts &amp; Tools</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --primary: #0066cc;
+            --primary-dark: #004499;
+            --secondary: #00a86b;
+            --accent: #ff6b35;
+            --dark: #1a1a2e;
+            --light: #f8f9fa;
+            --text: #2d3436;
+            --text-light: #636e72;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #000; overflow: hidden; }
+        .presentation { height: 100vh; width: 100vw; position: relative; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; padding: 60px 80px; background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%); overflow: hidden; }
+        .slide.active { display: flex; }
+        .slide.title-slide { background: linear-gradient(135deg, var(--dark) 0%, #16213e 50%, #0f3460 100%); justify-content: center; align-items: center; text-align: center; color: white; }
+        .slide.title-slide h1 { font-size: 5rem; font-weight: 700; margin-bottom: 0.5rem; letter-spacing: -2px; }
+        .slide.title-slide h1 span { color: var(--primary); }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+        .title-slide .reveal-title { opacity: 0; animation: fadeInScale 0.8s ease-out forwards; animation-delay: 0.2s; }
+        .title-slide .reveal-subtitle { opacity: 0; animation: fadeInUp 0.7s ease-out forwards; animation-delay: 0.6s; }
+        .title-slide .reveal-author { opacity: 0; animation: fadeInUp 0.6s ease-out forwards; animation-delay: 1.0s; }
+        .title-slide .reveal-affiliation { opacity: 0; animation: fadeInUp 0.6s ease-out forwards; animation-delay: 1.2s; }
+        .title-slide .reveal-logo { opacity: 0; animation: fadeInUp 0.5s ease-out forwards; animation-delay: 1.4s; }
+        .slide.title-slide .subtitle { font-size: 2.2rem; font-weight: 300; color: #a0aec0; margin-bottom: 2rem; }
+        .slide.title-slide .author { font-size: 1.4rem; color: #cbd5e0; margin-top: 3rem; }
+        .slide.title-slide .affiliation { font-size: 1.1rem; color: #718096; margin-top: 0.5rem; }
+        .university-logo { position: absolute; bottom: 30px; right: 40px; height: 60px; opacity: 0.9; }
+        .slide.title-slide .university-logo { height: 70px; }
+        .slide.section-slide .university-logo { height: 55px; opacity: 0.85; }
+        .slide.section-slide { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); justify-content: center; align-items: center; color: white; }
+        .slide.section-slide.purple { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); }
+        .slide.section-slide.teal { background: linear-gradient(135deg, #0891b2 0%, #155e75 100%); }
+        .slide.section-slide.green { background: linear-gradient(135deg, var(--secondary) 0%, #047857 100%); }
+        .slide.section-slide h2 { font-size: 4rem; font-weight: 600; }
+        .slide.section-slide .section-number { font-size: 10rem; font-weight: 700; opacity: 0.15; position: absolute; top: 40px; right: 80px; }
+        .slide-header { margin-bottom: 40px; }
+        .slide-header h2 { font-size: 2.8rem; font-weight: 600; color: var(--dark); border-left: 6px solid var(--primary); padding-left: 24px; }
+        .slide-content { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+        .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; height: 100%; }
+        .three-column { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; }
+        .column { display: flex; flex-direction: column; }
+        .card { background: white; border-radius: 16px; padding: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .card.primary { border-left: 5px solid var(--primary); }
+        .card.secondary { border-left: 5px solid var(--secondary); }
+        .card.accent { border-left: 5px solid var(--accent); }
+        .card.purple { border-left: 5px solid #7c3aed; }
+        .card h3 { font-size: 1.5rem; color: var(--dark); margin-bottom: 15px; display: flex; align-items: center; gap: 12px; }
+        .card p, .card li { font-size: 1.15rem; color: var(--text); line-height: 1.6; }
+        ul, ol { margin-left: 30px; }
+        li { font-size: 1.4rem; color: var(--text); margin-bottom: 16px; line-height: 1.5; }
+        li strong { color: var(--primary-dark); }
+        .code-container { position: relative; }
+        pre { background: var(--dark); color: #e2e8f0; padding: 25px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; line-height: 1.5; overflow-x: auto; }
+        .comment { color: #68d391; }
+        .string { color: #fbd38d; }
+        .keyword { color: #90cdf4; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.15); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; color: #a0aec0; font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+        .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .copy-btn.copied { background: var(--secondary); color: white; }
+        .pdf-btn { position: absolute; bottom: 30px; left: 40px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px 20px; cursor: pointer; color: white; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
+        .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
+        .slide:not(.title-slide) .pdf-btn { background: var(--dark); border-color: var(--dark); color: white; }
+        .slide:not(.title-slide) .pdf-btn:hover { background: var(--primary); border-color: var(--primary); }
+        .highlight-box { background: linear-gradient(135deg, #fff7ed, #ffedd5); border-left: 5px solid var(--accent); padding: 25px 30px; border-radius: 0 12px 12px 0; margin: 20px 0; }
+        .highlight-box.info { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-left-color: var(--primary); }
+        .highlight-box.success { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-left-color: var(--secondary); }
+        .highlight-box.warning { background: linear-gradient(135deg, #fff7ed, #ffedd5); border-left-color: var(--accent); }
+        table { width: 100%; border-collapse: collapse; font-size: 1.1rem; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        th { background: var(--dark); color: white; padding: 16px 20px; text-align: left; font-weight: 600; }
+        td { padding: 14px 20px; border-bottom: 1px solid #e2e8f0; }
+        tr:nth-child(even) { background: #f8fafc; }
+        .slide-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 20px; border-top: 1px solid #e2e8f0; margin-top: auto; }
+        .slide-footer .logo { font-weight: 700; font-size: 1.2rem; color: var(--dark); }
+        .slide-footer .logo span { color: var(--primary); }
+        .slide-footer .page-number { background: var(--dark); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+        .nav-hint { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 30px; font-size: 0.9rem; z-index: 1000; opacity: 0; transition: opacity 0.3s; }
+        .nav-hint.visible { opacity: 1; }
+        .diagram { background: white; border: 2px solid #e2e8f0; border-radius: 16px; padding: 30px; text-align: center; }
+        .diagram pre { background: transparent; color: var(--text); display: inline-block; text-align: left; }
+        .flow-vertical { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        .flow-box { background: var(--primary); color: white; padding: 18px 35px; border-radius: 12px; font-weight: 600; font-size: 1.1rem; }
+        .flow-box.secondary { background: var(--secondary); }
+        .flow-box.accent { background: var(--accent); }
+        .flow-box.light { background: white; color: var(--dark); border: 2px solid #e2e8f0; }
+        .flow-arrow { font-size: 1.5rem; color: var(--text-light); }
+        @media print { .slide { page-break-after: always; display: flex !important; } .nav-hint { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="presentation" id="presentation">
+
+        <!-- Slide 1: Title -->
+        <div class="slide title-slide active" data-slide="1">
+            <h1 class="reveal-title" style="font-size: 4rem;">Supporting <span>Scripts</span></h1>
+            <div class="subtitle reveal-subtitle">Python Tools &amp; Post-Processing</div>
+            <div class="author reveal-author">Diogo Costa</div>
+            <div class="affiliation reveal-affiliation">University of &Eacute;vora, Portugal</div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo reveal-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+        <!-- Slide 2: Contents -->
+        <div class="slide" data-slide="2">
+            <div class="slide-header">
+                <h2>Contents</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 60px;">
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-bottom: 8px;">&bull; Tools Overview</p>
+                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Preprocessing</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; fluxos_setup.py</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; DEM Downscaling &amp; Mesh Generation</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Post-Processing</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; fluxos_viewer.py (KML Export)</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; WebGL Data Pipeline</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; ParaView Visualization</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Summary</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">2</div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Tools Overview -->
+        <div class="slide" data-slide="3">
+            <div class="slide-header">
+                <h2>Tools Overview</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.2rem; margin-bottom: 25px;">
+                    FLUXOS includes Python tools for the complete simulation workflow:
+                </p>
+                <div class="three-column" style="gap: 30px;">
+                    <div class="card primary" style="height: 100%;">
+                        <h3>&#128295; fluxos_setup.py</h3>
+                        <p style="font-size: 1rem;"><strong>Preprocessing</strong><br><br>
+                        GeoTIFF to ESRI ASCII conversion, DEM downscaling, slope-adaptive mesh generation, and JSON config template creation.</p>
+                    </div>
+                    <div class="card secondary" style="height: 100%;">
+                        <h3>&#127758; fluxos_viewer.py</h3>
+                        <p style="font-size: 1rem;"><strong>Google Earth Export</strong><br><br>
+                        Converts simulation output to animated KML/KMZ files for visualization in Google Earth with time-aware playback.</p>
+                    </div>
+                    <div class="card accent" style="height: 100%;">
+                        <h3>&#127912; WebGL Export</h3>
+                        <p style="font-size: 1rem;"><strong>Web Visualization</strong><br><br>
+                        Generates heightmaps, velocity fields, and concentration data as PNG images for the interactive 3D WebGL viewer.</p>
+                    </div>
+                </div>
+                <div class="highlight-box info" style="margin-top: 20px; text-align: center;">
+                    <strong>Minimal dependencies:</strong> All scripts require only <code>numpy</code> and <code>pyproj</code>. The setup script additionally uses <code>rasterio</code> for GeoTIFF support.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">3</div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Section - Preprocessing -->
+        <div class="slide section-slide" data-slide="4">
+            <div class="section-number">01</div>
+            <h2>Preprocessing</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 5: fluxos_setup.py -->
+        <div class="slide" data-slide="5">
+            <div class="slide-header">
+                <h2>fluxos_setup.py</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <pre style="font-size: 0.85rem; padding: 20px;">
+<span class="comment"># Basic: Convert GeoTIFF to ESRI ASCII</span>
+python fluxos_setup.py \
+    --dem input_dem.tif \
+    --output domain.asc \
+    --utm-zone 10
+
+<span class="comment"># With downscaling (10m → 2m)</span>
+python fluxos_setup.py \
+    --dem input_dem.tif \
+    --output domain_2m.asc \
+    --cellsize 2.0 \
+    --utm-zone 10
+
+<span class="comment"># Generate triangular mesh</span>
+python fluxos_setup.py \
+    --dem input_dem.tif \
+    --output domain.msh \
+    --mesh-type triangle \
+    --min-area 10 \
+    --max-area 500 \
+    --utm-zone 10</pre>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Features</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;">GeoTIFF import with CRS validation</li>
+                                <li style="font-size: 0.95rem;">Bilinear interpolation for downscaling</li>
+                                <li style="font-size: 0.95rem;">Automatic UTM zone detection</li>
+                                <li style="font-size: 0.95rem;">Slope-adaptive triangular mesh via Gmsh</li>
+                                <li style="font-size: 0.95rem;">JSON config template generation</li>
+                            </ul>
+                        </div>
+                        <div class="card secondary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Dependencies</h3>
+                            <pre style="font-size: 0.8rem; padding: 10px;">
+pip install numpy rasterio pyproj</pre>
+                        </div>
+                        <div class="highlight-box warning">
+                            <strong>UTM zone matters!</strong> Use <code>--utm-zone</code> matching your DEM location. Wrong zone = overlay in wrong country.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">5</div>
+            </div>
+        </div>
+
+        <!-- Slide 6: Mesh Generation -->
+        <div class="slide" data-slide="6">
+            <div class="slide-header">
+                <h2>DEM Downscaling &amp; Mesh Generation</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>&#128200; DEM Downscaling</h3>
+                            <p style="font-size: 1rem; margin-bottom: 15px;">
+                                Reduce cell size for higher resolution simulations:
+                            </p>
+                            <table style="font-size: 0.9rem;">
+                                <tr><th>Source</th><th>Target</th><th>Method</th></tr>
+                                <tr><td>30m SRTM</td><td>10m</td><td>Bilinear interpolation</td></tr>
+                                <tr><td>10m LiDAR</td><td>2m</td><td>Bilinear interpolation</td></tr>
+                                <tr><td>5m DEM</td><td>1m</td><td>Bilinear interpolation</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>&#128310; Slope-Adaptive Meshing</h3>
+                            <p style="font-size: 1rem; margin-bottom: 15px;">
+                                Triangular meshes with variable resolution based on terrain slope:
+                            </p>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;"><strong>Steep slopes:</strong> Small triangles (high resolution)</li>
+                                <li style="font-size: 0.95rem;"><strong>Flat areas:</strong> Large triangles (coarse resolution)</li>
+                                <li style="font-size: 0.95rem;"><strong>Result:</strong> Fewer cells, same accuracy, much faster simulation</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Example:</strong> Rosa_2m domain: 531,162 cells (regular) vs ~50,000 triangles (adaptive) &mdash; 10x fewer cells with comparable accuracy.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">6</div>
+            </div>
+        </div>
+
+        <!-- Slide 7: Section - Post-Processing -->
+        <div class="slide section-slide purple" data-slide="7">
+            <div class="section-number">02</div>
+            <h2>Post-Processing</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 8: KML Export -->
+        <div class="slide" data-slide="8">
+            <div class="slide-header">
+                <h2>fluxos_viewer.py &mdash; KML Export</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <pre style="font-size: 0.85rem; padding: 20px;">
+<span class="comment"># Generate animated KML for Google Earth</span>
+python fluxos_viewer.py \
+    --results Results/ \
+    --dem bin/Rosa_2m.asc \
+    --output flood_animation.kml \
+    --variable h \
+    --utm-zone 10
+
+<span class="comment"># Multiple variables</span>
+python fluxos_viewer.py \
+    --results Results/ \
+    --dem bin/Rosa_2m.asc \
+    --output transport.kml \
+    --variable conc \
+    --utm-zone 10</pre>
+                        <div class="highlight-box info" style="margin-top: 15px;">
+                            <strong>Dependencies:</strong> <code>numpy</code> and <code>pyproj</code> only. No heavy GIS libraries needed.
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Features</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;">UTM to WGS84 coordinate conversion</li>
+                                <li style="font-size: 0.95rem;">Time-aware KML with playback controls</li>
+                                <li style="font-size: 0.95rem;">Color-coded depth/concentration</li>
+                                <li style="font-size: 0.95rem;">Multi-variable export (h, vx, vy, conc)</li>
+                                <li style="font-size: 0.95rem;">Google Earth Pro / Google Earth Web</li>
+                            </ul>
+                        </div>
+                        <div class="card secondary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Available Variables</h3>
+                            <table style="font-size: 0.9rem; margin-top: 10px;">
+                                <tr><td><code>h</code></td><td>Water depth</td></tr>
+                                <tr><td><code>vx</code></td><td>X-velocity</td></tr>
+                                <tr><td><code>vy</code></td><td>Y-velocity</td></tr>
+                                <tr><td><code>conc</code></td><td>Concentration</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">8</div>
+            </div>
+        </div>
+
+        <!-- Slide 9: WebGL Pipeline -->
+        <div class="slide" data-slide="9">
+            <div class="slide-header">
+                <h2>WebGL Data Pipeline</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary" style="padding: 25px;">
+                            <h3>Pipeline Steps</h3>
+                            <div class="flow-vertical">
+                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">1. Read DEM &amp; simulation results</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">2. Generate heightmap PNG</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">3. Compute hillshade</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box accent" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">4. Fetch satellite imagery</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">5. Encode velocity frames</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box light" style="font-size: 0.9rem; padding: 12px 25px; width: 280px; text-align: center;">6. Write metadata.json</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Output Structure</h3>
+                            <pre style="font-size: 0.8rem; padding: 12px;">
+fluxos_web/
+&#9500;&#9472;&#9472; index.html          <span class="comment"># WebGL viewer</span>
+&#9492;&#9472;&#9472; data/
+    &#9500;&#9472;&#9472; metadata.json   <span class="comment"># Grid info, bounds</span>
+    &#9500;&#9472;&#9472; heightmap.png   <span class="comment"># Terrain elevation</span>
+    &#9500;&#9472;&#9472; hillshade.png   <span class="comment"># Shaded relief</span>
+    &#9500;&#9472;&#9472; satellite.jpg   <span class="comment"># Aerial imagery</span>
+    &#9500;&#9472;&#9472; velocity/       <span class="comment"># Per-frame v data</span>
+    &#9474;   &#9500;&#9472;&#9472; v_0000.png
+    &#9474;   &#9500;&#9472;&#9472; v_0001.png
+    &#9474;   &#9492;&#9472;&#9472; ...
+    &#9492;&#9472;&#9472; conc/           <span class="comment"># Per-frame conc</span>
+        &#9500;&#9472;&#9472; c_0000.png
+        &#9492;&#9472;&#9472; ...</pre>
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Velocity encoding:</strong> vx &rarr; red channel, vy &rarr; green channel. Normalized to [0, 255] range using metadata min/max values.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">9</div>
+            </div>
+        </div>
+
+        <!-- Slide 10: ParaView -->
+        <div class="slide" data-slide="10">
+            <div class="slide-header">
+                <h2>ParaView Visualization</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>&#128202; VTK Output (Triangular Mesh)</h3>
+                            <p style="font-size: 1rem; margin-bottom: 15px;">
+                                Triangular mesh builds produce VTK XML files that can be loaded directly in ParaView:
+                            </p>
+                            <pre style="font-size: 0.8rem; padding: 12px;">
+<span class="comment"># Open the time series file</span>
+paraview output.pvd
+
+<span class="comment"># Or open individual timesteps</span>
+paraview output_0001.vtu</pre>
+                            <ul style="margin-left: 15px; margin-top: 15px;">
+                                <li style="font-size: 0.95rem;">Water depth (h)</li>
+                                <li style="font-size: 0.95rem;">Velocity magnitude</li>
+                                <li style="font-size: 0.95rem;">Concentration fields</li>
+                                <li style="font-size: 0.95rem;">Terrain elevation</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>&#127916; Animation Tips</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;"><strong>Load .pvd file</strong> for automatic time series</li>
+                                <li style="font-size: 1rem;"><strong>Warp by Scalar</strong> filter for 3D terrain</li>
+                                <li style="font-size: 1rem;"><strong>Threshold</strong> filter to hide dry cells</li>
+                                <li style="font-size: 1rem;"><strong>Annotate Time</strong> for timestamp overlay</li>
+                                <li style="font-size: 1rem;"><strong>Save Animation</strong> for video export</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>ParaView download:</strong> Free and open-source. Available at <code>paraview.org</code> for Windows, macOS, and Linux.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">10</div>
+            </div>
+        </div>
+
+        <!-- Slide 11: Summary -->
+        <div class="slide" data-slide="11">
+            <div class="slide-header">
+                <h2>Tools Summary</h2>
+            </div>
+            <div class="slide-content">
+                <div class="center-content">
+                    <div style="max-width: 1000px;">
+                        <table style="margin-bottom: 30px;">
+                            <tr>
+                                <th>Tool</th>
+                                <th>Purpose</th>
+                                <th>Input</th>
+                                <th>Output</th>
+                            </tr>
+                            <tr>
+                                <td><strong>fluxos_setup.py</strong></td>
+                                <td>Preprocessing</td>
+                                <td>GeoTIFF DEM</td>
+                                <td>ESRI ASCII, Gmsh mesh, JSON config</td>
+                            </tr>
+                            <tr>
+                                <td><strong>fluxos_viewer.py</strong></td>
+                                <td>KML export</td>
+                                <td>ASCII results + DEM</td>
+                                <td>Animated KML/KMZ</td>
+                            </tr>
+                            <tr>
+                                <td><strong>WebGL export</strong></td>
+                                <td>Web visualization</td>
+                                <td>ASCII results + DEM</td>
+                                <td>PNG images + metadata.json</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ParaView</strong></td>
+                                <td>3D visualization</td>
+                                <td>.vtu / .pvd files</td>
+                                <td>Interactive 3D, video</td>
+                            </tr>
+                        </table>
+                        <div class="highlight-box success" style="text-align: center; font-size: 1.2rem;">
+                            <strong>End-to-end workflow:</strong> GeoTIFF &rarr; fluxos_setup.py &rarr; FLUXOS simulation &rarr; KML / WebGL / ParaView
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">11</div>
+            </div>
+        </div>
+
+        <!-- Slide 12: Thank You -->
+        <div class="slide title-slide" data-slide="12">
+            <h1 style="font-size: 3.5rem;">Thank You</h1>
+            <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
+            <div style="margin-top: 3rem;">
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>GitHub:</strong> github.com/ue-hydro/fluxos
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>Documentation:</strong> fluxos-cpp.readthedocs.io
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0;">
+                    <strong>Contact:</strong> diogo.costa@uevora.pt
+                </p>
+            </div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+    </div>
+
+    <div class="nav-hint" id="navHint">Use &larr; &rarr; arrows to navigate | Press F for fullscreen</div>
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = document.querySelectorAll('.slide').length;
+        function showSlide(n) {
+            const slides = document.querySelectorAll('.slide');
+            if (n > totalSlides) currentSlide = 1;
+            if (n < 1) currentSlide = totalSlides;
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[currentSlide - 1].classList.add('active');
+            history.replaceState(null, null, `#${currentSlide}`);
+        }
+        function nextSlide() { currentSlide++; showSlide(currentSlide); }
+        function prevSlide() { currentSlide--; showSlide(currentSlide); }
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown': case 'Enter': nextSlide(); break;
+                case 'ArrowLeft': case 'ArrowUp': case 'PageUp': prevSlide(); break;
+                case 'Home': currentSlide = 1; showSlide(currentSlide); break;
+                case 'End': currentSlide = totalSlides; showSlide(currentSlide); break;
+                case 'f': case 'F': toggleFullscreen(); break;
+            }
+        });
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+        const navHint = document.getElementById('navHint');
+        navHint.classList.add('visible');
+        setTimeout(() => navHint.classList.remove('visible'), 4000);
+        let hintTimeout;
+        document.addEventListener('mousemove', () => {
+            navHint.classList.add('visible');
+            clearTimeout(hintTimeout);
+            hintTimeout = setTimeout(() => navHint.classList.remove('visible'), 2000);
+        });
+        if (window.location.hash) {
+            const slideNum = parseInt(window.location.hash.substring(1));
+            if (slideNum >= 1 && slideNum <= totalSlides) currentSlide = slideNum;
+        }
+        showSlide(currentSlide);
+        let touchStartX = 0;
+        document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
+        document.addEventListener('touchend', (e) => {
+            const diff = touchStartX - e.changedTouches[0].screenX;
+            if (Math.abs(diff) > 50) { if (diff > 0) nextSlide(); else prevSlide(); }
+        });
+        function addCopyButtons() {
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.closest('.diagram')) return;
+                if (pre.parentElement.classList.contains('code-container')) return;
+                const wrapper = document.createElement('div');
+                wrapper.className = 'code-container';
+                pre.parentNode.insertBefore(wrapper, pre);
+                wrapper.appendChild(pre);
+                const btn = document.createElement('button');
+                btn.className = 'copy-btn';
+                btn.innerHTML = '&#128203; Copy';
+                btn.onclick = function() {
+                    navigator.clipboard.writeText(pre.textContent).then(() => {
+                        btn.innerHTML = '&#10003; Copied!';
+                        btn.classList.add('copied');
+                        setTimeout(() => { btn.innerHTML = '&#128203; Copy'; btn.classList.remove('copied'); }, 2000);
+                    });
+                };
+                wrapper.appendChild(btn);
+            });
+        }
+        addCopyButtons();
+        function exportToPDF() {
+            const slides = document.querySelectorAll('.slide');
+            const presentation = document.getElementById('presentation');
+            const originalPresentationStyle = presentation.style.cssText;
+            const originalBodyStyle = document.body.style.cssText;
+            const originalHtmlStyle = document.documentElement.style.cssText;
+            const originalSlideStyles = Array.from(slides).map(s => s.style.cssText);
+            const printStyles = document.createElement('style');
+            printStyles.id = 'print-styles';
+            printStyles.textContent = `@media print { @page { size: landscape; margin: 0; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } html, body { height: auto !important; overflow: visible !important; background: white !important; } .presentation { height: auto !important; position: relative !important; overflow: visible !important; } .slide { display: flex !important; position: relative !important; page-break-after: always !important; page-break-inside: avoid !important; height: 100vh !important; width: 100vw !important; margin: 0 !important; box-sizing: border-box !important; } .slide:last-child { page-break-after: auto !important; } .nav-hint, .pdf-btn, .copy-btn { display: none !important; } .university-logo { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }`;
+            document.head.appendChild(printStyles);
+            document.body.style.cssText = 'height: auto; overflow: visible;';
+            document.documentElement.style.cssText = 'height: auto; overflow: visible;';
+            presentation.style.cssText = 'height: auto; position: relative; overflow: visible;';
+            slides.forEach(slide => { slide.style.display = 'flex'; slide.style.position = 'relative'; slide.style.pageBreakAfter = 'always'; slide.style.height = '100vh'; slide.style.width = '100vw'; });
+            setTimeout(() => {
+                window.print();
+                setTimeout(() => {
+                    document.getElementById('print-styles')?.remove();
+                    document.body.style.cssText = originalBodyStyle;
+                    document.documentElement.style.cssText = originalHtmlStyle;
+                    presentation.style.cssText = originalPresentationStyle;
+                    slides.forEach((slide, i) => { slide.style.cssText = originalSlideStyles[i]; });
+                    showSlide(currentSlide);
+                }, 500);
+            }, 100);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLUXOS - General Overview</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --primary: #0066cc;
+            --primary-dark: #004499;
+            --secondary: #00a86b;
+            --accent: #ff6b35;
+            --dark: #1a1a2e;
+            --light: #f8f9fa;
+            --text: #2d3436;
+            --text-light: #636e72;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        .presentation { height: 100vh; width: 100vw; position: relative; }
+
+        .slide {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: none;
+            flex-direction: column;
+            padding: 60px 80px;
+            background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%);
+            overflow: hidden;
+        }
+
+        .slide.active { display: flex; }
+
+        /* Title Slide */
+        .slide.title-slide {
+            background: linear-gradient(135deg, var(--dark) 0%, #16213e 50%, #0f3460 100%);
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            color: white;
+        }
+
+        .slide.title-slide h1 {
+            font-size: 5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            letter-spacing: -2px;
+        }
+
+        .slide.title-slide h1 span { color: var(--primary); }
+
+        /* Dynamic reveal animations */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-60px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .title-slide .reveal-title {
+            opacity: 0;
+            animation: fadeInScale 0.8s ease-out forwards;
+            animation-delay: 0.2s;
+        }
+
+        .title-slide .reveal-subtitle {
+            opacity: 0;
+            animation: fadeInUp 0.7s ease-out forwards;
+            animation-delay: 0.6s;
+        }
+
+        .title-slide .reveal-tagline {
+            opacity: 0;
+            animation: fadeInUp 0.7s ease-out forwards;
+            animation-delay: 0.9s;
+        }
+
+        .title-slide .reveal-author {
+            opacity: 0;
+            animation: fadeInUp 0.6s ease-out forwards;
+            animation-delay: 1.2s;
+        }
+
+        .title-slide .reveal-affiliation {
+            opacity: 0;
+            animation: fadeInUp 0.6s ease-out forwards;
+            animation-delay: 1.4s;
+        }
+
+        .title-slide .reveal-logo {
+            opacity: 0;
+            animation: fadeInUp 0.5s ease-out forwards;
+            animation-delay: 1.6s;
+        }
+
+        .slide.title-slide .subtitle {
+            font-size: 2.2rem;
+            font-weight: 300;
+            color: #a0aec0;
+            margin-bottom: 2rem;
+        }
+
+        .slide.title-slide .tagline {
+            font-size: 1.4rem;
+            color: #718096;
+            max-width: 800px;
+        }
+
+        .slide.title-slide .author {
+            font-size: 1.4rem;
+            color: #cbd5e0;
+            margin-top: 3rem;
+        }
+
+        .slide.title-slide .affiliation {
+            font-size: 1.1rem;
+            color: #718096;
+            margin-top: 0.5rem;
+        }
+
+        /* University Logo */
+        .university-logo {
+            position: absolute;
+            bottom: 30px;
+            right: 40px;
+            height: 60px;
+            opacity: 0.9;
+        }
+
+        .slide.title-slide .university-logo { height: 70px; }
+        .slide.section-slide .university-logo { height: 55px; opacity: 0.85; }
+
+        /* Section Slides */
+        .slide.section-slide {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .slide.section-slide.purple {
+            background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+        }
+
+        .slide.section-slide.teal {
+            background: linear-gradient(135deg, #0891b2 0%, #155e75 100%);
+        }
+
+        .slide.section-slide.green {
+            background: linear-gradient(135deg, var(--secondary) 0%, #047857 100%);
+        }
+
+        .slide.section-slide h2 { font-size: 4rem; font-weight: 600; }
+
+        .slide.section-slide .section-number {
+            font-size: 10rem;
+            font-weight: 700;
+            opacity: 0.15;
+            position: absolute;
+            top: 40px;
+            right: 80px;
+        }
+
+        /* Content Slides */
+        .slide-header { margin-bottom: 40px; }
+
+        .slide-header h2 {
+            font-size: 2.8rem;
+            font-weight: 600;
+            color: var(--dark);
+            border-left: 6px solid var(--primary);
+            padding-left: 24px;
+        }
+
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            height: 100%;
+        }
+
+        .three-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 40px;
+        }
+
+        .column { display: flex; flex-direction: column; }
+
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+
+        .card.primary { border-left: 5px solid var(--primary); }
+        .card.secondary { border-left: 5px solid var(--secondary); }
+        .card.accent { border-left: 5px solid var(--accent); }
+        .card.purple { border-left: 5px solid #7c3aed; }
+        .card.teal { border-left: 5px solid #0891b2; }
+
+        .card h3 {
+            font-size: 1.5rem;
+            color: var(--dark);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card p, .card li {
+            font-size: 1.15rem;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Feature cards */
+        .feature-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            text-align: center;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+
+        .feature-card .icon { font-size: 3rem; margin-bottom: 15px; }
+
+        .feature-card h4 {
+            font-size: 1.3rem;
+            color: var(--dark);
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            font-size: 1rem;
+            color: var(--text-light);
+        }
+
+        /* Lists */
+        ul, ol { margin-left: 30px; }
+
+        li {
+            font-size: 1.4rem;
+            color: var(--text);
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+
+        li strong { color: var(--primary-dark); }
+
+        /* Equations */
+        .equation-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 16px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .equation-box .equation {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.8rem;
+            margin: 10px 0;
+        }
+
+        .equation-box .label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+
+        /* Code blocks */
+        .code-container { position: relative; }
+        pre {
+            background: var(--dark);
+            color: #e2e8f0;
+            padding: 25px;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255,255,255,0.15);
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            color: #a0aec0;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .copy-btn.copied { background: var(--secondary); color: white; }
+
+        /* PDF Export Button */
+        .pdf-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 40px;
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 10px 20px;
+            cursor: pointer;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
+        .slide:not(.title-slide) .pdf-btn {
+            background: var(--dark);
+            border-color: var(--dark);
+            color: white;
+        }
+        .slide:not(.title-slide) .pdf-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        /* Diagram */
+        .diagram {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .diagram pre {
+            background: transparent;
+            color: var(--text);
+            display: inline-block;
+            text-align: left;
+        }
+
+        /* Highlights */
+        .highlight-box {
+            background: linear-gradient(135deg, #fff7ed, #ffedd5);
+            border-left: 5px solid var(--accent);
+            padding: 25px 30px;
+            border-radius: 0 12px 12px 0;
+            margin: 20px 0;
+        }
+
+        .highlight-box.info {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-left-color: var(--primary);
+        }
+
+        .highlight-box.success {
+            background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+            border-left-color: var(--secondary);
+        }
+
+        .highlight-box.warning {
+            background: linear-gradient(135deg, #fff7ed, #ffedd5);
+            border-left-color: var(--accent);
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 1.1rem;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        th {
+            background: var(--dark);
+            color: white;
+            padding: 16px 20px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 14px 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        tr:nth-child(even) { background: #f8fafc; }
+
+        /* Footer */
+        .slide-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            margin-top: auto;
+        }
+
+        .slide-footer .logo {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--dark);
+        }
+
+        .slide-footer .logo span { color: var(--primary); }
+
+        .slide-footer .page-number {
+            background: var(--dark);
+            color: white;
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+
+        /* Flow diagram */
+        .flow-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .flow-box {
+            background: var(--primary);
+            color: white;
+            padding: 18px 35px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .flow-box.secondary { background: var(--secondary); }
+        .flow-box.accent { background: var(--accent); }
+        .flow-box.light {
+            background: white;
+            color: var(--dark);
+            border: 2px solid #e2e8f0;
+        }
+
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: var(--text-light);
+        }
+
+        /* Navigation hint */
+        .nav-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .nav-hint.visible { opacity: 1; }
+
+        /* Center content */
+        .center-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+        }
+
+        .large-text {
+            font-size: 1.8rem;
+            color: var(--text);
+            max-width: 900px;
+            line-height: 1.6;
+        }
+
+        /* Process icons */
+        .process-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 25px;
+            margin: 30px 0;
+        }
+
+        .process-item { text-align: center; padding: 20px; }
+        .process-item .icon { font-size: 3rem; margin-bottom: 15px; }
+        .process-item h4 { font-size: 1.2rem; color: var(--dark); margin-bottom: 8px; }
+        .process-item p { font-size: 0.95rem; color: var(--text-light); }
+
+        @media print {
+            .slide {
+                page-break-after: always;
+                display: flex !important;
+            }
+            .nav-hint { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation" id="presentation">
+
+        <!-- Slide 1: Title -->
+        <div class="slide title-slide active" data-slide="1">
+            <h1 class="reveal-title">FLUX<span>OS</span></h1>
+            <div class="subtitle reveal-subtitle">2D Hydrodynamic &amp; Solute Transport Modelling Framework</div>
+            <div class="tagline reveal-tagline">
+                A high-performance, open-source platform for physics-based flood simulation,<br>
+                solute transport, and soil infiltration modelling
+            </div>
+            <div class="author reveal-author">Diogo Costa</div>
+            <div class="affiliation reveal-affiliation">University of &Eacute;vora, Portugal</div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo reveal-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+        <!-- Slide 2: Table of Contents -->
+        <div class="slide" data-slide="2">
+            <div class="slide-header">
+                <h2>Contents</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 60px;">
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-bottom: 8px;">&bull; What is FLUXOS?</p>
+                            <p style="margin-bottom: 8px;">&bull; Core Capabilities</p>
+                            <p style="margin-bottom: 8px;">&bull; Coupled Host Models</p>
+                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Mesh &amp; Numerical Methods</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Regular Cartesian Mesh</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Unstructured Triangular Mesh</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Numerical Solvers</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Parallelization</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; OpenMP + MPI + CUDA</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; GPU Acceleration</p>
+                            <p style="margin-top: 15px; color: var(--accent); font-weight: 600;">Section 03: Applications &amp; Tools</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Application Areas</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Technical Stack</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; WebGL 3D Viewer</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Summary</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">2</div>
+            </div>
+        </div>
+
+        <!-- Slide 3: What is FLUXOS? -->
+        <div class="slide" data-slide="3">
+            <div class="slide-header">
+                <h2>What is FLUXOS?</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column">
+                    <div class="column">
+                        <p style="font-size: 1.4rem; margin-bottom: 30px;">
+                            FLUXOS is an <strong>open-source, physics-based 2D hydrodynamic model</strong> for event-based flood simulation, coupled with solute transport and soil infiltration.
+                        </p>
+                        <div class="highlight-box info">
+                            <strong>Key Innovation:</strong><br>
+                            Supports both <strong>regular Cartesian</strong> and <strong>unstructured triangular</strong> meshes with full GPU acceleration, enabling fast, high-resolution simulations on complex terrain.
+                        </div>
+                        <ul style="margin-top: 25px;">
+                            <li><strong>Physics-based</strong> &mdash; 2D Shallow Water Equations (dynamic wave)</li>
+                            <li><strong>Multi-physics</strong> &mdash; ADE solute transport + soil infiltration</li>
+                            <li><strong>Scalable</strong> &mdash; OpenMP, MPI, and CUDA parallelization</li>
+                            <li><strong>Open</strong> &mdash; GNU GPL v3+ license</li>
+                        </ul>
+                    </div>
+                    <div class="column">
+                        <div class="diagram">
+                            <pre style="font-size: 1rem;">
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;        INPUT DATA                &#9474;
+&#9474;  DEM + Boundary Conditions      &#9474;
+&#9474;  + Soil Map + Meteo Forcing     &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+                &#9474;
+                &#9660;
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;  2D SHALLOW WATER EQUATIONS    &#9474;
+&#9474;  Roe flux + wetting/drying     &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+                &#9474;
+        &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9524;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+        &#9474;               &#9474;
+        &#9660;               &#9660;
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488; &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474; ADE SOLVER   &#9474; &#9474; SOIL           &#9474;
+&#9474; Solute       &#9474; &#9474; INFILTRATION   &#9474;
+&#9474; Transport    &#9474; &#9474; Horton model   &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496; &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">3</div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Core Capabilities -->
+        <div class="slide" data-slide="4">
+            <div class="slide-header">
+                <h2>Core Capabilities</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="feature-card" style="margin-bottom: 15px;">
+                            <div class="icon">&#127754;</div>
+                            <h4>2D Hydrodynamics</h4>
+                            <p>Full dynamic wave solution of the 2D shallow water equations. Roe's approximate Riemann solver with robust wetting/drying and back-flooding capture.</p>
+                        </div>
+                        <div class="feature-card" style="margin-bottom: 15px;">
+                            <div class="icon">&#129514;</div>
+                            <h4>Solute Transport</h4>
+                            <p>Mass-conservative ADE solver with first-order upwind advection, Fickian diffusion, and monotonicity clamp. Two-pass fully parallel formulation.</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="icon">&#127793;</div>
+                            <h4>Soil Infiltration</h4>
+                            <p>Horton decay model with USDA 12-class soil texture classification (Rawls et al. 1983). Per-cell infiltration tracking.</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="feature-card" style="margin-bottom: 15px;">
+                            <div class="icon">&#9889;</div>
+                            <h4>GPU Acceleration</h4>
+                            <p>CUDA kernels for both regular and triangular meshes. Typical 10&ndash;50x speedup over single-core CPU. Supports Pascal GPUs and newer.</p>
+                        </div>
+                        <div class="feature-card" style="margin-bottom: 15px;">
+                            <div class="icon">&#127760;</div>
+                            <h4>WebGL 3D Viewer</h4>
+                            <p>Interactive browser-based visualization with particle tracking, satellite imagery, concentration overlays, and real-time animation controls.</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="icon">&#128202;</div>
+                            <h4>Multi-Format Output</h4>
+                            <p>ASCII grids, VTK/ParaView (.vtu + .pvd), KML/KMZ for Google Earth, and WebGL data export for web hosting.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">4</div>
+            </div>
+        </div>
+
+        <!-- Slide 5: Coupled Host Models -->
+        <div class="slide" data-slide="5">
+            <div class="slide-header">
+                <h2>Coupled Host Models</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.3rem; margin-bottom: 30px;">
+                    FLUXOS can operate standalone or coupled with other modelling frameworks:
+                </p>
+                <table>
+                    <tr>
+                        <th>Integration</th>
+                        <th>Domain</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td><strong>Standalone</strong></td>
+                        <td>Overland Flow</td>
+                        <td>Event-based 2D flood simulation with precipitation or inflow forcing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>OpenWQ</strong></td>
+                        <td>Water Quality</td>
+                        <td>Full biogeochemical modelling via the OpenWQ water quality framework</td>
+                    </tr>
+                    <tr>
+                        <td><strong>WINTRA</strong></td>
+                        <td>Nutrient Release</td>
+                        <td>Runoff-soil interaction algorithm for snowmelt-driven nutrient transport</td>
+                    </tr>
+                </table>
+                <div class="highlight-box info" style="margin-top: 30px;">
+                    <strong>Originally developed</strong> for Canadian Prairie hydrology (snowmelt flooding, fill-and-spill dynamics), FLUXOS has evolved into a general-purpose 2D overland flow platform applicable to any terrain and climate.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">5</div>
+            </div>
+        </div>
+
+        <!-- Slide 6: Section - Mesh & Numerical Methods -->
+        <div class="slide section-slide" data-slide="6">
+            <div class="section-number">01</div>
+            <h2>Mesh &amp; Numerical Methods</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 7: Regular Cartesian Mesh -->
+        <div class="slide" data-slide="7">
+            <div class="slide-header">
+                <h2>Regular Cartesian Mesh</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>&#128200; Structured Grid</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">Uniform cell size (configurable <code>dxy</code>)</li>
+                                <li style="font-size: 1rem;">Input: ESRI ASCII DEM format (.asc)</li>
+                                <li style="font-size: 1rem;">Armadillo matrix storage (<code>arma::Mat</code>)</li>
+                                <li style="font-size: 1rem;">Efficient row-column indexing</li>
+                                <li style="font-size: 1rem;">Output: ASCII text grids per timestep</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Best for:</strong> Rectangular domains with uniform resolution requirements. Simple DEM-based setups.
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>&#128295; Solver Details</h3>
+                            <table style="font-size: 0.95rem; margin-top: 10px;">
+                                <tr><td><strong>Flux scheme</strong></td><td>Roe's approximate Riemann</td></tr>
+                                <tr><td><strong>Time stepping</strong></td><td>CFL-adaptive</td></tr>
+                                <tr><td><strong>Wetting/drying</strong></td><td>Velocity desingularization</td></tr>
+                                <tr><td><strong>Friction</strong></td><td>Manning's equation</td></tr>
+                                <tr><td><strong>Parallelization</strong></td><td>OpenMP, MPI, CUDA</td></tr>
+                            </table>
+                        </div>
+                        <div class="card accent" style="margin-top: 15px;">
+                            <h3>&#128337; Performance</h3>
+                            <p style="font-size: 1rem;">Rosa_2m test domain (859&times;618, 2m cells):<br><strong>~16 minutes</strong> on single CPU core</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">7</div>
+            </div>
+        </div>
+
+        <!-- Slide 8: Triangular Mesh -->
+        <div class="slide" data-slide="8">
+            <div class="slide-header">
+                <h2>Unstructured Triangular Mesh</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>&#128310; Edge-Based Finite Volume</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">Arbitrary triangular elements</li>
+                                <li style="font-size: 1rem;">Input: Gmsh (.msh) or Triangle (.node/.ele)</li>
+                                <li style="font-size: 1rem;">Flat vector storage (<code>std::vector</code>)</li>
+                                <li style="font-size: 1rem;">Output: VTK XML (.vtu) + ParaView (.pvd)</li>
+                            </ul>
+                        </div>
+                        <div class="card accent">
+                            <h3>&#128337; Performance</h3>
+                            <p style="font-size: 1rem;">Same Rosa_2m domain:<br><strong>~3 seconds</strong> (vs 16 min on regular mesh!)</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>&#129518; Advanced Numerics</h3>
+                            <table style="font-size: 0.95rem; margin-top: 10px;">
+                                <tr><td><strong>Reconstruction</strong></td><td>MUSCL with least-squares gradients</td></tr>
+                                <tr><td><strong>Limiter</strong></td><td>Barth-Jespersen (monotonicity)</td></tr>
+                                <tr><td><strong>Well-balanced</strong></td><td>Hydrostatic reconstruction</td></tr>
+                                <tr><td><strong>Dry fronts</strong></td><td>Ritter dry-front solution</td></tr>
+                                <tr><td><strong>CFL</strong></td><td>Inradius-based adaptive</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Best for:</strong> Complex geometries, channel networks, slope-adaptive refinement, and when VTK/ParaView output is desired.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">8</div>
+            </div>
+        </div>
+
+        <!-- Slide 9: Governing Equations -->
+        <div class="slide" data-slide="9">
+            <div class="slide-header">
+                <h2>Governing Equations</h2>
+            </div>
+            <div class="slide-content">
+                <div class="equation-box" style="margin-bottom: 25px;">
+                    <div class="label">2D Shallow Water Equations (Saint-Venant)</div>
+                    <div class="equation">&part;h/&part;t + &part;(hu)/&part;x + &part;(hv)/&part;y = R &minus; I</div>
+                    <div class="equation" style="font-size: 1.4rem; margin-top: 5px;">&part;(hu)/&part;t + &part;(hu&sup2; + gh&sup2;/2)/&part;x + &part;(huv)/&part;y = &minus;ghS<sub>fx</sub></div>
+                    <div class="equation" style="font-size: 1.4rem;">&part;(hv)/&part;t + &part;(huv)/&part;x + &part;(hv&sup2; + gh&sup2;/2)/&part;y = &minus;ghS<sub>fy</sub></div>
+                </div>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="equation-box" style="background: linear-gradient(135deg, #0891b2, #155e75);">
+                            <div class="label">Advection-Diffusion Equation (ADE)</div>
+                            <div class="equation" style="font-size: 1.3rem;">&part;(hC)/&part;t + &nabla;&middot;(huC) = &nabla;&middot;(Dh&nabla;C) + S</div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="equation-box" style="background: linear-gradient(135deg, var(--secondary), #047857);">
+                            <div class="label">Horton Infiltration</div>
+                            <div class="equation" style="font-size: 1.3rem;">f(t) = f<sub>c</sub> + (f<sub>0</sub> &minus; f<sub>c</sub>) e<sup>&minus;kt</sup></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="highlight-box" style="margin-top: 20px;">
+                    <strong>h</strong> = water depth, <strong>u,v</strong> = velocities, <strong>R</strong> = rainfall, <strong>I</strong> = infiltration, <strong>C</strong> = concentration, <strong>D</strong> = diffusion coefficient, <strong>S<sub>f</sub></strong> = friction slope (Manning)
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">9</div>
+            </div>
+        </div>
+
+        <!-- Slide 10: ADE Solver Detail -->
+        <div class="slide" data-slide="10">
+            <div class="slide-header">
+                <h2>ADE Solver: Mass-Conservative Formulation</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.15rem; margin-bottom: 20px;">
+                    Two-pass explicit, fully-parallel formulation with no race conditions:
+                </p>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Pass 1: Face Fluxes</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">Compute east &amp; north face fluxes for all cells</li>
+                                <li style="font-size: 1rem;">Read-only access to old concentration field</li>
+                                <li style="font-size: 1rem;">First-order upwind advection (unconditionally TVD)</li>
+                                <li style="font-size: 1rem;">Fickian diffusion: &minus;D &middot; h<sub>face</sub> &middot; &Delta;C/&Delta;x</li>
+                                <li style="font-size: 1rem;">Fully parallelizable (no data dependencies)</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Pass 2: Mass Update</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">Gather 4 face fluxes per cell</li>
+                                <li style="font-size: 1rem;">Net flux = (west&minus;east) + (south&minus;north)</li>
+                                <li style="font-size: 1rem;">M<sub>new</sub> = max(0, M<sub>old</sub> + net &middot; &Delta;t / A)</li>
+                                <li style="font-size: 1rem;">C<sub>new</sub> = M<sub>new</sub> / h<sub>new</sub></li>
+                                <li style="font-size: 1rem;"><strong>Monotonicity clamp:</strong> C &le; max(C<sub>neighbors</sub>)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="highlight-box success" style="margin-top: 15px; text-align: center;">
+                    <strong>Result:</strong> Completely stable, mass-conservative transport with no artificial extrema at wetting fronts
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">10</div>
+            </div>
+        </div>
+
+        <!-- Slide 11: Soil Infiltration -->
+        <div class="slide" data-slide="11">
+            <div class="slide-header">
+                <h2>Soil Infiltration Module</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>&#127793; Horton Decay Model</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">f(t) = f<sub>c</sub> + (f<sub>0</sub> &minus; f<sub>c</sub>) &middot; exp(&minus;k &middot; t<sub>wet</sub>)</li>
+                                <li style="font-size: 1rem;">Per-cell soil type classification</li>
+                                <li style="font-size: 1rem;">USDA 12 soil texture classes</li>
+                                <li style="font-size: 1rem;">Published K<sub>s</sub> values (Rawls et al. 1983)</li>
+                                <li style="font-size: 1rem;">Tracks cumulative wetting time per cell</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Backward compatible:</strong> No <code>SOIL_INFILTRATION</code> section in the JSON config = module disabled. Existing setups work unchanged.
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>USDA Soil Classes</h3>
+                            <table style="font-size: 0.85rem; margin-top: 10px;">
+                                <tr><th>Class</th><th>K<sub>s</sub> (mm/h)</th></tr>
+                                <tr><td>Sand</td><td>210.0</td></tr>
+                                <tr><td>Loamy Sand</td><td>61.0</td></tr>
+                                <tr><td>Sandy Loam</td><td>26.0</td></tr>
+                                <tr><td>Loam</td><td>13.0</td></tr>
+                                <tr><td>Silt Loam</td><td>6.8</td></tr>
+                                <tr><td>Sandy Clay Loam</td><td>4.3</td></tr>
+                                <tr><td>Clay Loam</td><td>2.3</td></tr>
+                                <tr><td>Silty Clay Loam</td><td>1.5</td></tr>
+                                <tr><td>Sandy Clay</td><td>1.2</td></tr>
+                                <tr><td>Silty Clay</td><td>0.9</td></tr>
+                                <tr><td>Clay</td><td>0.6</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">11</div>
+            </div>
+        </div>
+
+        <!-- Slide 12: Section - Parallelization -->
+        <div class="slide section-slide purple" data-slide="12">
+            <div class="section-number">02</div>
+            <h2>Parallelization &amp; Performance</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 13: Parallelization Options -->
+        <div class="slide" data-slide="13">
+            <div class="slide-header">
+                <h2>Parallelization Options</h2>
+            </div>
+            <div class="slide-content">
+                <table style="margin-bottom: 25px;">
+                    <tr>
+                        <th>Technology</th>
+                        <th>Memory Model</th>
+                        <th>Use Case</th>
+                        <th>CMake Flag</th>
+                    </tr>
+                    <tr>
+                        <td><strong>OpenMP</strong></td>
+                        <td>Shared memory</td>
+                        <td>Multi-core workstations (default)</td>
+                        <td><em>Always enabled</em></td>
+                    </tr>
+                    <tr>
+                        <td><strong>MPI</strong></td>
+                        <td>Distributed memory</td>
+                        <td>HPC clusters, 100+ cores</td>
+                        <td><code>-DUSE_MPI=ON</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>CUDA</strong></td>
+                        <td>GPU device memory</td>
+                        <td>NVIDIA GPU acceleration</td>
+                        <td><code>-DUSE_CUDA=ON</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Hybrid</strong></td>
+                        <td>All combined</td>
+                        <td>GPU clusters with multi-node</td>
+                        <td>All flags combined</td>
+                    </tr>
+                </table>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Regular Mesh Parallelization</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;">OpenMP: loop collapse over rows/cols</li>
+                                <li style="font-size: 0.95rem;">MPI: 2D Cartesian domain decomposition with ghost cell exchange</li>
+                                <li style="font-size: 0.95rem;">CUDA: 2D thread grid (1 thread/cell)</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Triangular Mesh Parallelization</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;">OpenMP: edge &amp; cell parallel loops</li>
+                                <li style="font-size: 0.95rem;">MPI: graph-based partitioning (METIS)</li>
+                                <li style="font-size: 0.95rem;">CUDA: 7 specialized kernels</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">13</div>
+            </div>
+        </div>
+
+        <!-- Slide 14: CUDA GPU Kernels -->
+        <div class="slide" data-slide="14">
+            <div class="slide-header">
+                <h2>CUDA GPU Kernels</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.15rem; margin-bottom: 20px;">
+                    7 specialized kernels for unstructured triangular mesh (edge-based finite volume):
+                </p>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="margin-bottom: 10px;">Kernel Pipeline</h3>
+                            <div class="flow-vertical">
+                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">1. Wet/Dry Classification</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">2. Gradient Computation</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px;">3. Barth-Jespersen Limiting</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box accent" style="font-size: 0.9rem; padding: 12px 25px;">4. Edge-Based Roe Flux</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">5. Flux Accumulation (atomicAdd)</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px;">6. State Update</div>
+                                <div class="flow-arrow">&#9660;</div>
+                                <div class="flow-box light" style="font-size: 0.9rem; padding: 12px 25px;">7. CFL Reduction</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>&#9889; Performance</h3>
+                            <table style="font-size: 1rem; margin-top: 10px;">
+                                <tr><td><strong>Speedup</strong></td><td>10&ndash;50x over single CPU core</td></tr>
+                                <tr><td><strong>Min GPU</strong></td><td>Compute Capability 6.0+</td></tr>
+                                <tr><td><strong>Architecture</strong></td><td>Pascal, Volta, Turing, Ampere</td></tr>
+                                <tr><td><strong>CUDA version</strong></td><td>11.0+</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box success" style="margin-top: 15px;">
+                            <strong>Key design:</strong> Race-free flux accumulation via <code>atomicAdd</code> for shared edges between triangular cells.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">14</div>
+            </div>
+        </div>
+
+        <!-- Slide 15: Section - Applications -->
+        <div class="slide section-slide green" data-slide="15">
+            <div class="section-number">03</div>
+            <h2>Applications &amp; Tools</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 16: Application Areas -->
+        <div class="slide" data-slide="16">
+            <div class="slide-header">
+                <h2>Application Areas</h2>
+            </div>
+            <div class="slide-content">
+                <div class="three-column" style="gap: 30px;">
+                    <div class="card primary" style="height: 100%;">
+                        <h3>&#127754; Flood Risk Assessment</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Flood extent &amp; depth mapping</li>
+                            <li style="font-size: 1rem;">Event timing prediction</li>
+                            <li style="font-size: 1rem;">Back-flooding dynamics</li>
+                            <li style="font-size: 1rem;">Infrastructure vulnerability</li>
+                        </ul>
+                    </div>
+                    <div class="card secondary" style="height: 100%;">
+                        <h3>&#10052;&#65039; Snowmelt Flooding</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Spring freshet events</li>
+                            <li style="font-size: 1rem;">Prairie fill-and-spill</li>
+                            <li style="font-size: 1rem;">Frozen soil effects</li>
+                            <li style="font-size: 1rem;">Nutrient transport (WINTRA)</li>
+                        </ul>
+                    </div>
+                    <div class="card accent" style="height: 100%;">
+                        <h3>&#129514; Solute Transport</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Contaminant plume tracking</li>
+                            <li style="font-size: 1rem;">Point source dispersion</li>
+                            <li style="font-size: 1rem;">Tracer experiments</li>
+                            <li style="font-size: 1rem;">Water quality coupling</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="three-column" style="gap: 30px; margin-top: 20px;">
+                    <div class="card" style="border-left: 5px solid #9333ea; height: 100%;">
+                        <h3>&#127793; Soil &amp; Infiltration</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Infiltration excess runoff</li>
+                            <li style="font-size: 1rem;">Soil moisture dynamics</li>
+                            <li style="font-size: 1rem;">Land-use change impacts</li>
+                            <li style="font-size: 1rem;">Variable contributing areas</li>
+                        </ul>
+                    </div>
+                    <div class="card" style="border-left: 5px solid #0891b2; height: 100%;">
+                        <h3>&#127758; Wetland Dynamics</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Depressional storage</li>
+                            <li style="font-size: 1rem;">Connectivity analysis</li>
+                            <li style="font-size: 1rem;">Flow pathway mapping</li>
+                            <li style="font-size: 1rem;">Fill-spill-merge cascades</li>
+                        </ul>
+                    </div>
+                    <div class="card" style="border-left: 5px solid #ca8a04; height: 100%;">
+                        <h3>&#127777;&#65039; Climate Impact Studies</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 1rem;">Extreme precipitation events</li>
+                            <li style="font-size: 1rem;">Scenario modelling</li>
+                            <li style="font-size: 1rem;">Land-use change</li>
+                            <li style="font-size: 1rem;">Hydrological response</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">16</div>
+            </div>
+        </div>
+
+        <!-- Slide 17: Technical Stack -->
+        <div class="slide" data-slide="17">
+            <div class="slide-header">
+                <h2>Technical Stack</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Languages &amp; Libraries</h3>
+                            <table style="font-size: 1rem; margin-top: 10px;">
+                                <tr><td><strong>C++17</strong></td><td>Core simulation engine</td></tr>
+                                <tr><td><strong>CUDA C++</strong></td><td>GPU kernels</td></tr>
+                                <tr><td><strong>Python</strong></td><td>Pre/post-processing tools</td></tr>
+                                <tr><td><strong>Armadillo</strong></td><td>Linear algebra (regular mesh)</td></tr>
+                                <tr><td><strong>nlohmann/json</strong></td><td>Configuration parsing</td></tr>
+                                <tr><td><strong>WebGL/JS</strong></td><td>3D visualization</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Build &amp; Deployment</h3>
+                            <table style="font-size: 1rem; margin-top: 10px;">
+                                <tr><td><strong>CMake 3.10+</strong></td><td>Build system</td></tr>
+                                <tr><td><strong>OpenMP</strong></td><td>Shared-memory parallelism</td></tr>
+                                <tr><td><strong>OpenMPI</strong></td><td>Distributed parallelism</td></tr>
+                                <tr><td><strong>CUDA 11.0+</strong></td><td>GPU acceleration</td></tr>
+                                <tr><td><strong>Gmsh</strong></td><td>Mesh generation (trimesh)</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box info" style="margin-top: 15px;">
+                            All compile options controlled via CMake flags:<br>
+                            <code>-DUSE_TRIMESH=ON -DUSE_CUDA=ON -DUSE_MPI=ON</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">17</div>
+            </div>
+        </div>
+
+        <!-- Slide 18: WebGL 3D Viewer -->
+        <div class="slide" data-slide="18">
+            <div class="slide-header">
+                <h2>WebGL 3D Viewer</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.15rem; margin-bottom: 20px;">
+                    Interactive browser-based 3D visualization &mdash; no plugins or backend required:
+                </p>
+                <div class="three-column" style="gap: 25px;">
+                    <div class="card primary">
+                        <h3>&#127912; Terrain Rendering</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 0.95rem;">3D heightmap from DEM</li>
+                            <li style="font-size: 0.95rem;">Hillshade lighting</li>
+                            <li style="font-size: 0.95rem;">Satellite imagery overlay</li>
+                            <li style="font-size: 0.95rem;">Adjustable height exaggeration</li>
+                        </ul>
+                    </div>
+                    <div class="card secondary">
+                        <h3>&#127754; Flow Visualization</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 0.95rem;">GPU particle tracking (65k+)</li>
+                            <li style="font-size: 0.95rem;">Water depth colormaps</li>
+                            <li style="font-size: 0.95rem;">Concentration overlays</li>
+                            <li style="font-size: 0.95rem;">Velocity-driven animation</li>
+                        </ul>
+                    </div>
+                    <div class="card accent">
+                        <h3>&#127918; Interactive Controls</h3>
+                        <ul style="margin-left: 15px;">
+                            <li style="font-size: 0.95rem;">Time slider &amp; playback speed</li>
+                            <li style="font-size: 0.95rem;">Orbit camera (mouse/touch)</li>
+                            <li style="font-size: 0.95rem;">Toggle layers on/off</li>
+                            <li style="font-size: 0.95rem;">Fullscreen mode</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="highlight-box success" style="margin-top: 20px; text-align: center;">
+                    <strong>Fully self-contained static files</strong> &mdash; host on any web server, GitHub Pages, or open directly in a browser. No backend needed.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">18</div>
+            </div>
+        </div>
+
+        <!-- Slide 19: Summary -->
+        <div class="slide" data-slide="19">
+            <div class="slide-header">
+                <h2>Summary</h2>
+            </div>
+            <div class="slide-content">
+                <div class="center-content">
+                    <div style="max-width: 1000px;">
+                        <div class="three-column" style="gap: 30px; margin-bottom: 40px;">
+                            <div class="card primary" style="text-align: center;">
+                                <h3 style="justify-content: center;">&#9889; Fast</h3>
+                                <p>GPU-accelerated with CUDA. OpenMP + MPI for HPC. 10&ndash;50x speedup on modern GPUs.</p>
+                            </div>
+                            <div class="card secondary" style="text-align: center;">
+                                <h3 style="justify-content: center;">&#128295; Flexible</h3>
+                                <p>Regular or triangular meshes. Standalone or coupled with OpenWQ. JSON-driven configuration.</p>
+                            </div>
+                            <div class="card accent" style="text-align: center;">
+                                <h3 style="justify-content: center;">&#127760; Visual</h3>
+                                <p>WebGL 3D viewer with particle tracking, satellite imagery, and real-time animation.</p>
+                            </div>
+                        </div>
+                        <div class="highlight-box success" style="text-align: center; font-size: 1.3rem;">
+                            <strong>FLUXOS bridges physics-based hydrodynamics with modern GPU computing</strong><br>
+                            &mdash; enabling fast, high-resolution flood and solute transport simulations
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">19</div>
+            </div>
+        </div>
+
+        <!-- Slide 20: Thank You -->
+        <div class="slide title-slide" data-slide="20">
+            <h1 style="font-size: 3.5rem;">Thank You</h1>
+            <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
+            <div style="margin-top: 3rem;">
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>GitHub:</strong> github.com/ue-hydro/fluxos
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>Documentation:</strong> fluxos-cpp.readthedocs.io
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0;">
+                    <strong>Contact:</strong> diogo.costa@uevora.pt
+                </p>
+            </div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+    </div>
+
+    <div class="nav-hint" id="navHint">Use &larr; &rarr; arrows to navigate | Press F for fullscreen</div>
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = document.querySelectorAll('.slide').length;
+
+        function showSlide(n) {
+            const slides = document.querySelectorAll('.slide');
+            if (n > totalSlides) currentSlide = 1;
+            if (n < 1) currentSlide = totalSlides;
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[currentSlide - 1].classList.add('active');
+            history.replaceState(null, null, `#${currentSlide}`);
+        }
+
+        function nextSlide() { currentSlide++; showSlide(currentSlide); }
+        function prevSlide() { currentSlide--; showSlide(currentSlide); }
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown': case 'Enter': nextSlide(); break;
+                case 'ArrowLeft': case 'ArrowUp': case 'PageUp': prevSlide(); break;
+                case 'Home': currentSlide = 1; showSlide(currentSlide); break;
+                case 'End': currentSlide = totalSlides; showSlide(currentSlide); break;
+                case 'f': case 'F': toggleFullscreen(); break;
+            }
+        });
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+
+        const navHint = document.getElementById('navHint');
+        navHint.classList.add('visible');
+        setTimeout(() => navHint.classList.remove('visible'), 4000);
+
+        let hintTimeout;
+        document.addEventListener('mousemove', () => {
+            navHint.classList.add('visible');
+            clearTimeout(hintTimeout);
+            hintTimeout = setTimeout(() => navHint.classList.remove('visible'), 2000);
+        });
+
+        if (window.location.hash) {
+            const slideNum = parseInt(window.location.hash.substring(1));
+            if (slideNum >= 1 && slideNum <= totalSlides) currentSlide = slideNum;
+        }
+        showSlide(currentSlide);
+
+        let touchStartX = 0;
+        document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
+        document.addEventListener('touchend', (e) => {
+            const diff = touchStartX - e.changedTouches[0].screenX;
+            if (Math.abs(diff) > 50) { if (diff > 0) nextSlide(); else prevSlide(); }
+        });
+
+        // Copy to clipboard functionality
+        function addCopyButtons() {
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.closest('.diagram')) return;
+                if (pre.parentElement.classList.contains('code-container')) return;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'code-container';
+                pre.parentNode.insertBefore(wrapper, pre);
+                wrapper.appendChild(pre);
+
+                const btn = document.createElement('button');
+                btn.className = 'copy-btn';
+                btn.innerHTML = '&#128203; Copy';
+                btn.onclick = function() {
+                    const code = pre.textContent;
+                    navigator.clipboard.writeText(code).then(() => {
+                        btn.innerHTML = '&#10003; Copied!';
+                        btn.classList.add('copied');
+                        setTimeout(() => {
+                            btn.innerHTML = '&#128203; Copy';
+                            btn.classList.remove('copied');
+                        }, 2000);
+                    });
+                };
+                wrapper.appendChild(btn);
+            });
+        }
+        addCopyButtons();
+
+        // PDF Export functionality
+        function exportToPDF() {
+            const slides = document.querySelectorAll('.slide');
+            const presentation = document.getElementById('presentation');
+
+            const originalPresentationStyle = presentation.style.cssText;
+            const originalBodyStyle = document.body.style.cssText;
+            const originalHtmlStyle = document.documentElement.style.cssText;
+            const originalSlideStyles = Array.from(slides).map(s => s.style.cssText);
+
+            const printStyles = document.createElement('style');
+            printStyles.id = 'print-styles';
+            printStyles.textContent = `
+                @media print {
+                    @page { size: landscape; margin: 0; }
+                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                    html, body { height: auto !important; overflow: visible !important; background: white !important; }
+                    .presentation { height: auto !important; position: relative !important; overflow: visible !important; }
+                    .slide {
+                        display: flex !important;
+                        position: relative !important;
+                        page-break-after: always !important;
+                        page-break-inside: avoid !important;
+                        height: 100vh !important;
+                        width: 100vw !important;
+                        margin: 0 !important;
+                        box-sizing: border-box !important;
+                    }
+                    .slide:last-child { page-break-after: auto !important; }
+                    .nav-hint, .pdf-btn, .copy-btn { display: none !important; }
+                    .university-logo { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                }
+            `;
+            document.head.appendChild(printStyles);
+
+            document.body.style.cssText = 'height: auto; overflow: visible;';
+            document.documentElement.style.cssText = 'height: auto; overflow: visible;';
+            presentation.style.cssText = 'height: auto; position: relative; overflow: visible;';
+
+            slides.forEach(slide => {
+                slide.style.display = 'flex';
+                slide.style.position = 'relative';
+                slide.style.pageBreakAfter = 'always';
+                slide.style.height = '100vh';
+                slide.style.width = '100vw';
+            });
+
+            setTimeout(() => {
+                window.print();
+                setTimeout(() => {
+                    document.getElementById('print-styles')?.remove();
+                    document.body.style.cssText = originalBodyStyle;
+                    document.documentElement.style.cssText = originalHtmlStyle;
+                    presentation.style.cssText = originalPresentationStyle;
+                    slides.forEach((slide, i) => {
+                        slide.style.cssText = originalSlideStyles[i];
+                    });
+                    showSlide(currentSlide);
+                }, 500);
+            }, 100);
+        }
+    </script>
+</body>
+</html>

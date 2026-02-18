@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLUXOS - Model Setup Guide</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --primary: #0066cc;
+            --primary-dark: #004499;
+            --secondary: #00a86b;
+            --accent: #ff6b35;
+            --dark: #1a1a2e;
+            --light: #f8f9fa;
+            --text: #2d3436;
+            --text-light: #636e72;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #000; overflow: hidden; }
+        .presentation { height: 100vh; width: 100vw; position: relative; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; padding: 60px 80px; background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%); overflow: hidden; }
+        .slide.active { display: flex; }
+        .slide.title-slide { background: linear-gradient(135deg, var(--dark) 0%, #16213e 50%, #0f3460 100%); justify-content: center; align-items: center; text-align: center; color: white; }
+        .slide.title-slide h1 { font-size: 5rem; font-weight: 700; margin-bottom: 0.5rem; letter-spacing: -2px; }
+        .slide.title-slide h1 span { color: var(--primary); }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+        .title-slide .reveal-title { opacity: 0; animation: fadeInScale 0.8s ease-out forwards; animation-delay: 0.2s; }
+        .title-slide .reveal-subtitle { opacity: 0; animation: fadeInUp 0.7s ease-out forwards; animation-delay: 0.6s; }
+        .title-slide .reveal-author { opacity: 0; animation: fadeInUp 0.6s ease-out forwards; animation-delay: 1.0s; }
+        .title-slide .reveal-affiliation { opacity: 0; animation: fadeInUp 0.6s ease-out forwards; animation-delay: 1.2s; }
+        .title-slide .reveal-logo { opacity: 0; animation: fadeInUp 0.5s ease-out forwards; animation-delay: 1.4s; }
+        .slide.title-slide .subtitle { font-size: 2.2rem; font-weight: 300; color: #a0aec0; margin-bottom: 2rem; }
+        .slide.title-slide .author { font-size: 1.4rem; color: #cbd5e0; margin-top: 3rem; }
+        .slide.title-slide .affiliation { font-size: 1.1rem; color: #718096; margin-top: 0.5rem; }
+        .university-logo { position: absolute; bottom: 30px; right: 40px; height: 60px; opacity: 0.9; }
+        .slide.title-slide .university-logo { height: 70px; }
+        .slide.section-slide .university-logo { height: 55px; opacity: 0.85; }
+        .slide.section-slide { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); justify-content: center; align-items: center; color: white; }
+        .slide.section-slide.purple { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); }
+        .slide.section-slide.teal { background: linear-gradient(135deg, #0891b2 0%, #155e75 100%); }
+        .slide.section-slide.green { background: linear-gradient(135deg, var(--secondary) 0%, #047857 100%); }
+        .slide.section-slide h2 { font-size: 4rem; font-weight: 600; }
+        .slide.section-slide .section-number { font-size: 10rem; font-weight: 700; opacity: 0.15; position: absolute; top: 40px; right: 80px; }
+        .slide-header { margin-bottom: 40px; }
+        .slide-header h2 { font-size: 2.8rem; font-weight: 600; color: var(--dark); border-left: 6px solid var(--primary); padding-left: 24px; }
+        .slide-content { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+        .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; height: 100%; }
+        .three-column { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; }
+        .column { display: flex; flex-direction: column; }
+        .card { background: white; border-radius: 16px; padding: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .card.primary { border-left: 5px solid var(--primary); }
+        .card.secondary { border-left: 5px solid var(--secondary); }
+        .card.accent { border-left: 5px solid var(--accent); }
+        .card.purple { border-left: 5px solid #7c3aed; }
+        .card h3 { font-size: 1.5rem; color: var(--dark); margin-bottom: 15px; display: flex; align-items: center; gap: 12px; }
+        .card p, .card li { font-size: 1.15rem; color: var(--text); line-height: 1.6; }
+        ul, ol { margin-left: 30px; }
+        li { font-size: 1.4rem; color: var(--text); margin-bottom: 16px; line-height: 1.5; }
+        li strong { color: var(--primary-dark); }
+        .code-container { position: relative; }
+        pre { background: var(--dark); color: #e2e8f0; padding: 25px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; line-height: 1.5; overflow-x: auto; }
+        .comment { color: #68d391; }
+        .string { color: #fbd38d; }
+        .keyword { color: #90cdf4; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.15); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; color: #a0aec0; font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+        .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .copy-btn.copied { background: var(--secondary); color: white; }
+        .pdf-btn { position: absolute; bottom: 30px; left: 40px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px 20px; cursor: pointer; color: white; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
+        .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
+        .slide:not(.title-slide) .pdf-btn { background: var(--dark); border-color: var(--dark); color: white; }
+        .slide:not(.title-slide) .pdf-btn:hover { background: var(--primary); border-color: var(--primary); }
+        .highlight-box { background: linear-gradient(135deg, #fff7ed, #ffedd5); border-left: 5px solid var(--accent); padding: 25px 30px; border-radius: 0 12px 12px 0; margin: 20px 0; }
+        .highlight-box.info { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-left-color: var(--primary); }
+        .highlight-box.success { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-left-color: var(--secondary); }
+        .highlight-box.warning { background: linear-gradient(135deg, #fff7ed, #ffedd5); border-left-color: var(--accent); }
+        table { width: 100%; border-collapse: collapse; font-size: 1.1rem; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        th { background: var(--dark); color: white; padding: 16px 20px; text-align: left; font-weight: 600; }
+        td { padding: 14px 20px; border-bottom: 1px solid #e2e8f0; }
+        tr:nth-child(even) { background: #f8fafc; }
+        .slide-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 20px; border-top: 1px solid #e2e8f0; margin-top: auto; }
+        .slide-footer .logo { font-weight: 700; font-size: 1.2rem; color: var(--dark); }
+        .slide-footer .logo span { color: var(--primary); }
+        .slide-footer .page-number { background: var(--dark); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+        .nav-hint { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 30px; font-size: 0.9rem; z-index: 1000; opacity: 0; transition: opacity 0.3s; }
+        .nav-hint.visible { opacity: 1; }
+        .diagram { background: white; border: 2px solid #e2e8f0; border-radius: 16px; padding: 30px; text-align: center; }
+        .diagram pre { background: transparent; color: var(--text); display: inline-block; text-align: left; }
+        @media print { .slide { page-break-after: always; display: flex !important; } .nav-hint { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="presentation" id="presentation">
+
+        <!-- Slide 1: Title -->
+        <div class="slide title-slide active" data-slide="1">
+            <h1 class="reveal-title">Model Setup <span>Guide</span></h1>
+            <div class="subtitle reveal-subtitle">Input Files, Configuration &amp; Running FLUXOS</div>
+            <div class="author reveal-author">Diogo Costa</div>
+            <div class="affiliation reveal-affiliation">University of &Eacute;vora, Portugal</div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo reveal-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+        <!-- Slide 2: Contents -->
+        <div class="slide" data-slide="2">
+            <div class="slide-header">
+                <h2>Contents</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 60px;">
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-bottom: 8px;">&bull; Input Files Overview</p>
+                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Input Data</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; DEM Preparation</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; JSON Configuration</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Boundary Conditions</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div style="font-size: 1.15rem; line-height: 2.2;">
+                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Modules &amp; Output</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; ADE Solute Transport</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Soil Infiltration</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Running the Model</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Output Files &amp; Formats</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; WebGL Export</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">2</div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Input Files Overview -->
+        <div class="slide" data-slide="3">
+            <div class="slide-header">
+                <h2>Input Files Overview</h2>
+            </div>
+            <div class="slide-content">
+                <div class="three-column" style="gap: 30px;">
+                    <div class="card primary" style="height: 100%;">
+                        <h3>&#128506;&#65039; DEM File</h3>
+                        <p style="font-size: 1rem;"><strong>Format:</strong> ESRI ASCII (.asc)<br>
+                        Contains terrain elevation data. Defines the domain extent, cell size, and topography.<br><br>
+                        <strong>Headers:</strong> ncols, nrows, xllcorner, yllcorner, cellsize, NODATA_value</p>
+                    </div>
+                    <div class="card secondary" style="height: 100%;">
+                        <h3>&#9881;&#65039; JSON Config</h3>
+                        <p style="font-size: 1rem;"><strong>Format:</strong> JSON (.json)<br>
+                        Master configuration file. Controls all simulation parameters: domain, output, modules, boundary conditions.<br><br>
+                        <strong>Example:</strong> <code>modset.json</code></p>
+                    </div>
+                    <div class="card accent" style="height: 100%;">
+                        <h3>&#127754; Boundary File</h3>
+                        <p style="font-size: 1rem;"><strong>Format:</strong> Text (.fluxos)<br>
+                        Time series of inflow discharge (m&sup3;/s) and optional concentration (mg/L). Two columns: time (s) and discharge.<br><br>
+                        <strong>Example:</strong> <code>Flow.fluxos</code></p>
+                    </div>
+                </div>
+                <div class="highlight-box info" style="margin-top: 20px;">
+                    <strong>Optional inputs:</strong> Soil map (.asc grid of soil type IDs), triangular mesh files (.msh or .node/.ele), and ADE source/injection timeseries.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">3</div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Section - Input Data -->
+        <div class="slide section-slide" data-slide="4">
+            <div class="section-number">01</div>
+            <h2>Input Data</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 5: DEM Preparation -->
+        <div class="slide" data-slide="5">
+            <div class="slide-header">
+                <h2>DEM Preparation</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>ESRI ASCII Format</h3>
+                            <pre style="font-size: 0.85rem; padding: 15px;">
+ncols         859
+nrows         618
+xllcorner     425200
+yllcorner     5784100
+cellsize      2
+NODATA_value  -9999
+547.21 547.35 547.48 ...
+547.19 547.33 547.45 ...
+...</pre>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Coordinate system:</strong> The DEM must be in a projected CRS (e.g., UTM). Geographic coordinates (lat/lon) are not supported directly.
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Python Preprocessing</h3>
+                            <pre style="font-size: 0.85rem; padding: 15px;">
+<span class="comment"># Use fluxos_setup.py for GeoTIFF input</span>
+python fluxos_setup.py \
+    --dem input.tif \
+    --output Rosa_2m.asc \
+    --cellsize 2.0 \
+    --utm-zone 10</pre>
+                            <ul style="margin-left: 15px; margin-top: 15px;">
+                                <li style="font-size: 0.95rem;">Converts GeoTIFF to ESRI ASCII</li>
+                                <li style="font-size: 0.95rem;">Optional DEM downscaling (bilinear)</li>
+                                <li style="font-size: 0.95rem;">CRS validation &amp; reprojection</li>
+                                <li style="font-size: 0.95rem;">For trimesh: generates Gmsh mesh</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">5</div>
+            </div>
+        </div>
+
+        <!-- Slide 6: JSON Configuration -->
+        <div class="slide" data-slide="6">
+            <div class="slide-header">
+                <h2>JSON Configuration</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.1rem; margin-bottom: 15px;">
+                    The master config file controls all simulation parameters:
+                </p>
+                <div class="two-column" style="gap: 30px;">
+                    <div class="column">
+                        <pre style="font-size: 0.78rem; padding: 18px;">
+{
+  <span class="string">"DEM_FILE"</span>: <span class="string">"bin/Rosa_2m.asc"</span>,
+  <span class="string">"SIM_DATETIME_START"</span>: <span class="string">"2009-01-01 00:00:00"</span>,
+  <span class="string">"RESTART"</span>: <span class="keyword">false</span>,
+
+  <span class="string">"INFLOW_FILE"</span>: {
+    <span class="string">"FILENAME"</span>: <span class="string">"bin/Flow.fluxos"</span>,
+    <span class="string">"DISCHARGE_LOCATION"</span>: {
+      <span class="string">"X_COORDINATE"</span>: 426107,
+      <span class="string">"Y_COORDINATE"</span>: 5785362
+    }
+  },
+
+  <span class="string">"OUTPUT"</span>: {
+    <span class="string">"OUTPUT_FOLDER"</span>: <span class="string">"Results/"</span>,
+    <span class="string">"PRINT_STEP"</span>: 50,
+    <span class="string">"H_MIN_TO_PRINT"</span>: 0.001
+  },
+
+  <span class="string">"ROUGNESS_HEIGHT"</span>: 0.005
+}</pre>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Key Parameters</h3>
+                            <table style="font-size: 0.85rem; margin-top: 10px;">
+                                <tr><td><strong>DEM_FILE</strong></td><td>Path to ESRI ASCII DEM</td></tr>
+                                <tr><td><strong>INFLOW_FILE</strong></td><td>Discharge timeseries &amp; location</td></tr>
+                                <tr><td><strong>PRINT_STEP</strong></td><td>Output every N timesteps</td></tr>
+                                <tr><td><strong>ROUGNESS_HEIGHT</strong></td><td>Manning's roughness (m)</td></tr>
+                                <tr><td><strong>RESTART</strong></td><td>Resume from previous run</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Minimal config:</strong> Only DEM_FILE, INFLOW_FILE, and OUTPUT are required. All modules are optional.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">6</div>
+            </div>
+        </div>
+
+        <!-- Slide 7: Boundary Conditions -->
+        <div class="slide" data-slide="7">
+            <div class="slide-header">
+                <h2>Boundary Conditions</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 50px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Inflow Timeseries (.fluxos)</h3>
+                            <pre style="font-size: 0.9rem; padding: 15px;">
+<span class="comment"># Time(s)  Discharge(m3/s)  Conc(mg/L)</span>
+0        0.0      0.0
+600      0.5      0.0
+1200     1.5      0.0
+1800     2.0    100.0    <span class="comment"># injection starts</span>
+2400     2.0    100.0
+3000     2.0    100.0
+3600     2.0      0.0    <span class="comment"># injection ends</span>
+7200     1.5      0.0
+14400    0.5      0.0
+18000    0.0      0.0</pre>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Discharge Location</h3>
+                            <p style="font-size: 1rem; margin-bottom: 15px;">
+                                Specified in JSON config using the same projected coordinate system as the DEM:
+                            </p>
+                            <pre style="font-size: 0.85rem; padding: 15px;">
+<span class="string">"DISCHARGE_LOCATION"</span>: {
+  <span class="string">"X_COORDINATE"</span>: 426107,
+  <span class="string">"Y_COORDINATE"</span>: 5785362
+}</pre>
+                            <p style="font-size: 0.95rem; margin-top: 15px; color: var(--text-light);">
+                                Coordinates must fall within the DEM domain. The closest grid cell to these coordinates receives the inflow.
+                            </p>
+                        </div>
+                        <div class="highlight-box warning">
+                            <strong>Third column (concentration)</strong> is optional. If omitted, no solute is injected with the inflow.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">7</div>
+            </div>
+        </div>
+
+        <!-- Slide 8: Section - Modules & Output -->
+        <div class="slide section-slide purple" data-slide="8">
+            <div class="section-number">02</div>
+            <h2>Modules &amp; Output</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 9: ADE Configuration -->
+        <div class="slide" data-slide="9">
+            <div class="slide-header">
+                <h2>ADE Solute Transport</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <p style="font-size: 1.1rem; margin-bottom: 15px;">
+                            Enable the Advection-Diffusion Equation solver in the JSON config:
+                        </p>
+                        <pre style="font-size: 0.9rem; padding: 20px;">
+<span class="string">"EXTERNAL_MODULES"</span>: {
+  <span class="string">"ADE_TRANSPORT"</span>: {
+    <span class="string">"STATUS"</span>: <span class="keyword">true</span>,
+    <span class="string">"D_COEF"</span>: 0.5
+  }
+}</pre>
+                        <div class="card primary" style="margin-top: 20px; padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Parameters</h3>
+                            <table style="font-size: 0.9rem; margin-top: 10px;">
+                                <tr><td><strong>STATUS</strong></td><td><code>true</code> to enable ADE</td></tr>
+                                <tr><td><strong>D_COEF</strong></td><td>Diffusion coefficient (m&sup2;/s)</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>How Injection Works</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 1rem;">Solute concentration is set in the 3rd column of the .fluxos inflow file</li>
+                                <li style="font-size: 1rem;">Units: mg/L (or any consistent mass/volume)</li>
+                                <li style="font-size: 1rem;">Injection can be time-varying</li>
+                                <li style="font-size: 1rem;">Transport begins immediately when water reaches the cell</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Solver:</strong> Two-pass mass-conservative, fully parallel. First-order upwind advection + Fickian diffusion with monotonicity clamp.
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Typical D_COEF values:</strong> 0.1&ndash;1.0 m&sup2;/s for river channels, 0.01&ndash;0.1 for overland flow.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">9</div>
+            </div>
+        </div>
+
+        <!-- Slide 10: Soil Infiltration -->
+        <div class="slide" data-slide="10">
+            <div class="slide-header">
+                <h2>Soil Infiltration Setup</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <p style="font-size: 1.1rem; margin-bottom: 15px;">
+                            Enable the Horton infiltration module:
+                        </p>
+                        <pre style="font-size: 0.85rem; padding: 20px;">
+<span class="string">"SOIL_INFILTRATION"</span>: {
+  <span class="string">"STATUS"</span>: <span class="keyword">true</span>,
+  <span class="string">"SOIL_MAP"</span>: <span class="string">"bin/soil_types.asc"</span>,
+  <span class="string">"SOIL_TYPES"</span>: {
+    <span class="string">"1"</span>: {
+      <span class="string">"NAME"</span>: <span class="string">"Sandy Loam"</span>,
+      <span class="string">"USDA_CLASS"</span>: <span class="string">"sandy_loam"</span>
+    },
+    <span class="string">"2"</span>: {
+      <span class="string">"NAME"</span>: <span class="string">"Clay Loam"</span>,
+      <span class="string">"USDA_CLASS"</span>: <span class="string">"clay_loam"</span>
+    }
+  }
+}</pre>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Configuration Options</h3>
+                            <table style="font-size: 0.9rem; margin-top: 10px;">
+                                <tr><td><strong>STATUS</strong></td><td><code>true</code> to enable</td></tr>
+                                <tr><td><strong>SOIL_MAP</strong></td><td>ASCII grid of soil type IDs (optional &mdash; empty string = uniform soil)</td></tr>
+                                <tr><td><strong>SOIL_TYPES</strong></td><td>Map of ID &rarr; USDA class name</td></tr>
+                            </table>
+                        </div>
+                        <div class="card secondary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">USDA Class Names</h3>
+                            <p style="font-size: 0.9rem; margin-top: 8px;">
+                                <code>sand</code>, <code>loamy_sand</code>, <code>sandy_loam</code>, <code>loam</code>, <code>silt_loam</code>, <code>sandy_clay_loam</code>, <code>clay_loam</code>, <code>silty_clay_loam</code>, <code>sandy_clay</code>, <code>silty_clay</code>, <code>clay</code>
+                            </p>
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Backward compatible:</strong> If the <code>SOIL_INFILTRATION</code> section is missing, the module is simply disabled.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">10</div>
+            </div>
+        </div>
+
+        <!-- Slide 11: Running the Model -->
+        <div class="slide" data-slide="11">
+            <div class="slide-header">
+                <h2>Running the Model</h2>
+            </div>
+            <div class="slide-content">
+                <pre style="font-size: 1.05rem; padding: 30px; margin-bottom: 25px;">
+<span class="comment"># Standard run (OpenMP)</span>
+./fluxos modset.json
+
+<span class="comment"># With MPI (16 processes)</span>
+mpirun -np 16 ./fluxos modset.json
+
+<span class="comment"># Hybrid MPI+OpenMP</span>
+export OMP_NUM_THREADS=4
+mpirun -np 4 ./fluxos modset.json</pre>
+                <div class="three-column" style="gap: 30px;">
+                    <div class="card primary" style="padding: 20px;">
+                        <h3 style="font-size: 1.1rem;">&#128196; Console Output</h3>
+                        <p style="font-size: 0.95rem;">Shows timestep progress, CFL number, max water depth, and print notifications.</p>
+                    </div>
+                    <div class="card secondary" style="padding: 20px;">
+                        <h3 style="font-size: 1.1rem;">&#128337; Typical Runtime</h3>
+                        <p style="font-size: 0.95rem;">Rosa_2m (859&times;618): ~16 min (regular), ~3 sec (trimesh), &lt;1 sec (CUDA trimesh).</p>
+                    </div>
+                    <div class="card accent" style="padding: 20px;">
+                        <h3 style="font-size: 1.1rem;">&#128680; Stability</h3>
+                        <p style="font-size: 0.95rem;">CFL-adaptive time stepping ensures numerical stability. No manual &Delta;t tuning needed.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">11</div>
+            </div>
+        </div>
+
+        <!-- Slide 12: Output Files -->
+        <div class="slide" data-slide="12">
+            <div class="slide-header">
+                <h2>Output Files &amp; Formats</h2>
+            </div>
+            <div class="slide-content">
+                <table style="margin-bottom: 25px;">
+                    <tr>
+                        <th>Mesh Type</th>
+                        <th>Format</th>
+                        <th>Files</th>
+                        <th>Viewer</th>
+                    </tr>
+                    <tr>
+                        <td><strong>Regular</strong></td>
+                        <td>ASCII text grids</td>
+                        <td>h_NNNN.txt, vx_NNNN.txt, vy_NNNN.txt, conc_NNNN.txt</td>
+                        <td>Python, QGIS, MATLAB</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Triangular</strong></td>
+                        <td>VTK XML Unstructured</td>
+                        <td>output_NNNN.vtu + output.pvd</td>
+                        <td>ParaView</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Both</strong></td>
+                        <td>KML/KMZ</td>
+                        <td>Generated by fluxos_viewer.py</td>
+                        <td>Google Earth</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Both</strong></td>
+                        <td>WebGL data</td>
+                        <td>Heightmap, velocity, concentration PNGs + metadata.json</td>
+                        <td>Web browser</td>
+                    </tr>
+                </table>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="highlight-box info">
+                        <strong>PRINT_STEP</strong> controls how often output is written. Lower values = more output files but higher disk usage.
+                    </div>
+                    <div class="highlight-box success">
+                        <strong>H_MIN_TO_PRINT</strong> filters cells with water depth below this threshold from output, reducing file sizes.
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">12</div>
+            </div>
+        </div>
+
+        <!-- Slide 13: WebGL Export -->
+        <div class="slide" data-slide="13">
+            <div class="slide-header">
+                <h2>WebGL Visualization Export</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.1rem; margin-bottom: 15px;">
+                    Export simulation results to a self-contained WebGL viewer:
+                </p>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <pre style="font-size: 0.85rem; padding: 20px;">
+<span class="comment"># Generate WebGL data from results</span>
+python export_webgl.py \
+    --results Results/ \
+    --dem bin/Rosa_2m.asc \
+    --output fluxos_web/data/ \
+    --utm-zone 10 \
+    --max-frames 120
+
+<span class="comment"># Serve locally</span>
+cd fluxos_web
+python -m http.server 8080
+
+<span class="comment"># Open: http://localhost:8080</span></pre>
+                        <div class="highlight-box success" style="margin-top: 15px;">
+                            <strong>Output:</strong> Static files only. Upload to any web server or GitHub Pages.
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Generated Files</h3>
+                            <table style="font-size: 0.9rem; margin-top: 10px;">
+                                <tr><td><strong>metadata.json</strong></td><td>Grid info, timesteps, bounds</td></tr>
+                                <tr><td><strong>heightmap.png</strong></td><td>Terrain elevation</td></tr>
+                                <tr><td><strong>hillshade.png</strong></td><td>Shaded relief</td></tr>
+                                <tr><td><strong>satellite.jpg</strong></td><td>Satellite imagery (if available)</td></tr>
+                                <tr><td><strong>velocity/*.png</strong></td><td>Velocity fields per frame</td></tr>
+                                <tr><td><strong>conc/*.png</strong></td><td>Concentration fields per frame</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">13</div>
+            </div>
+        </div>
+
+        <!-- Slide 14: Summary -->
+        <div class="slide" data-slide="14">
+            <div class="slide-header">
+                <h2>Setup Summary</h2>
+            </div>
+            <div class="slide-content">
+                <div class="center-content">
+                    <div style="max-width: 1000px;">
+                        <div class="three-column" style="gap: 25px; margin-bottom: 30px;">
+                            <div class="card primary" style="text-align: center; padding: 20px;">
+                                <h3 style="justify-content: center; font-size: 1.2rem;">&#128506;&#65039; Prepare</h3>
+                                <p style="font-size: 0.95rem;">DEM + JSON config + inflow timeseries. Optional: soil map, mesh files.</p>
+                            </div>
+                            <div class="card secondary" style="text-align: center; padding: 20px;">
+                                <h3 style="justify-content: center; font-size: 1.2rem;">&#9654;&#65039; Run</h3>
+                                <p style="font-size: 0.95rem;"><code>./fluxos modset.json</code><br>CFL-adaptive, no manual tuning needed.</p>
+                            </div>
+                            <div class="card accent" style="text-align: center; padding: 20px;">
+                                <h3 style="justify-content: center; font-size: 1.2rem;">&#127912; Visualize</h3>
+                                <p style="font-size: 0.95rem;">ASCII/VTK/KML output + WebGL 3D viewer for web hosting.</p>
+                            </div>
+                        </div>
+                        <div class="highlight-box info" style="text-align: center; font-size: 1.2rem;">
+                            <strong>JSON-driven configuration</strong> makes it easy to toggle modules, change parameters, and switch between regular and triangular meshes &mdash; all without recompiling.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">14</div>
+            </div>
+        </div>
+
+        <!-- Slide 15: Thank You -->
+        <div class="slide title-slide" data-slide="15">
+            <h1 style="font-size: 3.5rem;">Thank You</h1>
+            <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
+            <div style="margin-top: 3rem;">
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>GitHub:</strong> github.com/ue-hydro/fluxos
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
+                    <strong>Documentation:</strong> fluxos-cpp.readthedocs.io
+                </p>
+                <p style="font-size: 1.4rem; color: #a0aec0;">
+                    <strong>Contact:</strong> diogo.costa@uevora.pt
+                </p>
+            </div>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+            <button class="pdf-btn" onclick="exportToPDF()">&#128196; Export to PDF</button>
+        </div>
+
+    </div>
+
+    <div class="nav-hint" id="navHint">Use &larr; &rarr; arrows to navigate | Press F for fullscreen</div>
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = document.querySelectorAll('.slide').length;
+        function showSlide(n) {
+            const slides = document.querySelectorAll('.slide');
+            if (n > totalSlides) currentSlide = 1;
+            if (n < 1) currentSlide = totalSlides;
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[currentSlide - 1].classList.add('active');
+            history.replaceState(null, null, `#${currentSlide}`);
+        }
+        function nextSlide() { currentSlide++; showSlide(currentSlide); }
+        function prevSlide() { currentSlide--; showSlide(currentSlide); }
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown': case 'Enter': nextSlide(); break;
+                case 'ArrowLeft': case 'ArrowUp': case 'PageUp': prevSlide(); break;
+                case 'Home': currentSlide = 1; showSlide(currentSlide); break;
+                case 'End': currentSlide = totalSlides; showSlide(currentSlide); break;
+                case 'f': case 'F': toggleFullscreen(); break;
+            }
+        });
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+        const navHint = document.getElementById('navHint');
+        navHint.classList.add('visible');
+        setTimeout(() => navHint.classList.remove('visible'), 4000);
+        let hintTimeout;
+        document.addEventListener('mousemove', () => {
+            navHint.classList.add('visible');
+            clearTimeout(hintTimeout);
+            hintTimeout = setTimeout(() => navHint.classList.remove('visible'), 2000);
+        });
+        if (window.location.hash) {
+            const slideNum = parseInt(window.location.hash.substring(1));
+            if (slideNum >= 1 && slideNum <= totalSlides) currentSlide = slideNum;
+        }
+        showSlide(currentSlide);
+        let touchStartX = 0;
+        document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
+        document.addEventListener('touchend', (e) => {
+            const diff = touchStartX - e.changedTouches[0].screenX;
+            if (Math.abs(diff) > 50) { if (diff > 0) nextSlide(); else prevSlide(); }
+        });
+        function addCopyButtons() {
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.closest('.diagram')) return;
+                if (pre.parentElement.classList.contains('code-container')) return;
+                const wrapper = document.createElement('div');
+                wrapper.className = 'code-container';
+                pre.parentNode.insertBefore(wrapper, pre);
+                wrapper.appendChild(pre);
+                const btn = document.createElement('button');
+                btn.className = 'copy-btn';
+                btn.innerHTML = '&#128203; Copy';
+                btn.onclick = function() {
+                    navigator.clipboard.writeText(pre.textContent).then(() => {
+                        btn.innerHTML = '&#10003; Copied!';
+                        btn.classList.add('copied');
+                        setTimeout(() => { btn.innerHTML = '&#128203; Copy'; btn.classList.remove('copied'); }, 2000);
+                    });
+                };
+                wrapper.appendChild(btn);
+            });
+        }
+        addCopyButtons();
+        function exportToPDF() {
+            const slides = document.querySelectorAll('.slide');
+            const presentation = document.getElementById('presentation');
+            const originalPresentationStyle = presentation.style.cssText;
+            const originalBodyStyle = document.body.style.cssText;
+            const originalHtmlStyle = document.documentElement.style.cssText;
+            const originalSlideStyles = Array.from(slides).map(s => s.style.cssText);
+            const printStyles = document.createElement('style');
+            printStyles.id = 'print-styles';
+            printStyles.textContent = `@media print { @page { size: landscape; margin: 0; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } html, body { height: auto !important; overflow: visible !important; background: white !important; } .presentation { height: auto !important; position: relative !important; overflow: visible !important; } .slide { display: flex !important; position: relative !important; page-break-after: always !important; page-break-inside: avoid !important; height: 100vh !important; width: 100vw !important; margin: 0 !important; box-sizing: border-box !important; } .slide:last-child { page-break-after: auto !important; } .nav-hint, .pdf-btn, .copy-btn { display: none !important; } .university-logo { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }`;
+            document.head.appendChild(printStyles);
+            document.body.style.cssText = 'height: auto; overflow: visible;';
+            document.documentElement.style.cssText = 'height: auto; overflow: visible;';
+            presentation.style.cssText = 'height: auto; position: relative; overflow: visible;';
+            slides.forEach(slide => { slide.style.display = 'flex'; slide.style.position = 'relative'; slide.style.pageBreakAfter = 'always'; slide.style.height = '100vh'; slide.style.width = '100vw'; });
+            setTimeout(() => {
+                window.print();
+                setTimeout(() => {
+                    document.getElementById('print-styles')?.remove();
+                    document.body.style.cssText = originalBodyStyle;
+                    document.documentElement.style.cssText = originalHtmlStyle;
+                    presentation.style.cssText = originalPresentationStyle;
+                    slides.forEach((slide, i) => { slide.style.cssText = originalSlideStyles[i]; });
+                    showSlide(currentSlide);
+                }, 500);
+            }, 100);
+        }
+    </script>
+</body>
+</html>
