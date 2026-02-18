@@ -576,9 +576,11 @@
                             <p style="margin-bottom: 8px;">&bull; Core Capabilities</p>
                             <p style="margin-bottom: 8px;">&bull; Coupled Host Models</p>
                             <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Mesh &amp; Numerical Methods</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Regular Cartesian Mesh</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Unstructured Triangular Mesh</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Numerical Solvers</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Regular &amp; Triangular Meshes</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; SWE Conservative Form</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Finite Volume &amp; Roe Solver</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Wetting/Drying &amp; MUSCL</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; ADE &amp; Soil Infiltration</p>
                         </div>
                     </div>
                     <div class="column">
@@ -845,34 +847,55 @@
             </div>
         </div>
 
-        <!-- Slide 9: Governing Equations -->
+        <!-- Slide 9: SWE Conservative Vector Form -->
         <div class="slide" data-slide="9">
             <div class="slide-header">
-                <h2>Governing Equations</h2>
+                <h2>SWE: Conservative Vector Form</h2>
             </div>
             <div class="slide-content">
-                <div class="equation-box" style="margin-bottom: 25px;">
-                    <div class="label">2D Shallow Water Equations (Saint-Venant)</div>
-                    <div class="equation">&part;h/&part;t + &part;(hu)/&part;x + &part;(hv)/&part;y = R &minus; I</div>
-                    <div class="equation" style="font-size: 1.4rem; margin-top: 5px;">&part;(hu)/&part;t + &part;(hu&sup2; + gh&sup2;/2)/&part;x + &part;(huv)/&part;y = &minus;ghS<sub>fx</sub></div>
-                    <div class="equation" style="font-size: 1.4rem;">&part;(hv)/&part;t + &part;(huv)/&part;x + &part;(hv&sup2; + gh&sup2;/2)/&part;y = &minus;ghS<sub>fy</sub></div>
+                <div class="equation-box" style="margin-bottom: 20px;">
+                    <div class="label">2D Shallow Water Equations &mdash; Hyperbolic Conservation Law</div>
+                    <div class="equation">&part;<strong>U</strong>/&part;t + &part;<strong>F</strong>(<strong>U</strong>)/&part;x + &part;<strong>G</strong>(<strong>U</strong>)/&part;y = <strong>S</strong></div>
                 </div>
-                <div class="two-column" style="gap: 40px;">
+                <div class="two-column" style="gap: 30px;">
                     <div class="column">
-                        <div class="equation-box" style="background: linear-gradient(135deg, #0891b2, #155e75);">
-                            <div class="label">Advection-Diffusion Equation (ADE)</div>
-                            <div class="equation" style="font-size: 1.3rem;">&part;(hC)/&part;t + &nabla;&middot;(huC) = &nabla;&middot;(Dh&nabla;C) + S</div>
+                        <div class="card primary">
+                            <h3>State &amp; Flux Vectors</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); margin-top: 10px; padding: 15px;">
+                                <div class="equation" style="font-size: 1.15rem; text-align: left;">
+                                    <strong>U</strong> = [h, &ensp;hu, &ensp;hv]<sup>T</sup>
+                                </div>
+                            </div>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); margin-top: 8px; padding: 15px;">
+                                <div class="equation" style="font-size: 1.05rem; text-align: left;">
+                                    <strong>F</strong>(<strong>U</strong>) = [hu, &ensp;hu&sup2; + gh&sup2;/2, &ensp;huv]<sup>T</sup>
+                                </div>
+                            </div>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); margin-top: 8px; padding: 15px;">
+                                <div class="equation" style="font-size: 1.05rem; text-align: left;">
+                                    <strong>G</strong>(<strong>U</strong>) = [hv, &ensp;huv, &ensp;hv&sup2; + gh&sup2;/2]<sup>T</sup>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="column">
-                        <div class="equation-box" style="background: linear-gradient(135deg, var(--secondary), #047857);">
-                            <div class="label">Horton Infiltration</div>
-                            <div class="equation" style="font-size: 1.3rem;">f(t) = f<sub>c</sub> + (f<sub>0</sub> &minus; f<sub>c</sub>) e<sup>&minus;kt</sup></div>
+                        <div class="card secondary">
+                            <h3>Source Terms</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); margin-top: 10px; padding: 15px;">
+                                <div class="equation" style="font-size: 1.05rem; text-align: left;">
+                                    <strong>S</strong> = [R &minus; I, &ensp;&minus;ghS<sub>fx</sub> + &tau;<sub>xx</sub>, &ensp;&minus;ghS<sub>fy</sub> + &tau;<sub>yy</sub>]<sup>T</sup>
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 12px;">
+                                <li style="font-size: 0.95rem;"><strong>R &minus; I</strong>: rainfall minus infiltration (mass source)</li>
+                                <li style="font-size: 0.95rem;"><strong>S<sub>f</sub></strong>: Manning friction slope = n&sup2;|<strong>u</strong>|<strong>u</strong> / h<sup>4/3</sup></li>
+                                <li style="font-size: 0.95rem;"><strong>&tau;</strong>: turbulent stress via eddy viscosity &nu;<sub>t</sub> = c<sub>v</sub> u<sub>*</sub> h + &nu;<sub>mol</sub></li>
+                            </ul>
                         </div>
                     </div>
                 </div>
-                <div class="highlight-box" style="margin-top: 20px;">
-                    <strong>h</strong> = water depth, <strong>u,v</strong> = velocities, <strong>R</strong> = rainfall, <strong>I</strong> = infiltration, <strong>C</strong> = concentration, <strong>D</strong> = diffusion coefficient, <strong>S<sub>f</sub></strong> = friction slope (Manning)
+                <div class="highlight-box" style="margin-top: 12px;">
+                    <strong>h</strong> = water depth &ensp;|&ensp; <strong>u, v</strong> = depth-averaged velocities &ensp;|&ensp; <strong>q<sub>x</sub></strong> = hu, <strong>q<sub>y</sub></strong> = hv (unit discharge) &ensp;|&ensp; <strong>g</strong> = 9.81 m/s&sup2; &ensp;|&ensp; <strong>n</strong> = Manning coefficient
                 </div>
             </div>
             <div class="slide-footer">
@@ -881,43 +904,58 @@
             </div>
         </div>
 
-        <!-- Slide 10: ADE Solver Detail -->
+        <!-- Slide 10: Finite Volume Discretization -->
         <div class="slide" data-slide="10">
             <div class="slide-header">
-                <h2>ADE Solver: Mass-Conservative Formulation</h2>
+                <h2>Finite Volume Discretization</h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    Two-pass explicit, fully-parallel formulation with no race conditions:
-                </p>
-                <div class="two-column" style="gap: 40px;">
+                <div class="two-column" style="gap: 35px;">
                     <div class="column">
                         <div class="card primary">
-                            <h3>Pass 1: Face Fluxes</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 1rem;">Compute east &amp; north face fluxes for all cells</li>
-                                <li style="font-size: 1rem;">Read-only access to old concentration field</li>
-                                <li style="font-size: 1rem;">First-order upwind advection (unconditionally TVD)</li>
-                                <li style="font-size: 1rem;">Fickian diffusion: &minus;D &middot; h<sub>face</sub> &middot; &Delta;C/&Delta;x</li>
-                                <li style="font-size: 1rem;">Fully parallelizable (no data dependencies)</li>
+                            <h3>Cell-Centered Godunov Scheme</h3>
+                            <ul style="margin-left: 15px; margin-bottom: 12px;">
+                                <li style="font-size: 0.95rem;">Domain divided into non-overlapping control volumes (cells)</li>
+                                <li style="font-size: 0.95rem;">Fluxes computed at cell faces via Riemann solver</li>
+                                <li style="font-size: 0.95rem;">Explicit forward-Euler time integration</li>
+                            </ul>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 15px;">
+                                <div class="label">Discrete Update Rule</div>
+                                <div class="equation" style="font-size: 1.15rem;">
+                                    <strong>U</strong><sup>n+1</sup><sub>i</sub> = <strong>U</strong><sup>n</sup><sub>i</sub> &minus; (&Delta;t / A<sub>i</sub>) &sum;<sub>faces</sub> <strong>F</strong><sub>face</sub> &middot; L<sub>face</sub>
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;"><strong>A<sub>i</sub></strong> = cell area, <strong>L<sub>face</sub></strong> = face length</li>
+                                <li style="font-size: 0.9rem;"><strong>F<sub>face</sub></strong> = numerical flux from Roe solver</li>
                             </ul>
                         </div>
                     </div>
                     <div class="column">
                         <div class="card secondary">
-                            <h3>Pass 2: Mass Update</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 1rem;">Gather 4 face fluxes per cell</li>
-                                <li style="font-size: 1rem;">Net flux = (west&minus;east) + (south&minus;north)</li>
-                                <li style="font-size: 1rem;">M<sub>new</sub> = max(0, M<sub>old</sub> + net &middot; &Delta;t / A)</li>
-                                <li style="font-size: 1rem;">C<sub>new</sub> = M<sub>new</sub> / h<sub>new</sub></li>
-                                <li style="font-size: 1rem;"><strong>Monotonicity clamp:</strong> C &le; max(C<sub>neighbors</sub>)</li>
+                            <h3>CFL Adaptive Time-Stepping</h3>
+                            <p style="font-size: 0.95rem; margin-bottom: 10px;">Time step is recomputed every iteration as the global minimum over all wet cells:</p>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-bottom: 10px;">
+                                <div class="label">Regular mesh</div>
+                                <div class="equation" style="font-size: 1.1rem;">
+                                    &Delta;t = CFL &middot; &Delta;x / (|u| + &radic;(gh))
+                                </div>
+                            </div>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px;">
+                                <div class="label">Triangular mesh</div>
+                                <div class="equation" style="font-size: 1.1rem;">
+                                    &Delta;t = CFL &middot; r<sub>in</sub> / (|<strong>u</strong>| + c)
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;"><strong>r<sub>in</sub></strong> = triangle inradius (inscribed circle)</li>
+                                <li style="font-size: 0.9rem;"><strong>c</strong> = &radic;(gh) = wave celerity</li>
                             </ul>
                         </div>
+                        <div class="highlight-box warning" style="margin-top: 10px;">
+                            <strong>CFL &lt; 1</strong> is required for stability. Typical value: 0.5. Smaller cells or faster flows &rarr; smaller &Delta;t.
+                        </div>
                     </div>
-                </div>
-                <div class="highlight-box success" style="margin-top: 15px; text-align: center;">
-                    <strong>Result:</strong> Completely stable, mass-conservative transport with no artificial extrema at wetting fronts
                 </div>
             </div>
             <div class="slide-footer">
@@ -926,45 +964,64 @@
             </div>
         </div>
 
-        <!-- Slide 11: Soil Infiltration -->
+        <!-- Slide 11: Roe Approximate Riemann Solver -->
         <div class="slide" data-slide="11">
             <div class="slide-header">
-                <h2>Soil Infiltration Module</h2>
+                <h2>Roe Approximate Riemann Solver</h2>
             </div>
             <div class="slide-content">
-                <div class="two-column" style="gap: 50px;">
+                <div class="two-column" style="gap: 30px;">
                     <div class="column">
                         <div class="card primary">
-                            <h3>&#127793; Horton Decay Model</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 1rem;">f(t) = f<sub>c</sub> + (f<sub>0</sub> &minus; f<sub>c</sub>) &middot; exp(&minus;k &middot; t<sub>wet</sub>)</li>
-                                <li style="font-size: 1rem;">Per-cell soil type classification</li>
-                                <li style="font-size: 1rem;">USDA 12 soil texture classes</li>
-                                <li style="font-size: 1rem;">Published K<sub>s</sub> values (Rawls et al. 1983)</li>
-                                <li style="font-size: 1rem;">Tracks cumulative wetting time per cell</li>
+                            <h3>Roe Flux Structure</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 15px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1.05rem;">
+                                    <strong>F</strong> = &frac12;(<strong>F</strong><sub>L</sub> + <strong>F</strong><sub>R</sub>) &minus; &frac12; <strong>R</strong>|<strong>&Lambda;</strong>|<strong>R</strong><sup>&minus;1</sup> &middot; (<strong>U</strong><sub>R</sub> &minus; <strong>U</strong><sub>L</sub>)
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 12px;">
+                                <li style="font-size: 0.95rem;"><strong>3 wave speeds:</strong> &lambda;<sub>1</sub> = &ucirc; &minus; &ccirc;, &ensp;&lambda;<sub>2</sub> = &ucirc;, &ensp;&lambda;<sub>3</sub> = &ucirc; + &ccirc;</li>
+                                <li style="font-size: 0.95rem;"><strong>Roe averages</strong> (depth-weighted):</li>
                             </ul>
-                        </div>
-                        <div class="highlight-box info">
-                            <strong>Backward compatible:</strong> No <code>SOIL_INFILTRATION</code> section in the JSON config = module disabled. Existing setups work unchanged.
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 12px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 0.95rem; text-align: left;">
+                                    &ucirc; = (u<sub>L</sub>&radic;h<sub>L</sub> + u<sub>R</sub>&radic;h<sub>R</sub>) / (&radic;h<sub>L</sub> + &radic;h<sub>R</sub>)
+                                </div>
+                                <div class="equation" style="font-size: 0.95rem; text-align: left; margin-top: 4px;">
+                                    &ccirc; = &radic;(g &middot; (h<sub>L</sub> + h<sub>R</sub>) / 2)
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 8px;">
+                                <li style="font-size: 0.9rem;"><strong>R</strong>, <strong>&Lambda;</strong> = right eigenvectors &amp; eigenvalues of Roe matrix</li>
+                                <li style="font-size: 0.9rem;">Upwind dissipation captures shocks &amp; rarefactions</li>
+                            </ul>
                         </div>
                     </div>
                     <div class="column">
                         <div class="card secondary">
-                            <h3>USDA Soil Classes</h3>
-                            <table style="font-size: 0.85rem; margin-top: 10px;">
-                                <tr><th>Class</th><th>K<sub>s</sub> (mm/h)</th></tr>
-                                <tr><td>Sand</td><td>210.0</td></tr>
-                                <tr><td>Loamy Sand</td><td>61.0</td></tr>
-                                <tr><td>Sandy Loam</td><td>26.0</td></tr>
-                                <tr><td>Loam</td><td>13.0</td></tr>
-                                <tr><td>Silt Loam</td><td>6.8</td></tr>
-                                <tr><td>Sandy Clay Loam</td><td>4.3</td></tr>
-                                <tr><td>Clay Loam</td><td>2.3</td></tr>
-                                <tr><td>Silty Clay Loam</td><td>1.5</td></tr>
-                                <tr><td>Sandy Clay</td><td>1.2</td></tr>
-                                <tr><td>Silty Clay</td><td>0.9</td></tr>
-                                <tr><td>Clay</td><td>0.6</td></tr>
-                            </table>
+                            <h3>Hydrostatic Reconstruction</h3>
+                            <p style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.85;"><em>Audusse et al. (2004)</em> &mdash; preserves lake-at-rest (C-property)</p>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-bottom: 8px;">
+                                <div class="equation" style="font-size: 1rem; text-align: left;">
+                                    z<sub>b,face</sub> = max(z<sub>b,L</sub>, z<sub>b,R</sub>)
+                                </div>
+                                <div class="equation" style="font-size: 1rem; text-align: left; margin-top: 4px;">
+                                    h<sub>recon</sub> = max(0, &eta; &minus; z<sub>b,face</sub>)
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.9rem;">Reconstructed states fed into Roe solver</li>
+                                <li style="font-size: 0.9rem;">Prevents spurious flow over dry bed steps</li>
+                                <li style="font-size: 0.9rem;">Pressure source correction at each cell:</li>
+                            </ul>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1rem;">
+                                    S<sub>p</sub> = &frac12; g (h&sup2;<sub>orig</sub> &minus; h&sup2;<sub>recon</sub>)
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 8px;">
+                                <li style="font-size: 0.9rem;">Balances flux and topography gradients exactly</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -975,15 +1032,336 @@
             </div>
         </div>
 
-        <!-- Slide 12: Section - Parallelization -->
-        <div class="slide section-slide purple" data-slide="12">
+        <!-- Slide 12: Wetting/Drying & Bed Friction -->
+        <div class="slide" data-slide="12">
+            <div class="slide-header">
+                <h2>Wetting/Drying &amp; Bed Friction</h2>
+            </div>
+            <div class="slide-content">
+                <div class="two-column" style="gap: 30px;">
+                    <div class="column">
+                        <div class="card primary" style="margin-bottom: 12px;">
+                            <h3>Ritter Dry-Front Solution</h3>
+                            <p style="font-size: 0.9rem; margin-bottom: 8px;">At wet-dry interfaces, analytical dam-break solution replaces Roe flux:</p>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 12px;">
+                                <div class="equation" style="font-size: 1.05rem; text-align: left;">
+                                    q<sub>front</sub> = 0.296 &middot; &Delta;z &middot; &radic;(g &middot; &Delta;z)
+                                </div>
+                                <div class="equation" style="font-size: 1.05rem; text-align: left; margin-top: 4px;">
+                                    h<sub>front</sub> = 0.444 &middot; &Delta;z
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 8px;">
+                                <li style="font-size: 0.9rem;">&Delta;z = water surface &minus; dry bed elevation</li>
+                                <li style="font-size: 0.9rem;">Applied when one cell is wet, neighbor is dry</li>
+                                <li style="font-size: 0.9rem;">Volume limiter: flux capped at available water</li>
+                            </ul>
+                        </div>
+                        <div class="card" style="border-left: 5px solid #0891b2;">
+                            <h3>Velocity Desingularization</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #155e75, #0a1628); padding: 12px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1.05rem;">
+                                    u = 2hq / (h&sup2; + max(h&sup2;, &epsilon;&sup2;))
+                                </div>
+                            </div>
+                            <p style="font-size: 0.85rem; margin-top: 6px; opacity: 0.9;">Avoids division by zero as h &rarr; 0. Smoothly transitions to u = 0 in dry areas.</p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Semi-Implicit Manning Friction</h3>
+                            <p style="font-size: 0.9rem; margin-bottom: 8px;">Implicit treatment avoids stiff ODE instability at small depths:</p>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-bottom: 8px;">
+                                <div class="equation" style="font-size: 1.05rem;">
+                                    q<sup>n+1</sup> = q<sup>n</sup> / (1 + c<sub>f</sub> |u| &Delta;t / h)
+                                </div>
+                                <div class="equation" style="font-size: 0.95rem; margin-top: 6px; text-align: left;">
+                                    c<sub>f</sub> = g n&sup2; / h<sup>1/3</sup>
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.9rem;">Applied after the explicit SWE update step</li>
+                                <li style="font-size: 0.9rem;">Unconditionally stable (denominator &ge; 1)</li>
+                                <li style="font-size: 0.9rem;">Naturally decelerates flow as h &rarr; 0</li>
+                                <li style="font-size: 0.9rem;">No additional time-step restriction</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box success" style="margin-top: 12px;">
+                            <strong>Mass Balance Limiter:</strong> After computing fluxes, total outflow from each cell is checked against available volume. If outflow exceeds supply, fluxes are scaled proportionally &mdash; guarantees h &ge; 0 everywhere.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">12</div>
+            </div>
+        </div>
+
+        <!-- Slide 13: MUSCL Reconstruction & Barth-Jespersen Limiter -->
+        <div class="slide" data-slide="13">
+            <div class="slide-header">
+                <h2>MUSCL Reconstruction &amp; Limiter</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1rem; margin-bottom: 15px; opacity: 0.9;">
+                    <em>Unstructured triangular mesh only</em> &mdash; achieves 2nd-order spatial accuracy while preserving monotonicity.
+                </p>
+                <div class="two-column" style="gap: 30px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>MUSCL Reconstruction</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 14px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1.05rem;">
+                                    &phi;<sub>face</sub> = &phi;<sub>i</sub> + &Phi;<sub>i</sub> &middot; (&nabla;&phi;<sub>i</sub> &middot; (<strong>x</strong><sub>face</sub> &minus; <strong>x</strong><sub>i</sub>))
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;">Gradient &nabla;&phi; via <strong>weighted least-squares</strong> over cell neighbours</li>
+                                <li style="font-size: 0.9rem;">Distance-weighted (1/d&sup2;) for numerical consistency</li>
+                                <li style="font-size: 0.9rem;">LSQ inverse matrix precomputed at mesh setup</li>
+                                <li style="font-size: 0.9rem;">&Phi;<sub>i</sub> &isin; [0, 1] = slope limiter (see right)</li>
+                            </ul>
+                        </div>
+                        <div class="card" style="border-left: 5px solid #0891b2; margin-top: 12px;">
+                            <h3>Edge-Normal Rotation</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.9rem;">Rotate (q<sub>x</sub>, q<sub>y</sub>) into face-normal frame</li>
+                                <li style="font-size: 0.9rem;">Solve 1D Riemann problem (Roe/HLL)</li>
+                                <li style="font-size: 0.9rem;">Rotate flux back to Cartesian frame</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Barth-Jespersen Limiter</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 14px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1.05rem;">
+                                    &Phi;<sub>i</sub> = min<sub>edges</sub> &ensp; min(1, &alpha;<sub>e</sub>)
+                                </div>
+                            </div>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 0.95rem; text-align: left;">
+                                    &alpha;<sub>e</sub> = (&phi;<sub>max</sub> &minus; &phi;<sub>i</sub>) / &delta;<sub>e</sub> &ensp; if &delta;<sub>e</sub> &gt; 0
+                                </div>
+                                <div class="equation" style="font-size: 0.95rem; text-align: left; margin-top: 3px;">
+                                    &alpha;<sub>e</sub> = (&phi;<sub>min</sub> &minus; &phi;<sub>i</sub>) / &delta;<sub>e</sub> &ensp; if &delta;<sub>e</sub> &lt; 0
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;">&delta;<sub>e</sub> = reconstructed &minus; cell-center value</li>
+                                <li style="font-size: 0.9rem;">&phi;<sub>max</sub>, &phi;<sub>min</sub> = extrema over cell &amp; neighbors</li>
+                                <li style="font-size: 0.9rem;">Ensures <strong>no new extrema</strong> are created (monotonicity)</li>
+                                <li style="font-size: 0.9rem;">&Phi; = 1 &rarr; full 2nd order; &Phi; = 0 &rarr; 1st order (near discontinuity)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">13</div>
+            </div>
+        </div>
+
+        <!-- Slide 14: ADE Solver: Two-Pass Formulation -->
+        <div class="slide" data-slide="14">
+            <div class="slide-header">
+                <h2>ADE Solver: Two-Pass Formulation</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1rem; margin-bottom: 15px;">
+                    Advection-Diffusion Equation &part;(hC)/&part;t + &nabla;&middot;(<strong>u</strong>hC) = &nabla;&middot;(Dh&nabla;C) solved with a two-pass explicit scheme:
+                </p>
+                <div class="two-column" style="gap: 30px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Pass 1: Face Fluxes</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1e3a5f, #0a1628); padding: 14px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1rem;">
+                                    F<sub>face</sub> = q<sub>face</sub> &middot; C<sub>upwind</sub> &middot; L &minus; D &middot; h<sub>face</sub> &middot; L &middot; &Delta;C/&Delta;x
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;">First-order upwind advection (unconditionally TVD)</li>
+                                <li style="font-size: 0.9rem;">Fickian diffusion: central-difference gradient</li>
+                                <li style="font-size: 0.9rem;">Wet-dry edges: flux only if both cells wet</li>
+                                <li style="font-size: 0.9rem;">Read-only access to old C field &mdash; fully parallel</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Pass 2: Mass Update &amp; Monotonicity</h3>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 14px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1rem;">
+                                    M<sub>new</sub> = max(0, &ensp;M<sub>old</sub> + net_flux &middot; &Delta;t / A)
+                                </div>
+                            </div>
+                            <div class="equation-box" style="background: linear-gradient(135deg, #1a3d2e, #0a1628); padding: 12px; margin-top: 8px;">
+                                <div class="equation" style="font-size: 1rem;">
+                                    C<sub>new</sub> = min(M<sub>new</sub> / h<sub>new</sub>, &ensp;max(C<sub>neighbors</sub>))
+                                </div>
+                            </div>
+                            <ul style="margin-left: 15px; margin-top: 10px;">
+                                <li style="font-size: 0.9rem;">M<sub>old</sub> = C<sub>old</sub> &middot; h<sub>old</sub> &middot; A (stored mass)</li>
+                                <li style="font-size: 0.9rem;">Positivity enforced: M &ge; 0</li>
+                                <li style="font-size: 0.9rem;">Monotonicity clamp: C cannot exceed neighbor maximum</li>
+                                <li style="font-size: 0.9rem;">Eliminates artificial extrema at wetting fronts</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="highlight-box success" style="margin-top: 12px; text-align: center;">
+                    <strong>Stable, mass-conservative, inherently parallel</strong> &mdash; no race conditions, no global assembly. Works identically on regular and triangular meshes.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">14</div>
+            </div>
+        </div>
+
+        <!-- Slide 15: Soil Infiltration: Horton Decay Model -->
+        <div class="slide" data-slide="15">
+            <div class="slide-header">
+                <h2>Soil Infiltration: Horton Decay Model</h2>
+            </div>
+            <div class="slide-content">
+                <div class="equation-box" style="background: linear-gradient(135deg, var(--secondary), #047857); margin-bottom: 18px;">
+                    <div class="label">Horton Infiltration Rate</div>
+                    <div class="equation" style="font-size: 1.3rem;">
+                        f(t) = K<sub>s</sub> + (f<sub>0</sub> &minus; K<sub>s</sub>) &middot; exp(&minus;k &middot; t<sub>wet</sub>)
+                    </div>
+                </div>
+                <div class="two-column" style="gap: 30px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Per-Timestep Algorithm</h3>
+                            <ol style="margin-left: 15px; counter-reset: step-counter;">
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">Read cell soil type &rarr; look up f<sub>0</sub>, K<sub>s</sub>, k from USDA table</li>
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">If h &gt; 0: increment cumulative wet time t<sub>wet</sub> += &Delta;t</li>
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">Compute rate: f(t) = K<sub>s</sub> + (f<sub>0</sub> &minus; K<sub>s</sub>) exp(&minus;k t<sub>wet</sub>)</li>
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">Potential infiltration: I<sub>pot</sub> = f(t) &middot; &Delta;t</li>
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">Limit by available water: I = min(I<sub>pot</sub>, h)</li>
+                                <li style="font-size: 0.85rem; margin-bottom: 4px;">Update depth: h<sub>new</sub> = h &minus; I</li>
+                                <li style="font-size: 0.85rem;">Store diagnostic rate: soil_infil_rate = I / &Delta;t</li>
+                            </ol>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>USDA Soil Texture Classes</h3>
+                            <table style="font-size: 0.8rem; margin-top: 8px;">
+                                <tr><th>Class</th><th>K<sub>s</sub> (mm/h)</th><th>f<sub>0</sub> (mm/h)</th></tr>
+                                <tr><td>Sand</td><td>210.0</td><td>630.0</td></tr>
+                                <tr><td>Loamy Sand</td><td>61.0</td><td>183.0</td></tr>
+                                <tr><td>Sandy Loam</td><td>26.0</td><td>78.0</td></tr>
+                                <tr><td>Loam</td><td>13.0</td><td>39.0</td></tr>
+                                <tr><td>Silt Loam</td><td>6.8</td><td>20.4</td></tr>
+                                <tr><td>Sandy Clay Loam</td><td>4.3</td><td>12.9</td></tr>
+                                <tr><td>Clay Loam</td><td>2.3</td><td>6.9</td></tr>
+                                <tr><td>Silty Clay</td><td>0.9</td><td>2.7</td></tr>
+                                <tr><td>Clay</td><td>0.6</td><td>1.8</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box info" style="margin-top: 10px;">
+                            <strong>Backward compatible:</strong> No <code>SOIL_INFILTRATION</code> section in JSON config = module disabled. Existing setups work unchanged.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">15</div>
+            </div>
+        </div>
+
+        <!-- Slide 16: Numerical Solver Summary -->
+        <div class="slide" data-slide="16">
+            <div class="slide-header">
+                <h2>Numerical Solver Summary</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.05rem; margin-bottom: 18px;">
+                    Both mesh types share the same physics &mdash; the triangular mesh adds 2nd-order spatial accuracy via MUSCL reconstruction.
+                </p>
+                <table style="font-size: 0.95rem;">
+                    <tr>
+                        <th style="width: 28%;">Feature</th>
+                        <th style="width: 36%;">Regular Cartesian Mesh</th>
+                        <th style="width: 36%;">Unstructured Triangular Mesh</th>
+                    </tr>
+                    <tr>
+                        <td><strong>Flux solver</strong></td>
+                        <td>Roe approximate Riemann</td>
+                        <td>Rotated Roe / HLL Riemann</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Spatial order</strong></td>
+                        <td>1st order (piecewise constant)</td>
+                        <td>2nd order (MUSCL + Barth-Jespersen)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Reconstruction</strong></td>
+                        <td>None (cell-averaged values)</td>
+                        <td>Least-squares gradient + limiter</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Wetting/drying</strong></td>
+                        <td>Hydrostatic reconstruction + Ritter</td>
+                        <td>Hydrostatic reconstruction + Ritter</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Bed friction</strong></td>
+                        <td>Semi-implicit Manning</td>
+                        <td>Semi-implicit Manning</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Time stepping</strong></td>
+                        <td>CFL &middot; &Delta;x / (|u| + c)</td>
+                        <td>CFL &middot; r<sub>in</sub> / (|u| + c)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Mass limiter</strong></td>
+                        <td>Scale outflow per cell</td>
+                        <td>Each edge &le; 1/3 cell volume</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Turbulence</strong></td>
+                        <td>Eddy viscosity (&nu;<sub>t</sub> = c<sub>v</sub>u<sub>*</sub>h)</td>
+                        <td>Eddy viscosity (&nu;<sub>t</sub> = c<sub>v</sub>u<sub>*</sub>h)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>ADE transport</strong></td>
+                        <td>Two-pass (upwind + diffusion)</td>
+                        <td>Two-pass (upwind + diffusion)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Soil infiltration</strong></td>
+                        <td>Horton decay (per cell)</td>
+                        <td>Horton decay (per cell)</td>
+                    </tr>
+                </table>
+                <div class="highlight-box success" style="margin-top: 15px; text-align: center;">
+                    <strong>Same conservation laws, same physical models</strong> &mdash; choose regular mesh for speed, triangular mesh for complex geometries and higher accuracy.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">16</div>
+            </div>
+        </div>
+
+        <!-- Slide 17: Section - Parallelization -->
+        <div class="slide section-slide purple" data-slide="17">
             <div class="section-number">02</div>
             <h2>Parallelization &amp; Performance</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 13: Parallelization Options -->
-        <div class="slide" data-slide="13">
+        <!-- Slide 18: Parallelization Options -->
+        <div class="slide" data-slide="18">
             <div class="slide-header">
                 <h2>Parallelization Options</h2>
             </div>
@@ -1045,12 +1423,12 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">13</div>
+                <div class="page-number">18</div>
             </div>
         </div>
 
-        <!-- Slide 14: CUDA GPU Kernels -->
-        <div class="slide" data-slide="14">
+        <!-- Slide 19: CUDA GPU Kernels -->
+        <div class="slide" data-slide="19">
             <div class="slide-header">
                 <h2>CUDA GPU Kernels</h2>
             </div>
@@ -1097,19 +1475,19 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">14</div>
+                <div class="page-number">19</div>
             </div>
         </div>
 
-        <!-- Slide 15: Section - Applications -->
-        <div class="slide section-slide green" data-slide="15">
+        <!-- Slide 20: Section - Applications -->
+        <div class="slide section-slide green" data-slide="20">
             <div class="section-number">03</div>
             <h2>Applications &amp; Tools</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 16: Application Areas -->
-        <div class="slide" data-slide="16">
+        <!-- Slide 21: Application Areas -->
+        <div class="slide" data-slide="21">
             <div class="slide-header">
                 <h2>Application Areas</h2>
             </div>
@@ -1175,12 +1553,12 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">16</div>
+                <div class="page-number">21</div>
             </div>
         </div>
 
-        <!-- Slide 17: Technical Stack -->
-        <div class="slide" data-slide="17">
+        <!-- Slide 22: Technical Stack -->
+        <div class="slide" data-slide="22">
             <div class="slide-header">
                 <h2>Technical Stack</h2>
             </div>
@@ -1219,12 +1597,12 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">17</div>
+                <div class="page-number">22</div>
             </div>
         </div>
 
-        <!-- Slide 18: WebGL 3D Viewer -->
-        <div class="slide" data-slide="18">
+        <!-- Slide 23: WebGL 3D Viewer -->
+        <div class="slide" data-slide="23">
             <div class="slide-header">
                 <h2>WebGL 3D Viewer</h2>
             </div>
@@ -1267,12 +1645,12 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">18</div>
+                <div class="page-number">23</div>
             </div>
         </div>
 
-        <!-- Slide 19: Summary -->
-        <div class="slide" data-slide="19">
+        <!-- Slide 24: Summary -->
+        <div class="slide" data-slide="24">
             <div class="slide-header">
                 <h2>Summary</h2>
             </div>
@@ -1302,12 +1680,12 @@
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">19</div>
+                <div class="page-number">24</div>
             </div>
         </div>
 
-        <!-- Slide 20: Thank You -->
-        <div class="slide title-slide" data-slide="20">
+        <!-- Slide 25: Thank You -->
+        <div class="slide title-slide" data-slide="25">
             <h1 style="font-size: 3.5rem;">Thank You</h1>
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
