@@ -1,4 +1,6 @@
 Results/
+Results_steady/
+Results_river_steady/
 CMakefiles/
 .gitignore
 .vscode
@@ -8,3 +10,11 @@ Tests/
 cmake_install.cmake
 logFLUXOS.out
 fluxos_cpp
+build/
+build_soil/
+.DS_Store
+*.tif
+bin/fluxos_run.log
+fluxos_web/data/
+fluxos_kml_regular/
+horton_infiltration_results.png
