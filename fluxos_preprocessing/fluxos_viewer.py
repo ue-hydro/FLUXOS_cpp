@@ -2458,7 +2458,7 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
 
 def export_webgl(dem, meta, results, mesh_type, variable, clim,
                  output_dir="fluxos_web", h_min=0.001, step=5,
-                 n_particles=65536, utm_to_ll=None):
+                 n_particles=65536, utm_to_ll=None, sat_resolution=5):
     """Export FLUXOS results as an interactive WebGL particle viewer.
 
     Creates a directory with index.html + data files that can be served
@@ -2663,9 +2663,20 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
         # Download satellite tiles, reproject, and clip to basin
         sat_path = os.path.join(data_dir, "satellite.jpg")
         basin_mask = ~np.isnan(dem)   # True where DEM is valid
+        sat_w = int(ncols * sat_resolution)
+        sat_h = int(nrows * sat_resolution)
+        # Upscale basin mask to match satellite resolution
+        if sat_resolution != 1:
+            from scipy.ndimage import zoom as ndzoom
+            sat_mask = ndzoom(basin_mask.astype(np.float64),
+                             sat_resolution, order=0) > 0.5
+        else:
+            sat_mask = basin_mask
+        print(f"  Satellite resolution: {sat_w}x{sat_h} "
+              f"({sat_resolution}x DEM)")
         _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
-                            ncols, nrows, sat_path,
-                            basin_mask=basin_mask)
+                            sat_w, sat_h, sat_path,
+                            basin_mask=sat_mask)
 
     # ── Export metadata JSON ──────────────────────────────────
     metadata = {
@@ -2690,6 +2701,7 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     if bbox_ll:
         metadata["bbox"] = bbox_ll
         metadata["has_satellite"] = True
+        metadata["sat_resolution"] = sat_resolution
     meta_path = os.path.join(data_dir, "metadata.json")
     with open(meta_path, "w") as f:
         _json.dump(metadata, f, indent=2)
@@ -3751,6 +3763,10 @@ Output:
         "--webgl-particles", type=int, default=65536,
         help="Default particle count in viewer. Default: 65536",
     )
+    parser.add_argument(
+        "--sat-resolution", type=int, default=5,
+        help="Satellite image resolution multiplier vs DEM. Default: 5",
+    )
 
     args = parser.parse_args()
 
@@ -3849,7 +3865,7 @@ Output:
             dem, meta, results, args.mesh_type, args.variable, clim,
             output_dir=args.webgl_output, h_min=args.h_min,
             step=args.webgl_step, n_particles=args.webgl_particles,
-            utm_to_ll=utm_to_ll,
+            utm_to_ll=utm_to_ll, sat_resolution=args.sat_resolution,
         )
         return
 
