@@ -53,15 +53,50 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 #colorbar-wrap .cb-labels { display: flex; justify-content: space-between;
     font-family: monospace; font-size: 10px; color: #8899bb; margin-top: 2px; }
 canvas#colorbar { display: block; border-radius: 3px; }
-#loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    color: #5577aa; font-family: monospace; font-size: 16px; }
-#loading.load-error { color: #ff6b6b; font-size: 14px; max-width: 600px;
+#loading-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #0a0a12; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 1000;
+    transition: opacity 0.6s ease-out;
+}
+#loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+#loading-overlay .load-title {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 20px; color: #e0ecff; font-weight: 600;
+    letter-spacing: 1px; margin-bottom: 32px;
+}
+#loading-overlay .load-bar-track {
+    width: 320px; height: 4px; background: rgba(40,60,100,0.4);
+    border-radius: 2px; overflow: hidden; position: relative;
+}
+#loading-overlay .load-bar-fill {
+    height: 100%; width: 0%; border-radius: 2px;
+    background: linear-gradient(90deg, #3366aa, #55aadd);
+    transition: width 0.35s ease-out;
+    box-shadow: 0 0 12px rgba(80,160,240,0.4);
+}
+#loading-overlay .load-status {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; color: #667799; margin-top: 16px;
+    letter-spacing: 0.3px; min-height: 18px;
+}
+#loading-overlay .load-pct {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; color: #8899bb; margin-top: 8px;
+}
+#loading-overlay.load-error {
+    background: rgba(10,10,18,0.98);
+}
+#loading-overlay.load-error .load-content {
+    color: #ff6b6b; font-size: 14px; max-width: 600px;
     background: rgba(10,10,18,0.95); padding: 24px 28px; border-radius: 10px;
     border: 1px solid rgba(255,80,80,0.4); line-height: 1.6;
-    white-space: pre-wrap; word-break: break-all; text-align: left; }
-#loading.load-error .error-title { font-size: 18px; color: #ff4444;
+    white-space: pre-wrap; word-break: break-all; text-align: left;
+    font-family: monospace;
+}
+#loading-overlay .error-title { font-size: 18px; color: #ff4444;
     margin-bottom: 12px; font-weight: bold; }
-#loading.load-error .error-hint { color: #8899bb; font-size: 12px;
+#loading-overlay .error-hint { color: #8899bb; font-size: 12px;
     margin-top: 16px; word-break: normal; }
 input[type=range] { -webkit-appearance: none; height: 4px;
     background: rgba(60,90,140,0.4); border-radius: 2px; outline: none; }
@@ -73,7 +108,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
 <body>
 <canvas id="gl"></canvas>
 
-<div id="loading">Loading simulation data...</div>
+<div id="loading-overlay">
+    <div class="load-title">FLUXOS Flood Simulation</div>
+    <div class="load-bar-track">
+        <div class="load-bar-fill" id="load-bar"></div>
+    </div>
+    <div class="load-status" id="load-status">Initializing...</div>
+    <div class="load-pct" id="load-pct">0%</div>
+</div>
 
 <div id="controls" style="display:none;">
     <h2>FLUXOS Flood Simulation</h2>
@@ -89,18 +131,18 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     </div>
     <div class="ctrl-row">
         <label>Speed</label>
-        <input type="range" id="sl-speed" min="5" max="2000" value="80">
-        <span class="val" id="v-speed">0.8x</span>
+        <input type="range" id="sl-speed" min="5" max="2000" value="1000">
+        <span class="val" id="v-speed">10.0x</span>
     </div>
     <div class="ctrl-row">
         <label>Particles</label>
-        <input type="range" id="sl-particles" min="10" max="18" value="14">
-        <span class="val" id="v-particles">16K</span>
+        <input type="range" id="sl-particles" min="10" max="18" value="10">
+        <span class="val" id="v-particles">1K</span>
     </div>
     <div class="ctrl-row">
         <label>Trail length</label>
-        <input type="range" id="sl-trail" min="880" max="998" value="970">
-        <span class="val" id="v-trail">0.97</span>
+        <input type="range" id="sl-trail" min="880" max="998" value="880">
+        <span class="val" id="v-trail">0.88</span>
     </div>
     <div class="ctrl-row">
         <label>Exaggeration</label>
@@ -360,15 +402,17 @@ attribute vec2 a_texcoord;   // (u, v) for texture lookup
 uniform mat4 u_mvp;
 varying vec2 v_uv;
 varying float v_height;
+varying vec3 v_world_pos;
 
 void main() {
     v_uv = a_texcoord;
     v_height = a_position.y;
+    v_world_pos = a_position;
     gl_Position = u_mvp * vec4(a_position, 1.0);
 }
 </script>
 
-<!-- Terrain fragment shader -->
+<!-- Terrain fragment shader — dynamic lighting, AO, fog -->
 <script id="terrain-fs" type="x-shader/x-fragment">
 precision mediump float;
 uniform sampler2D u_hillshade;
@@ -376,25 +420,59 @@ uniform sampler2D u_satellite;
 uniform sampler2D u_trails;
 uniform sampler2D u_heightmap;
 uniform float u_dark;
-uniform float u_use_satellite;   // 0.0 = hillshade, 1.0 = satellite
+uniform float u_use_satellite;
+uniform vec3 u_sun_dir;
+uniform vec3 u_eye;
+uniform vec2 u_hm_texel;        // 1/width, 1/height for heightmap gradient
+uniform float u_exaggeration;
 varying vec2 v_uv;
 varying float v_height;
+varying vec3 v_world_pos;
 
 void main() {
-    // Discard NoData fragments at basin boundary for clean clipping
     float valid = texture2D(u_heightmap, v_uv).b;
     if (valid < 0.5) discard;
 
+    // ── Compute terrain normal from heightmap gradient ──
+    float hL = texture2D(u_heightmap, v_uv - vec2(u_hm_texel.x, 0.0)).r;
+    float hR = texture2D(u_heightmap, v_uv + vec2(u_hm_texel.x, 0.0)).r;
+    float hD = texture2D(u_heightmap, v_uv + vec2(0.0, u_hm_texel.y)).r;
+    float hU = texture2D(u_heightmap, v_uv - vec2(0.0, u_hm_texel.y)).r;
+    float hC = texture2D(u_heightmap, v_uv).r;
+    vec3 terrainNormal = normalize(vec3(
+        (hL - hR) * u_exaggeration * 4.0,
+        1.0,
+        (hU - hD) * u_exaggeration * 4.0
+    ));
+
+    // ── Lightweight AO: concavity from neighbor heights ──
+    float ao = clamp(1.0 - (4.0 * hC - hL - hR - hD - hU) * u_exaggeration * 15.0, 0.15, 1.0);
+
+    // ── Base albedo ──
     vec3 base;
     if (u_use_satellite > 0.5) {
-        base = texture2D(u_satellite, v_uv).rgb * (u_dark * 1.5);
+        base = texture2D(u_satellite, v_uv).rgb;
     } else {
-        base = texture2D(u_hillshade, v_uv).rgb * u_dark;
-        base.b = min(1.0, base.b * 1.3);  // cool blue tint
+        base = texture2D(u_hillshade, v_uv).rgb;
     }
-    // Trail FBO is rendered with Y-flipped clip coords, so flip V to align
+
+    // ── Dynamic directional lighting ──
+    float NdotL = max(dot(terrainNormal, u_sun_dir), 0.0);
+    vec3 ambient = vec3(0.18, 0.18, 0.22);   // neutral shadow fill
+    vec3 sunCol  = vec3(1.0, 0.95, 0.85);    // warm sunlight
+    vec3 lit = base * (ambient + sunCol * NdotL * 0.85) * ao;
+
+    // ── Trail overlay ──
     vec3 tr = texture2D(u_trails, vec2(v_uv.x, 1.0 - v_uv.y)).rgb;
-    gl_FragColor = vec4(min(vec3(1.0), base + tr), 1.0);
+    lit = min(vec3(1.0), lit + tr);
+
+    // ── Atmospheric fog ──
+    float dist = length(v_world_pos - u_eye);
+    float fogAmount = 1.0 - exp(-dist * dist * 0.8);
+    vec3 fogColor = vec3(0.62, 0.63, 0.68);   // warm neutral haze
+    lit = mix(lit, fogColor, fogAmount * 0.35);
+
+    gl_FragColor = vec4(lit, 1.0);
 }
 </script>
 
@@ -461,7 +539,7 @@ void main() {
 }
 </script>
 
-<!-- Water surface fragment shader — realistic water with ripples, Fresnel, specular, foam -->
+<!-- Water surface fragment shader — cinematic water with sky reflection, SSS, bloom-ready HDR -->
 <script id="water-fs" type="x-shader/x-fragment">
 precision mediump float;
 
@@ -478,6 +556,7 @@ uniform vec2 u_texel_size;
 uniform sampler2D u_velocity;
 uniform sampler2D u_velocity_next;
 uniform float u_time_frac;
+uniform vec3 u_sun_dir;
 
 // ── Simplex 2D noise (Ashima Arts / Ian McEwan) ──
 vec3 mod289_3(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -510,11 +589,26 @@ float snoise(vec2 v) {
     return 130.0 * dot(m, g);
 }
 
-// ── Fractional Brownian Motion (2 octaves) ──
 float fbm(vec2 p) {
     float f = 0.5000 * snoise(p); p *= 2.02;
     f      += 0.2500 * snoise(p);
     return f;
+}
+
+// ── Procedural sky color (matches sky-fs) ──
+vec3 getSkyColor(vec3 ray) {
+    float y = ray.y;
+    vec3 zenith  = vec3(0.18, 0.30, 0.65);
+    vec3 horizon = vec3(0.55, 0.60, 0.72);
+    float skyMix = smoothstep(-0.02, 0.45, y);
+    vec3 col = mix(horizon, zenith, skyMix);
+    // Horizon glow
+    float hGlow = exp(-abs(y) * 8.0);
+    col = mix(col, vec3(0.75, 0.55, 0.35), hGlow * 0.35);
+    // Sun glow in reflection
+    float sunDot = max(dot(ray, u_sun_dir), 0.0);
+    col += vec3(1.0, 0.95, 0.8) * pow(sunDot, 32.0) * 0.3;
+    return col;
 }
 
 void main() {
@@ -542,23 +636,32 @@ void main() {
     float fresnel = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
     fresnel = clamp(fresnel, 0.0, 1.0);
 
-    // ── 4. Specular highlight (directional sun) ──
-    vec3 sun_dir = normalize(vec3(0.4, 0.8, 0.3));
+    // ── 4. Sky reflection (procedural, matches sky dome) ──
+    vec3 reflDir = reflect(-view_dir, normal);
+    vec3 skyReflection = getSkyColor(reflDir);
+
+    // ── 5. HDR Specular highlight (sun) — allows values > 1 for bloom ──
     vec3 sun_color = vec3(1.0, 0.95, 0.8);
-    vec3 half_vec = normalize(sun_dir + view_dir);
+    vec3 half_vec = normalize(u_sun_dir + view_dir);
     float NdotH = max(dot(normal, half_vec), 0.0);
-    float shininess = mix(128.0, 16.0, flow_speed);
+    float shininess = mix(256.0, 24.0, flow_speed);
     float spec = pow(NdotH, shininess);
-    vec3 specular = sun_color * mix(0.5, 1.2, t) * spec;
+    vec3 specular = sun_color * mix(1.0, 2.5, t) * spec;   // HDR: can exceed 1.0
 
-    // ── 5. Depth-dependent base color with lighting ──
-    vec3 shallow_col = vec3(0.25, 0.55, 0.85);
-    vec3 deep_col    = vec3(0.02, 0.08, 0.35);
+    // ── 6. Depth-dependent base color with subsurface scattering ──
+    vec3 shallow_col = vec3(0.20, 0.50, 0.80);
+    vec3 deep_col    = vec3(0.02, 0.06, 0.30);
     vec3 water_col   = mix(shallow_col, deep_col, t);
-    float diffuse_NdotL = max(dot(normal, sun_dir), 0.0);
-    vec3 lit_water = water_col * (0.15 + 0.4 * diffuse_NdotL);
+    float NdotL = max(dot(normal, u_sun_dir), 0.0);
+    vec3 lit_water = water_col * (0.18 + 0.45 * NdotL);
 
-    // ── 6. Edge foam / white-water ──
+    // Subsurface scattering: warm glow through shallow water
+    float sss_dot = max(dot(view_dir, -u_sun_dir), 0.0);
+    float sss = pow(sss_dot, 4.0) * (1.0 - t) * 0.5;
+    vec3 sss_color = vec3(0.15, 0.45, 0.35);
+    lit_water += sss_color * sss;
+
+    // ── 7. Edge foam / white-water ──
     float depth_edge = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.15, 0.4, t));
     vec4 v_cur = texture2D(u_velocity, v_uv);
     vec4 v_nxt = texture2D(u_velocity_next, v_uv);
@@ -577,17 +680,23 @@ void main() {
     float foam_noise = snoise(v_uv * 80.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
     float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_noise;
     foam = clamp(foam, 0.0, 1.0);
-    vec3 foam_color = vec3(0.85, 0.92, 0.98);
+    vec3 foam_color = vec3(0.90, 0.95, 1.0);
 
     // ── Composite ──
     vec3 final_col = mix(lit_water, foam_color, foam * 0.6);
     final_col += specular;
-    vec3 sky_color = vec3(0.3, 0.4, 0.6);
-    final_col = mix(final_col, sky_color, fresnel * 0.3);
+    // Sky reflection blended by Fresnel
+    final_col = mix(final_col, skyReflection, fresnel * 0.55);
+
+    // ── Atmospheric fog (match terrain) ──
+    float dist = length(v_world_pos - u_eye);
+    float fogAmount = 1.0 - exp(-dist * dist * 0.8);
+    vec3 fogColor = vec3(0.62, 0.63, 0.68);
+    final_col = mix(final_col, fogColor, fogAmount * 0.35);
 
     // ── Alpha: Fresnel-modulated transparency ──
-    float base_alpha = mix(0.3, 0.82, t);
-    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.25, 0.0, 0.92);
+    float base_alpha = mix(0.4, 0.88, t);
+    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.25, 0.0, 0.95);
 
     gl_FragColor = vec4(final_col, final_alpha);
 }
@@ -669,6 +778,165 @@ void main() {
 }
 </script>
 
+<!-- Post-processing quad vertex shader (no Y-flip, unlike quad-vs which flips for trail system) -->
+<script id="post-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec2 a_pos;
+varying vec2 v_tex;
+void main() {
+    v_tex = a_pos;
+    gl_Position = vec4(2.0 * a_pos.x - 1.0, 2.0 * a_pos.y - 1.0, 0.0, 1.0);
+}
+</script>
+
+<!-- Sky dome vertex shader (fullscreen quad → world-space ray) -->
+<script id="sky-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+    v_uv = a_pos;
+    gl_Position = vec4(2.0 * a_pos.x - 1.0, 2.0 * a_pos.y - 1.0, 0.9999, 1.0);
+}
+</script>
+
+<!-- Sky dome fragment shader — procedural atmosphere with sun -->
+<script id="sky-fs" type="x-shader/x-fragment">
+precision mediump float;
+varying vec2 v_uv;
+uniform mat4 u_inv_vp;
+uniform vec3 u_sun_dir;
+uniform vec3 u_eye;
+
+void main() {
+    // Reconstruct world-space ray direction from clip-space UV
+    // post-vs maps a_pos directly: (0,0)→clip(-1,-1), (1,1)→clip(1,1)
+    vec4 clip = vec4(2.0 * v_uv.x - 1.0, 2.0 * v_uv.y - 1.0, 1.0, 1.0);
+    vec4 world4 = u_inv_vp * clip;
+    vec3 ray = normalize(world4.xyz / world4.w - u_eye);
+
+    float y = ray.y;
+
+    // Sky gradient: deep blue zenith → warm haze at horizon
+    vec3 zenith  = vec3(0.18, 0.30, 0.65);
+    vec3 horizon = vec3(0.55, 0.60, 0.72);
+    vec3 ground  = vec3(0.15, 0.13, 0.12);
+
+    float skyMix = smoothstep(-0.02, 0.45, y);
+    vec3 skyCol = mix(horizon, zenith, skyMix);
+
+    // Below horizon: dark ground
+    if (y < 0.0) {
+        skyCol = mix(horizon, ground, smoothstep(0.0, -0.15, y));
+    }
+
+    // Atmospheric scattering near horizon (warm orange tint)
+    float horizonGlow = exp(-abs(y) * 8.0);
+    vec3 scatterCol = vec3(0.75, 0.55, 0.35);
+    skyCol = mix(skyCol, scatterCol, horizonGlow * 0.35);
+
+    // Sun disc + glow
+    float sunDot = max(dot(ray, u_sun_dir), 0.0);
+    float sunDisc = smoothstep(0.9994, 0.9998, sunDot);
+    float sunGlow = pow(sunDot, 256.0) * 1.5;
+    float sunHalo = pow(sunDot, 32.0) * 0.4;
+    vec3 sunColor = vec3(1.0, 0.95, 0.8);
+
+    skyCol += sunColor * (sunDisc * 3.0 + sunGlow + sunHalo);
+
+    gl_FragColor = vec4(skyCol, 1.0);
+}
+</script>
+
+<!-- Bright extraction fragment shader (for bloom) -->
+<script id="extract-bright-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_scene;
+varying vec2 v_tex;
+void main() {
+    vec3 c = texture2D(u_scene, v_tex).rgb;
+    float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float knee = 0.7;
+    float soft = clamp((lum - knee) / (1.0 - knee + 0.001), 0.0, 1.0);
+    soft = soft * soft;
+    float contrib = max(soft, step(1.0, lum));
+    gl_FragColor = vec4(c * contrib, 1.0);
+}
+</script>
+
+<!-- Gaussian blur fragment shader (separable, 9-tap) -->
+<script id="blur-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_image;
+uniform vec2 u_direction;  // (1/w, 0) for horizontal, (0, 1/h) for vertical
+varying vec2 v_tex;
+void main() {
+    vec3 result = vec3(0.0);
+    result += texture2D(u_image, v_tex - 4.0 * u_direction).rgb * 0.0162;
+    result += texture2D(u_image, v_tex - 3.0 * u_direction).rgb * 0.0540;
+    result += texture2D(u_image, v_tex - 2.0 * u_direction).rgb * 0.1218;
+    result += texture2D(u_image, v_tex - 1.0 * u_direction).rgb * 0.1964;
+    result += texture2D(u_image, v_tex                     ).rgb * 0.2270;
+    result += texture2D(u_image, v_tex + 1.0 * u_direction).rgb * 0.1964;
+    result += texture2D(u_image, v_tex + 2.0 * u_direction).rgb * 0.1218;
+    result += texture2D(u_image, v_tex + 3.0 * u_direction).rgb * 0.0540;
+    result += texture2D(u_image, v_tex + 4.0 * u_direction).rgb * 0.0162;
+    gl_FragColor = vec4(result, 1.0);
+}
+</script>
+
+<!-- Composite fragment shader: bloom + ACES tone mapping + FXAA + vignette -->
+<script id="composite-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D u_scene;
+uniform sampler2D u_bloom;
+uniform vec2 u_texel;       // 1.0/width, 1.0/height
+uniform float u_bloom_strength;
+varying vec2 v_tex;
+
+vec3 ACESFilm(vec3 x) {
+    float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main() {
+    // Sample scene and bloom
+    vec3 scene = texture2D(u_scene, v_tex).rgb;
+    vec3 bloom = texture2D(u_bloom, v_tex).rgb;
+    vec3 col = scene + bloom * u_bloom_strength;
+
+    // ACES tone mapping (handles HDR → LDR compression)
+    col = ACESFilm(col);
+
+    // Simplified FXAA: sample neighbors, blend high-contrast edges
+    vec3 rgbN = texture2D(u_scene, v_tex + vec2(0.0, -u_texel.y)).rgb;
+    vec3 rgbS = texture2D(u_scene, v_tex + vec2(0.0,  u_texel.y)).rgb;
+    vec3 rgbE = texture2D(u_scene, v_tex + vec2( u_texel.x, 0.0)).rgb;
+    vec3 rgbW = texture2D(u_scene, v_tex + vec2(-u_texel.x, 0.0)).rgb;
+    vec3 luma = vec3(0.299, 0.587, 0.114);
+    float lumC = dot(col, luma);
+    float lumN = dot(ACESFilm(rgbN + bloom * u_bloom_strength), luma);
+    float lumS = dot(ACESFilm(rgbS + bloom * u_bloom_strength), luma);
+    float lumE = dot(ACESFilm(rgbE + bloom * u_bloom_strength), luma);
+    float lumW = dot(ACESFilm(rgbW + bloom * u_bloom_strength), luma);
+    float lumMin = min(lumC, min(min(lumN, lumS), min(lumE, lumW)));
+    float lumMax = max(lumC, max(max(lumN, lumS), max(lumE, lumW)));
+    float lumRange = lumMax - lumMin;
+    if (lumRange > max(0.0312, lumMax * 0.125)) {
+        vec3 avg = ACESFilm((rgbN + rgbS + rgbE + rgbW) * 0.25 + bloom * u_bloom_strength);
+        col = mix(col, avg, 0.5);
+    }
+
+    // Vignette
+    vec2 uv = v_tex - 0.5;
+    float vig = 1.0 - dot(uv, uv) * 0.8;
+    vig = clamp(vig * vig, 0.0, 1.0);
+    col *= mix(0.3, 1.0, vig);
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
 <!-- ═══════ JAVASCRIPT ═══════ -->
 <script>
 'use strict';
@@ -726,6 +994,39 @@ const Mat4 = {
         out[14]=-(z0*eye[0]+z1*eye[1]+z2*eye[2]);
         out[15]=1;
         return out;
+    },
+
+    invert(out, a) {
+        const a00=a[0],a01=a[1],a02=a[2],a03=a[3],
+              a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+              a20=a[8],a21=a[9],a22=a[10],a23=a[11],
+              a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+        const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10,
+              b02=a00*a13-a03*a10, b03=a01*a12-a02*a11,
+              b04=a01*a13-a03*a11, b05=a02*a13-a03*a12,
+              b06=a20*a31-a21*a30, b07=a20*a32-a22*a30,
+              b08=a20*a33-a23*a30, b09=a21*a32-a22*a31,
+              b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+        let det=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+        if(!det) return null;
+        det=1.0/det;
+        out[0]=(a11*b11-a12*b10+a13*b09)*det;
+        out[1]=(a02*b10-a01*b11-a03*b09)*det;
+        out[2]=(a31*b05-a32*b04+a33*b03)*det;
+        out[3]=(a22*b04-a21*b05-a23*b03)*det;
+        out[4]=(a12*b08-a10*b11-a13*b07)*det;
+        out[5]=(a00*b11-a02*b08+a03*b07)*det;
+        out[6]=(a32*b02-a30*b05-a33*b01)*det;
+        out[7]=(a20*b05-a22*b02+a23*b01)*det;
+        out[8]=(a10*b10-a11*b08+a13*b06)*det;
+        out[9]=(a01*b08-a00*b10-a03*b06)*det;
+        out[10]=(a30*b04-a31*b02+a33*b00)*det;
+        out[11]=(a21*b02-a20*b04-a23*b00)*det;
+        out[12]=(a11*b07-a10*b09-a12*b06)*det;
+        out[13]=(a00*b09-a01*b07+a02*b06)*det;
+        out[14]=(a31*b01-a30*b03-a32*b00)*det;
+        out[15]=(a20*b03-a21*b01+a22*b00)*det;
+        return out;
     }
 };
 
@@ -735,10 +1036,10 @@ const Mat4 = {
 
 class OrbitCamera {
     constructor() {
-        this.theta = -Math.PI / 4;   // azimuth (radians)
-        this.phi = Math.PI / 5;      // elevation
-        this.distance = 1.8;
-        this.target = [0, 0.15, 0];  // look at center, slightly elevated
+        this.theta = -0.55;           // azimuth (radians)
+        this.phi = 0.22;             // elevation (low panoramic angle)
+        this.distance = 0.9;
+        this.target = [0.1, 0.08, 0.05];  // shifted toward flood area
         this.fov = 45 * Math.PI / 180;
         this.near = 0.01;
         this.far = 100;
@@ -1077,17 +1378,17 @@ class FloodViewer3D {
         this.currentFrame = 0;
         this.timeFrac = 0;
         this.playing = true;
-        this.speed = 0.8;
-        this.fadeOpacity = 0.97;
+        this.speed = 10.0;
+        this.fadeOpacity = 0.88;
         this.dropRate = 0.003;
         this.dropRateBump = 0.01;
         this.darkFactor = 0.25;
         this.pointSize = 1.5;
-        this.particleRes = 128;
-        this.numParticles = 128 * 128;
+        this.particleRes = 32;
+        this.numParticles = 32 * 32;
         this.exaggeration = 0.1;
         this.frameCache = new Map();
-        this.frameCacheMax = 12;
+        this.frameCacheMax = 30;
         this.speedFactor = 0.5;
         this._lastT = 0;
         this._fpsFrames = 0;
@@ -1112,10 +1413,22 @@ class FloodViewer3D {
         this.concFrameCache = new Map();
     }
 
+    _setProgress(pct, status) {
+        const bar = document.getElementById('load-bar');
+        const txt = document.getElementById('load-status');
+        const pctEl = document.getElementById('load-pct');
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = status;
+        if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+    }
+
     async init() {
+        // Cache-busting version string to force reload after re-export
+        this._v = '?v=' + Date.now();
+        this._setProgress(2, 'Fetching metadata...');
         let resp;
         try {
-            resp = await fetch('data/metadata.json');
+            resp = await fetch('data/metadata.json' + this._v);
         } catch (netErr) {
             const err = new Error('Network error fetching metadata.json — the server may be unreachable or blocking CORS.');
             err.url = 'data/metadata.json';
@@ -1135,6 +1448,7 @@ class FloodViewer3D {
             throw err;
         }
         const m = this.meta;
+        this._setProgress(5, 'Metadata loaded');
 
         document.getElementById('sl-time').max = m.n_timesteps - 1;
         document.getElementById('cb-max').textContent =
@@ -1161,8 +1475,8 @@ class FloodViewer3D {
         const gl = this.gl;
 
         // Load heightmap image and extract pixel data
-        document.getElementById('loading').textContent = 'Loading heightmap...';
-        const hmImg = await this.loadImageElement('data/heightmap.png');
+        this._setProgress(10, 'Loading heightmap...');
+        const hmImg = await this.loadImageElement('data/heightmap.png' + this._v);
         const hmCanvas = document.createElement('canvas');
         hmCanvas.width = hmImg.width;
         hmCanvas.height = hmImg.height;
@@ -1172,9 +1486,9 @@ class FloodViewer3D {
 
         // Create heightmap WebGL texture
         this.heightmapTex = createTex(gl, gl.LINEAR, hmImg, 0, 0);
+        this._setProgress(20, 'Building terrain mesh...');
 
         // Build terrain mesh from heightmap
-        document.getElementById('loading').textContent = 'Building terrain mesh...';
         this.terrainMesh = buildTerrainMesh(
             this.heightData, hmImg.width, hmImg.height, m, this.exaggeration);
 
@@ -1195,24 +1509,25 @@ class FloodViewer3D {
             + `${this.terrainMesh.nIndices / 3} triangles`);
 
         // Compile shaders
-        document.getElementById('loading').textContent = 'Compiling shaders...';
+        this._setProgress(30, 'Compiling shaders...');
         this.compileShaders(gl);
         this.createBuffers(gl);
         this.initParticleState(gl);
         this.initTrailTextures(gl);
+        this.initPostFBOs();
 
         // Color ramp
         this.colorRampTex = createTex(gl, gl.LINEAR, buildColorRamp(), 256, 1);
+        this._setProgress(35, 'Loading hillshade...');
 
         // Hillshade
-        document.getElementById('loading').textContent = 'Loading hillshade...';
-        this.hillshadeTex = await this.loadImage(gl, 'data/hillshade.png', gl.LINEAR);
+        this.hillshadeTex = await this.loadImage(gl, 'data/hillshade.png' + this._v, gl.LINEAR);
+        this._setProgress(42, 'Loading satellite imagery...');
 
         // Satellite imagery (optional — try to load, show toggle if available)
         if (m.has_satellite) {
             try {
-                document.getElementById('loading').textContent = 'Loading satellite...';
-                this.satelliteTex = await this.loadImage(gl, 'data/satellite.jpg', gl.LINEAR);
+                this.satelliteTex = await this.loadImage(gl, 'data/satellite.jpg' + this._v, gl.LINEAR);
                 document.getElementById('btn-sat').style.display = '';
                 // Enable satellite view by default when available
                 this.useSatellite = true;
@@ -1223,6 +1538,7 @@ class FloodViewer3D {
                 console.log('No satellite imagery available');
             }
         }
+        this._setProgress(55, 'Preparing data layers...');
 
         // Concentration data (optional)
         if (m.has_concentration) {
@@ -1263,8 +1579,41 @@ class FloodViewer3D {
             }
         }
 
-        // Start at ~30 min into the simulation
-        document.getElementById('loading').textContent = 'Loading velocity data...';
+        // ── Download ALL frame images into browser cache ──
+        // This ensures zero network stalls during playback at any speed.
+        // We fetch every PNG as an Image element (goes into browser HTTP cache),
+        // then during playback loadVelFrame() loads them instantly from cache.
+        this._setProgress(58, 'Downloading simulation frames...');
+        const totalImages = m.n_timesteps + (m.has_concentration ? m.n_timesteps : 0);
+        let downloaded = 0;
+
+        // Helper: download a single image into browser cache
+        const cacheImage = (url) => new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => { downloaded++; resolve(); };
+            img.onerror = () => { downloaded++; resolve(); }; // don't block on errors
+            img.src = url;
+        });
+
+        // Download in batches of 6 concurrent fetches to avoid overwhelming the connection
+        const batchSize = 6;
+        for (let batch = 0; batch < m.n_timesteps; batch += batchSize) {
+            const promises = [];
+            for (let j = batch; j < Math.min(batch + batchSize, m.n_timesteps); j++) {
+                const pad = String(j).padStart(4, '0');
+                promises.push(cacheImage(`data/velocity/v_${pad}.png${this._v}`));
+                if (m.has_concentration) {
+                    promises.push(cacheImage(`data/conc/c_${pad}.png${this._v}`));
+                }
+            }
+            await Promise.all(promises);
+            const pct = 58 + (downloaded / totalImages) * 34;
+            this._setProgress(pct, `Downloading frames... ${downloaded}/${totalImages}`);
+        }
+        console.log(`Downloaded all ${totalImages} frame images into browser cache`);
+
+        // Now build GPU textures for the starting frames
+        this._setProgress(93, 'Preparing initial view...');
         let startFrame = 0;
         if (m.times) {
             for (let i = 0; i < m.times.length; i++) {
@@ -1283,6 +1632,7 @@ class FloodViewer3D {
             await this.loadConcFrame(startFrame);
             this.loadConcFrame(nextF);
         }
+
         console.log(`Starting at frame ${startFrame}, speedFactor: ${this.speedFactor.toFixed(4)}`);
 
         // Seed particles at wet positions
@@ -1291,21 +1641,25 @@ class FloodViewer3D {
             this.initParticlesFromSpawn(gl, startEntry);
         }
 
-        // Set camera close to the ground, pointing at the injection source
-        this.camera.target = [0.19, 0.01, -0.15];
-        this.camera.distance = 0.7;
-        this.camera.phi = Math.PI / 12;      // low angle (~15°)
-        this.camera.theta = -Math.PI / 4;    // looking from southwest (-45°)
+        // Set camera to cinematic low panoramic view of the flood
+        this.camera.target = [0.08, 0.02, -0.15];
+        this.camera.distance = 0.85;
+        this.camera.phi = 0.30;              // low panoramic angle (~17°)
+        this.camera.theta = -0.28;           // azimuth (~-16°), shifted more right
 
-        // Set playback speed to 4x
-        this.speed = 4.0;
-        document.getElementById('sl-speed').value = 400;
-        document.getElementById('v-speed').textContent = '4.0x';
+        // Set playback speed to 10x
+        this.speed = 10.0;
+        document.getElementById('sl-speed').value = 1000;
+        document.getElementById('v-speed').textContent = '10.0x';
 
         // Update time slider to match start frame
         document.getElementById('sl-time').value = startFrame;
 
-        document.getElementById('loading').style.display = 'none';
+        this._setProgress(100, 'Ready!');
+        // Smooth fade-out of loading overlay
+        const overlay = document.getElementById('loading-overlay');
+        overlay.classList.add('fade-out');
+        setTimeout(() => { overlay.style.display = 'none'; }, 700);
         document.getElementById('controls').style.display = '';
         document.getElementById('info').style.display = '';
         document.getElementById('colorbar-wrap').style.display = '';
@@ -1333,6 +1687,12 @@ class FloodViewer3D {
         this.terrainProg = createProgram(gl, terrainVS, mkFS('terrain-fs'));
         this.waterProg = createProgram(gl, mkVS('water-vs'), mkFS('water-fs'));
         this.concProg = createProgram(gl, mkVS('conc-vs'), mkFS('conc-fs'));
+        // Post-processing pipeline (uses post-vs: no Y-flip, unlike quad-vs)
+        const postVS = mkVS('post-vs');
+        this.skyProg = createProgram(gl, mkVS('sky-vs'), mkFS('sky-fs'));
+        this.extractBrightProg = createProgram(gl, postVS, mkFS('extract-bright-fs'));
+        this.blurProg = createProgram(gl, postVS, mkFS('blur-fs'));
+        this.compositeProg = createProgram(gl, postVS, mkFS('composite-fs'));
     }
 
     createBuffers(gl) {
@@ -1405,6 +1765,78 @@ class FloodViewer3D {
         this.trailFB1 = createFBO(gl, this.trailTex1);
     }
 
+    // Post-processing FBOs: scene (full-res) + bloom pipeline (1/4 res)
+    initPostFBOs() {
+        const gl = this.gl;
+        const cw = gl.canvas.width, ch = gl.canvas.height;
+        const qw = Math.max(1, Math.floor(cw / 4));
+        const qh = Math.max(1, Math.floor(ch / 4));
+
+        // Scene FBO (full-res color + depth renderbuffer)
+        this.sceneColorTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.sceneColorTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cw, ch, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        this.sceneDepthRB = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, this.sceneDepthRB);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, cw, ch);
+
+        this.sceneFBO = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.sceneColorTex, 0);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneDepthRB);
+
+        // Bloom FBOs (1/4 resolution)
+        this.bloomW = qw;
+        this.bloomH = qh;
+
+        function makeBloomFBO() {
+            const tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, qw, qh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            const fb = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+            return { tex, fb };
+        }
+
+        const bright = makeBloomFBO();
+        this.brightTex = bright.tex;
+        this.brightFBO = bright.fb;
+        const blurA = makeBloomFBO();
+        this.blurTexA = blurA.tex;
+        this.blurFBO_A = blurA.fb;
+        const blurB = makeBloomFBO();
+        this.blurTexB = blurB.tex;
+        this.blurFBO_B = blurB.fb;
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    rebuildPostFBOs() {
+        const gl = this.gl;
+        if (!this.sceneFBO) return;
+        // Delete old
+        gl.deleteTexture(this.sceneColorTex);
+        gl.deleteRenderbuffer(this.sceneDepthRB);
+        gl.deleteFramebuffer(this.sceneFBO);
+        gl.deleteTexture(this.brightTex);
+        gl.deleteFramebuffer(this.brightFBO);
+        gl.deleteTexture(this.blurTexA);
+        gl.deleteFramebuffer(this.blurFBO_A);
+        gl.deleteTexture(this.blurTexB);
+        gl.deleteFramebuffer(this.blurFBO_B);
+        this.initPostFBOs();
+    }
+
     async loadImageElement(url) {
         return new Promise((res, rej) => {
             const img = new Image();
@@ -1436,7 +1868,7 @@ class FloodViewer3D {
         const gl = this.gl;
         const m = this.meta;
 
-        const velUrl = `data/velocity/v_${String(idx).padStart(4,'0')}.png`;
+        const velUrl = `data/velocity/v_${String(idx).padStart(4,'0')}.png${this._v}`;
         const img = await new Promise((res, rej) => {
             const im = new Image();
             im.onload = () => res(im);
@@ -1503,7 +1935,7 @@ class FloodViewer3D {
         const gl = this.gl;
         try {
             const tex = await this.loadImage(gl,
-                `data/conc/c_${String(idx).padStart(4,'0')}.png`, gl.LINEAR);
+                `data/conc/c_${String(idx).padStart(4,'0')}.png${this._v}`, gl.LINEAR);
             this.concFrameCache.set(idx, tex);
             if (this.concFrameCache.size > this.frameCacheMax) {
                 const oldest = this.concFrameCache.keys().next().value;
@@ -1517,7 +1949,7 @@ class FloodViewer3D {
     }
 
     preload() {
-        for (let i = 1; i <= 5; i++) {
+        for (let i = 1; i <= 15; i++) {
             const fi = (this.currentFrame + i) % this.meta.n_timesteps;
             if (!this.frameCache.has(fi)) this.loadVelFrame(fi);
             if (this.meta.has_concentration && !this.concFrameCache.has(fi)) {
@@ -1715,21 +2147,43 @@ class FloodViewer3D {
         } // end if (showParticles) — passes 1 & 2
 
         // ============================================================
-        // PASS 3: Render terrain mesh with hillshade + trails (3D)
+        // Shared state for all scene passes
         // ============================================================
         const cw = gl.canvas.width, ch = gl.canvas.height;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.viewport(0, 0, cw, ch);
-        gl.clearColor(0.04, 0.04, 0.07, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        gl.enable(gl.DEPTH_TEST);
-
+        const sunDir = [0.42, 0.78, 0.32];
+        const sunLen = Math.sqrt(sunDir[0]*sunDir[0]+sunDir[1]*sunDir[1]+sunDir[2]*sunDir[2]);
+        sunDir[0]/=sunLen; sunDir[1]/=sunLen; sunDir[2]/=sunLen;
+        const eye = this.camera.getEye();
         const mvp = this.camera.getMVP(cw / ch);
+
+        // Inverse VP for sky shader ray reconstruction
+        const invVP = Mat4.create();
+        Mat4.invert(invVP, mvp);
+
+        // ============================================================
+        // Bind scene FBO — all scene passes render here
+        // ============================================================
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO);
+        gl.viewport(0, 0, cw, ch);
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // ── PASS SKY: Procedural sky dome ──
+        gl.disable(gl.DEPTH_TEST);
+        const skyP = this.skyProg;
+        gl.useProgram(skyP);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(skyP, 'a_pos'), 2);
+        gl.uniformMatrix4fv(gl.getUniformLocation(skyP, 'u_inv_vp'), false, invVP);
+        gl.uniform3f(gl.getUniformLocation(skyP, 'u_sun_dir'), sunDir[0], sunDir[1], sunDir[2]);
+        gl.uniform3f(gl.getUniformLocation(skyP, 'u_eye'), eye[0], eye[1], eye[2]);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // ── PASS TERRAIN: Dynamic-lit terrain mesh ──
+        gl.enable(gl.DEPTH_TEST);
 
         const tp = this.terrainProg;
         gl.useProgram(tp);
 
-        // Set up terrain vertex attributes (stride = 5 floats = 20 bytes)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainVBO);
         const aPos = gl.getAttribLocation(tp, 'a_position');
         const aTex = gl.getAttribLocation(tp, 'a_texcoord');
@@ -1759,23 +2213,23 @@ class FloodViewer3D {
         gl.uniform1f(gl.getUniformLocation(tp, 'u_dark'), this.darkFactor);
         gl.uniform1f(gl.getUniformLocation(tp, 'u_use_satellite'),
             this.useSatellite && this.satelliteTex ? 1.0 : 0.0);
+        gl.uniform3f(gl.getUniformLocation(tp, 'u_sun_dir'), sunDir[0], sunDir[1], sunDir[2]);
+        gl.uniform3f(gl.getUniformLocation(tp, 'u_eye'), eye[0], eye[1], eye[2]);
+        gl.uniform2f(gl.getUniformLocation(tp, 'u_hm_texel'), 1.0 / m.width, 1.0 / m.height);
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_exaggeration'), this.exaggeration);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
         const indexType = this.terrainMesh.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
         gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
 
-        // Disable terrain attributes
         gl.disableVertexAttribArray(aPos);
         gl.disableVertexAttribArray(aTex);
 
-        // ============================================================
-        // PASS 3b: Draw water surface (translucent blue layer)
-        // ============================================================
+        // ── PASS WATER: Cinematic water surface ──
         if (this.showWater && m.h_max > 0) {
             gl.enable(gl.BLEND);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             gl.depthMask(false);
-            // Offset water surface to avoid depth fighting with terrain
             gl.enable(gl.POLYGON_OFFSET_FILL);
             gl.polygonOffset(-1.0, -1.0);
 
@@ -1809,13 +2263,12 @@ class FloodViewer3D {
             gl.uniform1f(gl.getUniformLocation(wp, 'u_z_range'), m.z_max - m.z_min);
             gl.uniform1f(gl.getUniformLocation(wp, 'u_exaggeration'), this.exaggeration);
 
-            // Realistic water uniforms
-            const eye = this.camera.getEye();
             gl.uniform1f(gl.getUniformLocation(wp, 'u_anim_time'), performance.now() / 1000.0);
             gl.uniform3f(gl.getUniformLocation(wp, 'u_eye'), eye[0], eye[1], eye[2]);
             gl.uniform2f(gl.getUniformLocation(wp, 'u_texel_size'), 1.0 / m.width, 1.0 / m.height);
             gl.uniform2f(gl.getUniformLocation(wp, 'u_vel_range_x'), m.vx_min, m.vx_max);
             gl.uniform2f(gl.getUniformLocation(wp, 'u_vel_range_y'), m.vy_min, m.vy_max);
+            gl.uniform3f(gl.getUniformLocation(wp, 'u_sun_dir'), sunDir[0], sunDir[1], sunDir[2]);
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
             gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
@@ -1827,9 +2280,7 @@ class FloodViewer3D {
             gl.depthMask(true);
         }
 
-        // ============================================================
-        // PASS 3c: Draw concentration overlay (on water surface)
-        // ============================================================
+        // ── PASS CONCENTRATION: Overlay on water ──
         if (this.showConcentration && m.has_concentration) {
             const concTex = this.concFrameCache.get(fi);
             const concTexNext = this.concFrameCache.get(nextFi) || concTex;
@@ -1885,11 +2336,9 @@ class FloodViewer3D {
             }
         }
 
-        // ============================================================
-        // PASS 4: Draw particles in 3D (on water surface)
-        // ============================================================
+        // ── PASS PARTICLES 3D ──
         if (this.showParticles) {
-        gl.depthMask(false);  // Don't write depth for particles
+        gl.depthMask(false);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
@@ -1933,7 +2382,76 @@ class FloodViewer3D {
 
         gl.disable(gl.BLEND);
         gl.depthMask(true);
-        } // end if (showParticles) — pass 4
+        } // end if (showParticles)
+
+        // ============================================================
+        // POST-PROCESSING PIPELINE
+        // ============================================================
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.BLEND);
+
+        // ── PASS BLOOM-EXTRACT: Extract bright pixels ──
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.brightFBO);
+        gl.viewport(0, 0, this.bloomW, this.bloomH);
+        const ebp = this.extractBrightProg;
+        gl.useProgram(ebp);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(ebp, 'a_pos'), 2);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.sceneColorTex);
+        gl.uniform1i(gl.getUniformLocation(ebp, 'u_scene'), 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // ── PASS BLUR-H: Horizontal Gaussian blur ──
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFBO_A);
+        const blrP = this.blurProg;
+        gl.useProgram(blrP);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(blrP, 'a_pos'), 2);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.brightTex);
+        gl.uniform1i(gl.getUniformLocation(blrP, 'u_image'), 0);
+        gl.uniform2f(gl.getUniformLocation(blrP, 'u_direction'), 1.0 / this.bloomW, 0.0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // ── PASS BLUR-V: Vertical Gaussian blur ──
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFBO_B);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.blurTexA);
+        gl.uniform1i(gl.getUniformLocation(blrP, 'u_image'), 0);
+        gl.uniform2f(gl.getUniformLocation(blrP, 'u_direction'), 0.0, 1.0 / this.bloomH);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Second blur pass for softer bloom
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFBO_A);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.blurTexB);
+        gl.uniform2f(gl.getUniformLocation(blrP, 'u_direction'), 1.0 / this.bloomW, 0.0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFBO_B);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.blurTexA);
+        gl.uniform2f(gl.getUniformLocation(blrP, 'u_direction'), 0.0, 1.0 / this.bloomH);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // ── PASS COMPOSITE: bloom + tone mapping + FXAA + vignette → screen ──
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cw, ch);
+        const comp = this.compositeProg;
+        gl.useProgram(comp);
+        bindAttr(gl, this.quadBuf, gl.getAttribLocation(comp, 'a_pos'), 2);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.sceneColorTex);
+        gl.uniform1i(gl.getUniformLocation(comp, 'u_scene'), 0);
+
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.blurTexB);
+        gl.uniform1i(gl.getUniformLocation(comp, 'u_bloom'), 1);
+
+        gl.uniform2f(gl.getUniformLocation(comp, 'u_texel'), 1.0 / cw, 1.0 / ch);
+        gl.uniform1f(gl.getUniformLocation(comp, 'u_bloom_strength'), 0.35);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         requestAnimationFrame(() => this.render());
     }
@@ -1947,38 +2465,43 @@ function fmtTime(s) {
 
 // ── Init ──
 const canvas = document.getElementById('gl');
+let viewer;
 function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(window.innerWidth * dpr);
+    canvas.height = Math.round(window.innerHeight * dpr);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    if (viewer) viewer.rebuildPostFBOs();
 }
 resize();
 window.addEventListener('resize', () => {
     resize();
-    // Trail textures stay at terrain resolution, no resize needed
 });
 
 function showError(stage, detail) {
-    const el = document.getElementById('loading');
+    const el = document.getElementById('loading-overlay');
     el.className = 'load-error';
-    el.style.display = '';
+    el.style.display = 'flex';
     const hints = [
         'Check that the data/ folder is in the same directory as index.html on your server.',
         'Verify your server serves .json files with Content-Type: application/json.',
         'Open the browser developer console (F12) for more details.'
     ];
     el.innerHTML =
+        '<div class="load-content">' +
         '<div class="error-title">Failed to load viewer</div>' +
         '<div>' + stage + '</div>' +
         (detail ? '<div style="margin-top:8px;color:#cc9966;">' + detail + '</div>' : '') +
-        '<div class="error-hint">' + hints.join('<br>') + '</div>';
+        '<div class="error-hint">' + hints.join('<br>') + '</div>' +
+        '</div>';
 }
 
-let viewer;
 (async () => {
     const initTimeout = setTimeout(() => {
-        showError('Loading timed out after 30 seconds.',
+        showError('Loading timed out after 60 seconds.',
                   'The server may be very slow or a resource may have stalled.');
-    }, 30000);
+    }, 60000);
     try {
         viewer = new FloodViewer3D(canvas);
         await viewer.init();
