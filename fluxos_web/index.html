@@ -32,6 +32,13 @@ canvas#gl { width: 100%; height: 100%; display: block; }
     transition: background 0.15s; }
 .btn:hover { background: rgba(60,90,140,0.6); }
 .btn.active { background: rgba(80,140,220,0.4); border-color: rgba(100,160,240,0.6); }
+.btn-sm { background: rgba(40,60,100,0.5); color: #8899bb; border: 1px solid
+    rgba(80,120,180,0.3); border-radius: 4px; padding: 4px 8px;
+    cursor: pointer; font-family: inherit; font-size: 10px;
+    transition: background 0.15s; letter-spacing: 0.3px; }
+.btn-sm:hover { background: rgba(60,90,140,0.6); color: #b0c4de; }
+.btn-sm.active { background: rgba(80,140,220,0.4); border-color: rgba(100,160,240,0.6);
+    color: #ccddef; }
 #info { position: fixed; top: 16px; right: 16px;
     background: rgba(5,8,20,0.7); color: #8899bb; padding: 10px 14px;
     border-radius: 8px; font-family: 'SF Mono', monospace; font-size: 11px;
@@ -154,6 +161,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <button class="btn active" id="btn-particles">&#10024; Particles</button>
         <button class="btn" id="btn-sat" style="display:none;">&#127760; Satellite</button>
         <button class="btn" id="btn-conc" style="display:none;">&#9762; Concentration</button>
+    </div>
+    <div class="ctrl-row" style="justify-content:center; gap:5px; margin-top:8px;
+        border-top:1px solid rgba(60,90,140,0.2); padding-top:8px;">
+        <button class="btn-sm" id="cam-top">Top</button>
+        <button class="btn-sm" id="cam-front">Front</button>
+        <button class="btn-sm" id="cam-side">Side</button>
+        <button class="btn-sm" id="cam-low">Low</button>
+        <button class="btn-sm" id="cam-3d">3D</button>
+        <button class="btn-sm active" id="cam-fly">Cinematic</button>
     </div>
 </div>
 
@@ -1047,6 +1063,44 @@ class OrbitCamera {
         this._panning = false;
         this._lastX = 0;
         this._lastY = 0;
+        this._anim = null;
+    }
+
+    animateTo(params, duration) {
+        // Normalize theta difference to shortest angular path
+        let startTheta = this.theta;
+        let endTheta = params.theta;
+        let diff = endTheta - startTheta;
+        // Wrap to [-PI, PI]
+        diff = diff - Math.round(diff / (2 * Math.PI)) * 2 * Math.PI;
+        this._anim = {
+            startTheta: startTheta,
+            endTheta: startTheta + diff,
+            startPhi: this.phi,
+            endPhi: params.phi,
+            startDist: this.distance,
+            endDist: params.distance,
+            startTarget: [this.target[0], this.target[1], this.target[2]],
+            endTarget: params.target,
+            startTime: performance.now(),
+            duration: duration || 600
+        };
+    }
+
+    updateAnimation() {
+        if (!this._anim) return;
+        const a = this._anim;
+        const elapsed = performance.now() - a.startTime;
+        let t = Math.min(elapsed / a.duration, 1.0);
+        // Ease-out cubic: 1 - (1-t)^3
+        t = 1 - Math.pow(1 - t, 3);
+        this.theta = a.startTheta + (a.endTheta - a.startTheta) * t;
+        this.phi = a.startPhi + (a.endPhi - a.startPhi) * t;
+        this.distance = a.startDist + (a.endDist - a.startDist) * t;
+        this.target[0] = a.startTarget[0] + (a.endTarget[0] - a.startTarget[0]) * t;
+        this.target[1] = a.startTarget[1] + (a.endTarget[1] - a.startTarget[1]) * t;
+        this.target[2] = a.startTarget[2] + (a.endTarget[2] - a.startTarget[2]) * t;
+        if (elapsed >= a.duration) this._anim = null;
     }
 
     getEye() {
@@ -1076,6 +1130,7 @@ class OrbitCamera {
 
     attach(canvas) {
         canvas.addEventListener('mousedown', e => {
+            this._anim = null; // cancel animation on user interaction
             if (e.shiftKey) {
                 this._panning = true;
             } else {
@@ -1116,6 +1171,7 @@ class OrbitCamera {
         });
 
         canvas.addEventListener('wheel', e => {
+            this._anim = null; // cancel animation on user interaction
             this.distance *= e.deltaY > 0 ? 1.1 : 0.9;
             this.distance = Math.max(0.005, Math.min(50, this.distance));
             e.preventDefault();
@@ -1995,6 +2051,9 @@ class FloodViewer3D {
         const dt = (now - this._lastT) / 1000;
         this._lastT = now;
 
+        // Smooth camera animation
+        this.camera.updateAnimation();
+
         // FPS
         this._fpsFrames++;
         this._fpsTime += dt;
@@ -2580,6 +2639,27 @@ function showError(stage, detail) {
         b.classList.toggle('active', viewer.showConcentration);
         const cbw = document.getElementById('conc-colorbar-wrap');
         cbw.style.display = viewer.showConcentration ? '' : 'none';
+    });
+
+    // Camera preset views
+    const camPresets = {
+        'cam-top':   { theta: 0,          phi: 1.56,  distance: 1.4, target: [0, 0, 0] },
+        'cam-front': { theta: 0,          phi: 0.08,  distance: 1.5, target: [0, 0.03, 0] },
+        'cam-side':  { theta: Math.PI/2,  phi: 0.08,  distance: 1.5, target: [0, 0.03, 0] },
+        'cam-low':   { theta: -0.4,       phi: 0.15,  distance: 0.7, target: [0.08, 0.02, -0.1] },
+        'cam-3d':    { theta: -0.5,       phi: 0.65,  distance: 1.5, target: [0, 0, 0] },
+        'cam-fly':   { theta: -0.28,      phi: 0.30,  distance: 0.85, target: [0.08, 0.02, -0.15] }
+    };
+    const camBtns = document.querySelectorAll('[id^="cam-"]');
+    camBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const preset = camPresets[btn.id];
+            if (!preset) return;
+            viewer.camera.animateTo(preset, 600);
+            // Update active state
+            camBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
     });
 })();
 </script>
