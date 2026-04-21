@@ -1,0 +1,34 @@
+# FLUXOS C++ — Docker Compose
+#
+# Usage (from repo root):
+#   docker compose -f containers/docker-compose.yml build
+#   docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset_river_30h.json
+#
+# Enable MPI at build time:
+#   USE_MPI=ON docker compose -f containers/docker-compose.yml build
+#
+# The container mounts:
+#   ../bin     -> /work/bin      (read-only) — DEMs, mesh files, modset JSONs
+#   ../Results -> /work/Results  (read-write) — simulation outputs
+#
+# Override the modset file as a command argument, e.g.:
+#   docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset_other.json
+
+services:
+  fluxos:
+    image: fluxos:${FLUXOS_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: containers/Dockerfile
+      args:
+        USE_TRIMESH: ${USE_TRIMESH:-ON}
+        USE_MPI: ${USE_MPI:-OFF}
+        USE_OPENWQ: ${USE_OPENWQ:-OFF}
+        MODE_release: ${MODE_release:-ON}
+    working_dir: /work
+    volumes:
+      - ../bin:/work/bin:ro
+      - ../Results:/work/Results
+    # Default argument passed to the fluxos ENTRYPOINT. Override on the CLI
+    # (e.g. `docker compose run --rm fluxos bin/other_modset.json`).
+    command: ["bin/modset.json"]

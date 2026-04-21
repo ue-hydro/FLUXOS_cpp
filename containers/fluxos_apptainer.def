@@ -1,0 +1,69 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+# FLUXOS C++ — Apptainer recipe (CPU: OpenMP + MPI, triangular mesh)
+#
+# Build (run from the repo root so the relative path `%files ../ /opt/fluxos`
+# resolves to the FLUXOS source tree):
+#   apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
+#
+# Run:
+#   apptainer run fluxos_cpu.sif bin/modset_river_30h.json
+#   # or with MPI on an HPC node:
+#   mpirun -n 16 apptainer exec fluxos_cpu.sif /opt/fluxos/build/bin/fluxos_mpi bin/modset.json
+#
+# Notes:
+#   - OpenMP is always linked by CMakeLists.txt. The runtime comes from
+#     libgomp1 (bundled with g++) and the `libomp-dev` dev headers ensure
+#     `#include <omp.h>` is always available at build time.
+#   - Control thread count at runtime with OMP_NUM_THREADS=<n>.
+#   - For GPU / CUDA builds, use fluxos_apptainer_cuda.def instead.
+
+%files
+    ../ /opt/fluxos
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        libarmadillo-dev \
+        nlohmann-json3-dev \
+        libhdf5-dev \
+        libomp-dev \
+        libopenmpi-dev \
+        openmpi-bin
+    rm -rf /var/lib/apt/lists/*
+
+    cd /opt/fluxos
+    # Clean any pre-existing host build artefacts that may have been copied in
+    rm -rf build
+    mkdir build && cd build
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMODE_release=ON \
+        -DUSE_TRIMESH=ON \
+        -DUSE_MPI=ON
+    make -j$(nproc)
+
+%environment
+    export PATH=/opt/fluxos/build/bin:$PATH
+    # Leave OMP_NUM_THREADS unset so users / schedulers control thread count.
+
+%runscript
+    exec /opt/fluxos/build/bin/fluxos_mpi "$@"
+
+%labels
+    Author      Diogo Costa <diogo.costa@uevora.pt>
+    Application FLUXOS
+    Version     cpu-mpi-trimesh
+    BuildFlags  MODE_release=ON USE_TRIMESH=ON USE_MPI=ON
+
+%help
+    FLUXOS CPU build with OpenMP + MPI + triangular mesh support.
+    Run:    apptainer run fluxos_cpu.sif <path-to-modset.json>
+    MPI:    mpirun -n <N> apptainer exec fluxos_cpu.sif \
+              /opt/fluxos/build/bin/fluxos_mpi <modset.json>
