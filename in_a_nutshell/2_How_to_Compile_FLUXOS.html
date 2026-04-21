@@ -109,6 +109,16 @@
         .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.15); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; color: #a0aec0; font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
         .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
         .copy-btn.copied { background: var(--secondary); color: white; }
+        /* Per-line copy buttons — always visible, one per command.
+           Block-level Copy button removed via display:none. */
+        .code-container .copy-btn { display: none !important; }
+        .code-container pre { padding-right: 42px; }
+        .code-container pre .code-cmd { display: block; position: relative; border-radius: 3px; padding-right: 32px; }
+        .code-container pre .code-cmd:hover { background: rgba(255,255,255,0.06); }
+        .code-container pre .code-blank, .code-container pre .code-comment-line { display: block; }
+        .code-container pre .line-copy-btn { position: absolute; top: 0; right: 4px; padding: 0 6px; font-size: 0.7rem; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #a0aec0; cursor: pointer; opacity: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; line-height: 1.5; }
+        .code-container pre .line-copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .code-container pre .line-copy-btn.copied { background: var(--secondary); color: white; border-color: var(--secondary); }
 
         .pdf-btn { position: absolute; bottom: 30px; left: 40px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px 20px; cursor: pointer; color: white; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
         .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
@@ -178,7 +188,10 @@
                     </div>
                     <div class="column">
                         <div style="font-size: 1.15rem; line-height: 2.2;">
-                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Advanced &amp; Troubleshooting</p>
+                            <p style="margin-top: 15px; color: #0891b2; font-weight: 600;">Section 02: Containerized Builds</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Docker / Docker Compose</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Apptainer (HPC)</p>
+                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 03: Advanced &amp; Troubleshooting</p>
                             <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Hybrid Build Combinations</p>
                             <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Scalability Guidelines</p>
                             <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Common Build Errors</p>
@@ -423,15 +436,118 @@ mpirun -np 4 ./fluxos modset.json</pre>
             </div>
         </div>
 
-        <!-- Slide 9: Section - Advanced -->
-        <div class="slide section-slide purple" data-slide="9">
+        <!-- Slide 9: Section - Containerized Builds -->
+        <div class="slide section-slide teal" data-slide="9">
             <div class="section-number">02</div>
+            <h2>Containerized Builds</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 10: Docker / Docker Compose -->
+        <div class="slide" data-slide="10">
+            <div class="slide-header">
+                <h2>Docker / Docker Compose</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.15rem; margin-bottom: 20px;">
+                    Run FLUXOS locally without installing any system dependencies &mdash;
+                    all libraries (Armadillo, HDF5, OpenMP, optional OpenMPI) ship inside the image.
+                </p>
+                <pre style="font-size: 0.95rem; padding: 25px;">
+<span class="comment"># From the repo root &mdash; build the image</span>
+docker compose -f containers/docker-compose.yml build
+
+<span class="comment"># Run a simulation (modset JSON passed as an argument)</span>
+docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset_river_30h.json
+
+<span class="comment"># Enable MPI at build time (build arg)</span>
+USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
+                <div class="two-column" style="gap: 40px; margin-top: 15px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>Build arguments</h3>
+                            <p style="font-size: 1rem;">
+                                <code>USE_TRIMESH</code>, <code>USE_MPI</code>, <code>USE_OPENWQ</code>, <code>MODE_release</code>
+                                &mdash; all forwarded to CMake. Defaults: release + triangular mesh.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card secondary">
+                            <h3>Volume mounts</h3>
+                            <p style="font-size: 1rem;">
+                                <code>./bin</code> &rarr; <code>/work/bin</code> (read-only: DEMs, meshes, JSON configs).
+                                <code>./Results</code> &rarr; <code>/work/Results</code> (writable: simulation outputs).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">10</div>
+            </div>
+        </div>
+
+        <!-- Slide 11: Apptainer (HPC) -->
+        <div class="slide" data-slide="11">
+            <div class="slide-header">
+                <h2>Apptainer (HPC)</h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.15rem; margin-bottom: 15px;">
+                    Apptainer (formerly Singularity) runs rootless on HPC clusters and mounts user
+                    home directories transparently. Two recipes are provided: CPU (OpenMP + MPI) and CUDA.
+                </p>
+                <pre style="font-size: 0.9rem; padding: 20px;">
+<span class="comment"># CPU + OpenMP + MPI (trimesh) &mdash; run from repo root</span>
+apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
+apptainer run fluxos_cpu.sif bin/modset_river_30h.json
+
+<span class="comment"># Multi-process MPI run on a compute node</span>
+mpirun -n 16 apptainer exec fluxos_cpu.sif \
+    /opt/fluxos/build/bin/fluxos_mpi bin/modset.json
+
+<span class="comment"># CUDA + MPI build (requires --nv at runtime to expose host GPUs)</span>
+apptainer build --fakeroot fluxos_cuda.sif containers/fluxos_apptainer_cuda.def
+apptainer run --nv fluxos_cuda.sif bin/modset.json</pre>
+                <div class="two-column" style="gap: 40px; margin-top: 15px;">
+                    <div class="column">
+                        <div class="card primary">
+                            <h3>fluxos_apptainer.def</h3>
+                            <p style="font-size: 1rem;">
+                                Ubuntu 24.04 base. Builds with <code>USE_TRIMESH=ON USE_MPI=ON</code>.
+                                OpenMP is always linked (<code>libgomp1</code> + <code>libomp-dev</code>).
+                                Control threads with <code>OMP_NUM_THREADS</code>.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="card accent">
+                            <h3>fluxos_apptainer_cuda.def</h3>
+                            <p style="font-size: 1rem;">
+                                <code>nvidia/cuda:12.4.1-devel</code> base. Adds <code>USE_CUDA=ON</code>.
+                                Run with <code>--nv</code> so the host NVIDIA driver is exposed inside the container.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">11</div>
+            </div>
+        </div>
+
+        <!-- Slide 12: Section - Advanced -->
+        <div class="slide section-slide purple" data-slide="12">
+            <div class="section-number">03</div>
             <h2>Advanced &amp; Troubleshooting</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 10: Hybrid Build -->
-        <div class="slide" data-slide="10">
+        <!-- Slide 13: Hybrid Build -->
+        <div class="slide" data-slide="13">
             <div class="slide-header">
                 <h2>Hybrid Build Combinations</h2>
             </div>
@@ -477,12 +593,12 @@ mpirun -np 4 ./fluxos modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">10</div>
+                <div class="page-number">13</div>
             </div>
         </div>
 
-        <!-- Slide 11: Scalability -->
-        <div class="slide" data-slide="11">
+        <!-- Slide 14: Scalability -->
+        <div class="slide" data-slide="14">
             <div class="slide-header">
                 <h2>Scalability Guidelines</h2>
             </div>
@@ -525,12 +641,12 @@ mpirun -np 4 ./fluxos modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">11</div>
+                <div class="page-number">14</div>
             </div>
         </div>
 
-        <!-- Slide 12: Common Build Errors -->
-        <div class="slide" data-slide="12">
+        <!-- Slide 15: Common Build Errors -->
+        <div class="slide" data-slide="15">
             <div class="slide-header">
                 <h2>Common Build Errors</h2>
             </div>
@@ -575,25 +691,31 @@ sudo apt install nlohmann-json3-dev
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">12</div>
+                <div class="page-number">15</div>
             </div>
         </div>
 
-        <!-- Slide 13: Summary -->
-        <div class="slide" data-slide="13">
+        <!-- Slide 16: Summary -->
+        <div class="slide" data-slide="16">
             <div class="slide-header">
                 <h2>Build Summary</h2>
             </div>
             <div class="slide-content">
                 <div class="center-content">
                     <div style="max-width: 900px;">
-                        <pre style="font-size: 1rem; padding: 30px; margin-bottom: 30px;">
-<span class="comment"># Quick start: clone, build, run</span>
+                        <pre style="font-size: 1rem; padding: 30px; margin-bottom: 20px;">
+<span class="comment"># Quick start: clone, build, run (native)</span>
 git clone https://github.com/ue-hydro/fluxos.git
 cd fluxos && mkdir build && cd build
 cmake -DMODE_release=ON ..
 make -j$(nproc)
 ./fluxos ../bin/modset.json</pre>
+                        <pre style="font-size: 1rem; padding: 30px; margin-bottom: 30px;">
+<span class="comment"># Quick start: containerized (no host dependencies)</span>
+git clone https://github.com/ue-hydro/fluxos.git
+cd fluxos
+docker compose -f containers/docker-compose.yml build
+docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset.json</pre>
                         <div class="three-column" style="gap: 25px;">
                             <div class="card primary" style="text-align: center; padding: 20px;">
                                 <h3 style="justify-content: center; font-size: 1.2rem;">&#128230; Required</h3>
@@ -613,12 +735,12 @@ make -j$(nproc)
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">13</div>
+                <div class="page-number">16</div>
             </div>
         </div>
 
-        <!-- Slide 14: Thank You -->
-        <div class="slide title-slide" data-slide="14">
+        <!-- Slide 17: Thank You -->
+        <div class="slide title-slide" data-slide="17">
             <h1 style="font-size: 3.5rem;">Thank You</h1>
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
@@ -717,6 +839,77 @@ make -j$(nproc)
             });
         }
         addCopyButtons();
+        function addPerLineCopyButtons() {
+            const scratch = document.createElement('span');
+            const plainOf = (html) => { scratch.innerHTML = html; return scratch.textContent; };
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.dataset.perLineProcessed === '1') return;
+                if (pre.closest('.diagram')) return;
+                pre.dataset.perLineProcessed = '1';
+                const originalText = pre.textContent;
+                const rawLines = pre.innerHTML.split('\n');
+                const parts = [];
+                let i = 0;
+                while (i < rawLines.length) {
+                    const lineHTML = rawLines[i];
+                    const linePlain = plainOf(lineHTML);
+                    const trimmed = linePlain.trim();
+                    if (trimmed === '') {
+                        parts.push('<span class="code-blank">\u00A0</span>');
+                        i++;
+                    } else if (trimmed.startsWith('#')) {
+                        parts.push('<span class="code-comment-line">' + lineHTML + '</span>');
+                        i++;
+                    } else {
+                        const htmlLines = [lineHTML];
+                        const plainLines = [linePlain];
+                        while (plainLines[plainLines.length - 1].trimEnd().endsWith('\\') && i + 1 < rawLines.length) {
+                            i++;
+                            htmlLines.push(rawLines[i]);
+                            plainLines.push(plainOf(rawLines[i]));
+                        }
+                        parts.push('<span class="code-cmd">' + htmlLines.join('\n') +
+                            '<button class="line-copy-btn" type="button" title="Copy this command">&#128203;</button></span>');
+                        i++;
+                    }
+                }
+                pre.innerHTML = parts.join('');
+                const firstCmd = pre.querySelector('.code-cmd');
+                if (firstCmd) firstCmd.classList.add('first-cmd');
+                const container = pre.closest('.code-container');
+                if (container) {
+                    const blockBtn = container.querySelector('.copy-btn');
+                    if (blockBtn) {
+                        blockBtn.onclick = function() {
+                            navigator.clipboard.writeText(originalText).then(() => {
+                                blockBtn.innerHTML = '&#10003; Copied!';
+                                blockBtn.classList.add('copied');
+                                setTimeout(() => { blockBtn.innerHTML = '&#128203; Copy'; blockBtn.classList.remove('copied'); }, 2000);
+                            });
+                        };
+                    }
+                }
+            });
+            document.querySelectorAll('.line-copy-btn').forEach(btn => {
+                if (btn.dataset.bound === '1') return;
+                btn.dataset.bound = '1';
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const cmd = btn.closest('.code-cmd');
+                    if (!cmd) return;
+                    const clone = cmd.cloneNode(true);
+                    clone.querySelectorAll('.line-copy-btn').forEach(b => b.remove());
+                    navigator.clipboard.writeText(clone.textContent).then(() => {
+                        const orig = btn.innerHTML;
+                        btn.innerHTML = '&#10003;';
+                        btn.classList.add('copied');
+                        setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
+                    });
+                });
+            });
+        }
+        addPerLineCopyButtons();
 
         function exportToPDF() {
             const slides = document.querySelectorAll('.slide');

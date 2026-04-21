@@ -51,7 +51,7 @@ Key Capabilities
    * - **Output Formats**
      - ASCII text output for regular mesh; VTK XML Unstructured Grid (.vtu) with ParaView time series (.pvd) for triangular mesh; KMZ export for Google Earth animation
    * - **GeoTIFF Preprocessing**
-     - Python CLI tool (``fluxos_setup.py``) for GeoTIFF DEM import, downscaling, slope-based adaptive triangular mesh generation (via Gmsh), and JSON config creation
+     - Editable Python template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``) that drives GeoTIFF DEM import, downscaling, slope-adaptive Gmsh mesh generation, ``modset.json`` creation, and an HTML run report in one invocation
    * - **Google Earth Export**
      - KML/KMZ exporter (``fluxos_viewer.py``) for animated time-series visualization in Google Earth (supports both regular and triangular mesh output)
 

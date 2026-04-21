@@ -73,8 +73,13 @@ $ git branch -u origin/main main
 
 <!-- ## Supporting scripts (post-processing) -->
 ## Supporting Scripts
-* Used for post-processing
-* See ["fluxos_supporting_scripts"](fluxos_supporting_scripts) folder
+* **Preprocessing** (GeoTIFF → ESRI ASCII, triangular mesh, modset.json, HTML run report): edit and run [`fluxos_preprocessing/1_Model_Config/model_config_template.py`](fluxos_preprocessing/1_Model_Config/model_config_template.py). See the [in_a_nutshell](in_a_nutshell/4_Supporting_Scripts.html) deck for a walk-through.
+* **Post-processing** (flood-statistics HTML report, KML/KMZ, WebGL, MP4 video): [`fluxos_preprocessing/2_Read_Outputs/read_output_template.py`](fluxos_preprocessing/2_Read_Outputs/read_output_template.py) for the stats report; supporting viewer scripts under [`2_Read_Outputs/output_supporting_lib/`](fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/).
+
+## Containerized build and run
+* [`containers/Dockerfile`](containers/Dockerfile) + [`containers/docker-compose.yml`](containers/docker-compose.yml) — local builds on any machine with Docker.
+* [`containers/fluxos_apptainer.def`](containers/fluxos_apptainer.def) (CPU + OpenMP + MPI) and [`containers/fluxos_apptainer_cuda.def`](containers/fluxos_apptainer_cuda.def) (CUDA + MPI) — HPC execution.
+* See the [in_a_nutshell compile deck](in_a_nutshell/2_How_to_Compile_FLUXOS.html) for the full walk-through.
 
 ## Working Example
 * See ["Working_example"](Working_example) folder
