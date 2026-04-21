@@ -1,0 +1,70 @@
+Bootstrap: docker
+From: nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# FLUXOS C++ — Apptainer recipe (GPU: CUDA + MPI, triangular mesh)
+#
+# Build (run from the repo root):
+#   apptainer build --fakeroot fluxos_cuda.sif containers/fluxos_apptainer_cuda.def
+#
+# Run (must pass --nv so the container can see host GPUs + drivers):
+#   apptainer run --nv fluxos_cuda.sif bin/modset_river_30h.json
+#
+# Multi-GPU / MPI on HPC:
+#   mpirun -n 4 apptainer exec --nv fluxos_cuda.sif \
+#       /opt/fluxos/build/bin/fluxos_cuda bin/modset.json
+#
+# Notes:
+#   - The base image provides the CUDA 12.4 toolchain (nvcc, cuBLAS, etc.).
+#     The host only needs a compatible NVIDIA driver; CUDA itself ships inside.
+#   - OpenMP is always linked (CMakeLists.txt). OpenMPI is added for hybrid runs.
+
+%files
+    ../ /opt/fluxos
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        libarmadillo-dev \
+        nlohmann-json3-dev \
+        libhdf5-dev \
+        libomp-dev \
+        libopenmpi-dev \
+        openmpi-bin
+    rm -rf /var/lib/apt/lists/*
+
+    cd /opt/fluxos
+    rm -rf build
+    mkdir build && cd build
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMODE_release=ON \
+        -DUSE_TRIMESH=ON \
+        -DUSE_MPI=ON \
+        -DUSE_CUDA=ON
+    make -j$(nproc)
+
+%environment
+    export PATH=/opt/fluxos/build/bin:/usr/local/cuda/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+
+%runscript
+    exec /opt/fluxos/build/bin/fluxos_cuda "$@"
+
+%labels
+    Author      Diogo Costa <diogo.costa@uevora.pt>
+    Application FLUXOS
+    Version     cuda-mpi-trimesh
+    BuildFlags  MODE_release=ON USE_TRIMESH=ON USE_MPI=ON USE_CUDA=ON
+    CUDA        12.4
+
+%help
+    FLUXOS GPU build with CUDA 12.4 + OpenMP + MPI + triangular mesh.
+    Requires --nv at runtime so the container can access host GPUs.
+    Run:      apptainer run --nv fluxos_cuda.sif <path-to-modset.json>
+    Hybrid:   mpirun -n <N> apptainer exec --nv fluxos_cuda.sif \
+                /opt/fluxos/build/bin/fluxos_cuda <modset.json>
