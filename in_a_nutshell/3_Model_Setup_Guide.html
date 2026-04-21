@@ -69,6 +69,17 @@
         .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.15); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; color: #a0aec0; font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
         .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
         .copy-btn.copied { background: var(--secondary); color: white; }
+        /* Per-line copy buttons — always visible, one per command.
+           Block-level Copy button removed via display:none (JS still creates it,
+           but users only see the per-line buttons). */
+        .code-container .copy-btn { display: none !important; }
+        .code-container pre { padding-right: 42px; }
+        .code-container pre .code-cmd { display: block; position: relative; border-radius: 3px; padding-right: 32px; }
+        .code-container pre .code-cmd:hover { background: rgba(255,255,255,0.06); }
+        .code-container pre .code-blank, .code-container pre .code-comment-line { display: block; }
+        .code-container pre .line-copy-btn { position: absolute; top: 0; right: 4px; padding: 0 6px; font-size: 0.7rem; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #a0aec0; cursor: pointer; opacity: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; line-height: 1.5; }
+        .code-container pre .line-copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .code-container pre .line-copy-btn.copied { background: var(--secondary); color: white; border-color: var(--secondary); }
         .pdf-btn { position: absolute; bottom: 30px; left: 40px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px 20px; cursor: pointer; color: white; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
         .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
         .slide:not(.title-slide) .pdf-btn { background: var(--dark); border-color: var(--dark); color: white; }
@@ -211,17 +222,14 @@ NODATA_value  -9999
                         <div class="card secondary">
                             <h3>Python Preprocessing</h3>
                             <pre style="font-size: 0.85rem; padding: 15px;">
-<span class="comment"># Use fluxos_setup.py for GeoTIFF input</span>
-python fluxos_setup.py \
-    --dem input.tif \
-    --output Rosa_2m.asc \
-    --cellsize 2.0 \
-    --utm-zone 10</pre>
+<span class="comment"># Edit the config dict, then run:</span>
+cd fluxos_preprocessing/1_Model_Config
+python model_config_template.py</pre>
                             <ul style="margin-left: 15px; margin-top: 15px;">
-                                <li style="font-size: 0.95rem;">Converts GeoTIFF to ESRI ASCII</li>
-                                <li style="font-size: 0.95rem;">Optional DEM downscaling (bilinear)</li>
-                                <li style="font-size: 0.95rem;">CRS validation &amp; reprojection</li>
-                                <li style="font-size: 0.95rem;">For trimesh: generates Gmsh mesh</li>
+                                <li style="font-size: 0.95rem;">GeoTIFF &rarr; ESRI ASCII (with optional downscale)</li>
+                                <li style="font-size: 0.95rem;">Slope-adaptive Gmsh mesh (trimesh path)</li>
+                                <li style="font-size: 0.95rem;">modset.json written automatically</li>
+                                <li style="font-size: 0.95rem;">HTML report with copy-paste Docker commands</li>
                             </ul>
                         </div>
                     </div>
@@ -718,6 +726,79 @@ python -m http.server 8080
             });
         }
         addCopyButtons();
+        function addPerLineCopyButtons() {
+            const scratch = document.createElement('span');
+            const plainOf = (html) => { scratch.innerHTML = html; return scratch.textContent; };
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.dataset.perLineProcessed === '1') return;
+                if (pre.closest('.diagram')) return;
+                pre.dataset.perLineProcessed = '1';
+                const originalText = pre.textContent;
+                const rawLines = pre.innerHTML.split('\n');
+                const parts = [];
+                let i = 0;
+                while (i < rawLines.length) {
+                    const lineHTML = rawLines[i];
+                    const linePlain = plainOf(lineHTML);
+                    const trimmed = linePlain.trim();
+                    if (trimmed === '') {
+                        parts.push('<span class="code-blank">\u00A0</span>');
+                        i++;
+                    } else if (trimmed.startsWith('#')) {
+                        parts.push('<span class="code-comment-line">' + lineHTML + '</span>');
+                        i++;
+                    } else {
+                        const htmlLines = [lineHTML];
+                        const plainLines = [linePlain];
+                        while (plainLines[plainLines.length - 1].trimEnd().endsWith('\\') && i + 1 < rawLines.length) {
+                            i++;
+                            htmlLines.push(rawLines[i]);
+                            plainLines.push(plainOf(rawLines[i]));
+                        }
+                        parts.push('<span class="code-cmd">' + htmlLines.join('\n') +
+                            '<button class="line-copy-btn" type="button" title="Copy this command">&#128203;</button></span>');
+                        i++;
+                    }
+                }
+                pre.innerHTML = parts.join('');
+                // Mark the first command so CSS can shift its button clear of the block-level Copy
+                const firstCmd = pre.querySelector('.code-cmd');
+                if (firstCmd) firstCmd.classList.add('first-cmd');
+                // Rebind the enclosing block-level copy button so it uses the clean original text
+                const container = pre.closest('.code-container');
+                if (container) {
+                    const blockBtn = container.querySelector('.copy-btn');
+                    if (blockBtn) {
+                        blockBtn.onclick = function() {
+                            navigator.clipboard.writeText(originalText).then(() => {
+                                blockBtn.innerHTML = '&#10003; Copied!';
+                                blockBtn.classList.add('copied');
+                                setTimeout(() => { blockBtn.innerHTML = '&#128203; Copy'; blockBtn.classList.remove('copied'); }, 2000);
+                            });
+                        };
+                    }
+                }
+            });
+            document.querySelectorAll('.line-copy-btn').forEach(btn => {
+                if (btn.dataset.bound === '1') return;
+                btn.dataset.bound = '1';
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const cmd = btn.closest('.code-cmd');
+                    if (!cmd) return;
+                    const clone = cmd.cloneNode(true);
+                    clone.querySelectorAll('.line-copy-btn').forEach(b => b.remove());
+                    navigator.clipboard.writeText(clone.textContent).then(() => {
+                        const orig = btn.innerHTML;
+                        btn.innerHTML = '&#10003;';
+                        btn.classList.add('copied');
+                        setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
+                    });
+                });
+            });
+        }
+        addPerLineCopyButtons();
         function exportToPDF() {
             const slides = document.querySelectorAll('.slide');
             const presentation = document.getElementById('presentation');

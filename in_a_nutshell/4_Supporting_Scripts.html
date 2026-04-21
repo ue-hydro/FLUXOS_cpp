@@ -69,6 +69,16 @@
         .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.15); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; color: #a0aec0; font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
         .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
         .copy-btn.copied { background: var(--secondary); color: white; }
+        /* Per-line copy buttons — always visible, one per command.
+           Block-level Copy button removed via display:none. */
+        .code-container .copy-btn { display: none !important; }
+        .code-container pre { padding-right: 42px; }
+        .code-container pre .code-cmd { display: block; position: relative; border-radius: 3px; padding-right: 32px; }
+        .code-container pre .code-cmd:hover { background: rgba(255,255,255,0.06); }
+        .code-container pre .code-blank, .code-container pre .code-comment-line { display: block; }
+        .code-container pre .line-copy-btn { position: absolute; top: 0; right: 4px; padding: 0 6px; font-size: 0.7rem; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #a0aec0; cursor: pointer; opacity: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; line-height: 1.5; }
+        .code-container pre .line-copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+        .code-container pre .line-copy-btn.copied { background: var(--secondary); color: white; border-color: var(--secondary); }
         .pdf-btn { position: absolute; bottom: 30px; left: 40px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px 20px; cursor: pointer; color: white; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
         .pdf-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
         .slide:not(.title-slide) .pdf-btn { background: var(--dark); border-color: var(--dark); color: white; }
@@ -122,7 +132,7 @@
                         <div style="font-size: 1.15rem; line-height: 2.2;">
                             <p style="margin-bottom: 8px;">&bull; Tools Overview</p>
                             <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Preprocessing</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; fluxos_setup.py</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; model_config_template.py</p>
                             <p style="margin-left: 20px; margin-bottom: 8px;">&bull; DEM Downscaling &amp; Mesh Generation</p>
                         </div>
                     </div>
@@ -154,9 +164,9 @@
                 </p>
                 <div class="three-column" style="gap: 30px;">
                     <div class="card primary" style="height: 100%;">
-                        <h3>&#128295; fluxos_setup.py</h3>
+                        <h3>&#128295; model_config_template.py</h3>
                         <p style="font-size: 1rem;"><strong>Preprocessing</strong><br><br>
-                        GeoTIFF to ESRI ASCII conversion, DEM downscaling, slope-adaptive mesh generation, and JSON config template creation.</p>
+                        One editable template that builds DEM, Gmsh mesh, and modset.json in one run &mdash; and emits an HTML report with copy-paste Docker commands.</p>
                     </div>
                     <div class="card secondary" style="height: 100%;">
                         <h3>&#127758; fluxos_viewer.py</h3>
@@ -170,7 +180,7 @@
                     </div>
                 </div>
                 <div class="highlight-box info" style="margin-top: 20px; text-align: center;">
-                    <strong>Minimal dependencies:</strong> All scripts require only <code>numpy</code> and <code>pyproj</code>. The setup script additionally uses <code>rasterio</code> for GeoTIFF support.
+                    <strong>Dependencies:</strong> <code>numpy</code> and <code>pyproj</code> for the viewers; the config template additionally uses <code>rasterio</code>, <code>pygmsh</code>, <code>gmsh</code>, and <code>scipy</code>.
                 </div>
             </div>
             <div class="slide-footer">
@@ -186,55 +196,56 @@
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 5: fluxos_setup.py -->
+        <!-- Slide 5: model_config_template.py -->
         <div class="slide" data-slide="5">
             <div class="slide-header">
-                <h2>fluxos_setup.py</h2>
+                <h2>model_config_template.py</h2>
             </div>
             <div class="slide-content">
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <pre style="font-size: 0.85rem; padding: 20px;">
-<span class="comment"># Basic: Convert GeoTIFF to ESRI ASCII</span>
-python fluxos_setup.py \
-    --dem input_dem.tif \
-    --output domain.asc \
-    --utm-zone 10
+                        <pre style="font-size: 0.78rem; padding: 20px;">
+<span class="comment"># 1. Edit the _config dict in the template</span>
+<span class="comment">#    (project name, DEM path, mesh options, ...)</span>
 
-<span class="comment"># With downscaling (10m → 2m)</span>
-python fluxos_setup.py \
-    --dem input_dem.tif \
-    --output domain_2m.asc \
-    --cellsize 2.0 \
-    --utm-zone 10
+_config = dict(
+    project_name   = <span class="string">"Rosa Creek"</span>,
+    dem_source_geotiff = <span class="string">"bin/Rosa_2m.tif"</span>,
+    dem_target_resolution_m = 2.0,
+    mesh_type      = <span class="string">"triangular"</span>,
+    trimesh_min_size = 2.0,
+    trimesh_max_size = 30.0,
+    modset_name    = <span class="string">"modset_rosa.json"</span>,
+    ...
+)
 
-<span class="comment"># Generate triangular mesh</span>
-python fluxos_setup.py \
-    --dem input_dem.tif \
-    --output domain.msh \
-    --mesh-type triangle \
-    --min-area 10 \
-    --max-area 500 \
-    --utm-zone 10</pre>
+<span class="comment"># 2. Run it</span>
+cd fluxos_preprocessing/1_Model_Config
+python model_config_template.py
+
+<span class="comment"># 3. Open the report that pops up,</span>
+<span class="comment">#    copy-paste the Docker commands</span></pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Features</h3>
+                            <h3 style="font-size: 1.2rem;">What it produces</h3>
                             <ul style="margin-left: 15px;">
-                                <li style="font-size: 0.95rem;">GeoTIFF import with CRS validation</li>
-                                <li style="font-size: 0.95rem;">Bilinear interpolation for downscaling</li>
-                                <li style="font-size: 0.95rem;">Automatic UTM zone detection</li>
-                                <li style="font-size: 0.95rem;">Slope-adaptive triangular mesh via Gmsh</li>
-                                <li style="font-size: 0.95rem;">JSON config template generation</li>
+                                <li style="font-size: 0.95rem;"><code>bin/&lt;project&gt;.asc</code> &mdash; DEM in ESRI ASCII</li>
+                                <li style="font-size: 0.95rem;"><code>bin/&lt;project&gt;.msh</code> &mdash; Gmsh triangular mesh (if trimesh)</li>
+                                <li style="font-size: 0.95rem;"><code>bin/&lt;modset&gt;.json</code> &mdash; FLUXOS config</li>
+                                <li style="font-size: 0.95rem;">HTML report with copy-paste Docker &amp; viewer commands</li>
                             </ul>
                         </div>
                         <div class="card secondary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Dependencies</h3>
-                            <pre style="font-size: 0.8rem; padding: 10px;">
-pip install numpy rasterio pyproj</pre>
+                            <h3 style="font-size: 1.2rem;">Layout</h3>
+                            <pre style="font-size: 0.72rem; padding: 10px;">
+1_Model_Config/
+&#9500;&#9472; model_config_template.py    <span class="comment"># edit this</span>
+&#9500;&#9472; reports/                    <span class="comment"># HTML output</span>
+&#9492;&#9472; config_support_lib/         <span class="comment"># don't edit</span></pre>
                         </div>
                         <div class="highlight-box warning">
-                            <strong>UTM zone matters!</strong> Use <code>--utm-zone</code> matching your DEM location. Wrong zone = overlay in wrong country.
+                            <strong>Projected CRS required!</strong> DEMs in degrees (lat/lon) produce wrong slopes. Reproject to UTM first via <code>gdalwarp -t_srs EPSG:326XX</code>.
                         </div>
                     </div>
                 </div>
@@ -476,10 +487,10 @@ paraview output_0001.vtu</pre>
                                 <th>Output</th>
                             </tr>
                             <tr>
-                                <td><strong>fluxos_setup.py</strong></td>
+                                <td><strong>model_config_template.py</strong></td>
                                 <td>Preprocessing</td>
                                 <td>GeoTIFF DEM</td>
-                                <td>ESRI ASCII, Gmsh mesh, JSON config</td>
+                                <td>ESRI ASCII, Gmsh mesh, JSON config, HTML report</td>
                             </tr>
                             <tr>
                                 <td><strong>fluxos_viewer.py</strong></td>
@@ -501,7 +512,7 @@ paraview output_0001.vtu</pre>
                             </tr>
                         </table>
                         <div class="highlight-box success" style="text-align: center; font-size: 1.2rem;">
-                            <strong>End-to-end workflow:</strong> GeoTIFF &rarr; fluxos_setup.py &rarr; FLUXOS simulation &rarr; KML / WebGL / ParaView
+                            <strong>End-to-end workflow:</strong> GeoTIFF &rarr; model_config_template.py &rarr; Docker run &rarr; KML / WebGL / ParaView
                         </div>
                     </div>
                 </div>
@@ -603,6 +614,77 @@ paraview output_0001.vtu</pre>
             });
         }
         addCopyButtons();
+        function addPerLineCopyButtons() {
+            const scratch = document.createElement('span');
+            const plainOf = (html) => { scratch.innerHTML = html; return scratch.textContent; };
+            document.querySelectorAll('pre').forEach(pre => {
+                if (pre.dataset.perLineProcessed === '1') return;
+                if (pre.closest('.diagram')) return;
+                pre.dataset.perLineProcessed = '1';
+                const originalText = pre.textContent;
+                const rawLines = pre.innerHTML.split('\n');
+                const parts = [];
+                let i = 0;
+                while (i < rawLines.length) {
+                    const lineHTML = rawLines[i];
+                    const linePlain = plainOf(lineHTML);
+                    const trimmed = linePlain.trim();
+                    if (trimmed === '') {
+                        parts.push('<span class="code-blank">\u00A0</span>');
+                        i++;
+                    } else if (trimmed.startsWith('#')) {
+                        parts.push('<span class="code-comment-line">' + lineHTML + '</span>');
+                        i++;
+                    } else {
+                        const htmlLines = [lineHTML];
+                        const plainLines = [linePlain];
+                        while (plainLines[plainLines.length - 1].trimEnd().endsWith('\\') && i + 1 < rawLines.length) {
+                            i++;
+                            htmlLines.push(rawLines[i]);
+                            plainLines.push(plainOf(rawLines[i]));
+                        }
+                        parts.push('<span class="code-cmd">' + htmlLines.join('\n') +
+                            '<button class="line-copy-btn" type="button" title="Copy this command">&#128203;</button></span>');
+                        i++;
+                    }
+                }
+                pre.innerHTML = parts.join('');
+                const firstCmd = pre.querySelector('.code-cmd');
+                if (firstCmd) firstCmd.classList.add('first-cmd');
+                const container = pre.closest('.code-container');
+                if (container) {
+                    const blockBtn = container.querySelector('.copy-btn');
+                    if (blockBtn) {
+                        blockBtn.onclick = function() {
+                            navigator.clipboard.writeText(originalText).then(() => {
+                                blockBtn.innerHTML = '&#10003; Copied!';
+                                blockBtn.classList.add('copied');
+                                setTimeout(() => { blockBtn.innerHTML = '&#128203; Copy'; blockBtn.classList.remove('copied'); }, 2000);
+                            });
+                        };
+                    }
+                }
+            });
+            document.querySelectorAll('.line-copy-btn').forEach(btn => {
+                if (btn.dataset.bound === '1') return;
+                btn.dataset.bound = '1';
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const cmd = btn.closest('.code-cmd');
+                    if (!cmd) return;
+                    const clone = cmd.cloneNode(true);
+                    clone.querySelectorAll('.line-copy-btn').forEach(b => b.remove());
+                    navigator.clipboard.writeText(clone.textContent).then(() => {
+                        const orig = btn.innerHTML;
+                        btn.innerHTML = '&#10003;';
+                        btn.classList.add('copied');
+                        setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
+                    });
+                });
+            });
+        }
+        addPerLineCopyButtons();
         function exportToPDF() {
             const slides = document.querySelectorAll('.slide');
             const presentation = document.getElementById('presentation');

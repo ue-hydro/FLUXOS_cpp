@@ -47,13 +47,14 @@ The GPU acceleration is complementary to the existing MPI+OpenMP parallelization
 GeoTIFF DEM Support and Python Preprocessing
 ----------------------------------------------
 
-FLUXOS now includes a Python preprocessing tool (``fluxos_setup.py``) that streamlines the workflow from raw GeoTIFF DEM data to simulation-ready inputs:
+FLUXOS includes an editable Python template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``) that streamlines the workflow from raw GeoTIFF DEM data to simulation-ready inputs. The user fills in a single ``_config`` dict and runs the file:
 
 * **GeoTIFF DEM import**: Read GeoTIFF files directly using ``rasterio``, with automatic CRS validation and metadata inspection
 * **DEM downscaling**: Resample DEMs to lower resolutions using bilinear interpolation for use with the regular Cartesian mesh
 * **Slope-based adaptive mesh generation**: Automatically create triangular meshes from DEM topography using Gmsh, where steeper slopes produce finer mesh elements and flat areas produce coarser elements
 * **DEM-in-mesh embedding**: DEM elevations are embedded as vertex z-coordinates in the Gmsh ``.msh`` file, eliminating the need for separate DEM interpolation during initialization
 * **JSON config generation**: Automatically produce ``modset.json`` configuration files matching the C++ solver's expected format
+* **HTML run report**: Self-contained report with KPI summary, domain / mesh statistics, full modset view, and copy-paste Docker commands for the build–run–inspect cycle (matches the OpenWQ ``1_Model_Config`` pattern)
 
 This Python-only approach avoids adding GDAL as a C++ dependency. The C++ solver continues reading the same file formats (``.asc`` and ``.msh``), with backward-compatible support for mesh files with or without embedded vertex elevations.
 

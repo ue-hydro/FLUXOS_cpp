@@ -194,18 +194,18 @@ FLUXOS includes a test case in the ``bin/`` directory (Rosa Creek watershed, 859
 
 **Triangular Mesh:**
 
-First generate the mesh from the DEM:
+First generate the mesh and ``modset.json`` from the DEM by editing the ``_config`` dict (``mesh_type = "triangular"``) and running the template:
 
 .. code-block:: bash
 
-   python3 fluxos_preprocessing/fluxos_setup.py mesh \
-       --input bin/Rosa_2m.asc --output bin/Rosa_trimesh.msh \
-       --min-size 10 --max-size 50 --slope-factor 0.5
+   cd fluxos_preprocessing/1_Model_Config
+   python model_config_template.py
 
-Then run with the triangular mesh config:
+Then run FLUXOS with the triangular mesh config produced by the template:
 
 .. code-block:: bash
 
+   cd <repo_root>
    mkdir -p Results
    ./build/bin/fluxos bin/modset_trimesh.json
 
@@ -217,11 +217,11 @@ Export simulation results as KMZ files for animated visualization:
 .. code-block:: bash
 
    # Regular mesh results
-   python fluxos_preprocessing/fluxos_viewer.py \
+   python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
        --results-dir Results --dem bin/Rosa_2m.asc --utm-zone 10
 
    # Triangular mesh results
-   python fluxos_preprocessing/fluxos_viewer.py \
+   python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
        --results-dir Results --dem bin/Rosa_2m.asc \
        --mesh-type triangular --utm-zone 10
 

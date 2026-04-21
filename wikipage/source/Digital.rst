@@ -4,14 +4,14 @@ Digital Elevation Model (DEM)
     The DEM provides detailed information about the topography of the terrain. FLUXOS supports two DEM input workflows:
 
     1. **ESRI ASCII Grid (.asc)** -- The native C++ format. The solver reads ``.asc`` files directly with header keywords (NCOLS, NROWS, XLLCORNER, YLLCORNER, CELLSIZE, NODATA_VALUE).
-    2. **GeoTIFF (.tif)** -- Via the Python preprocessing tool ``fluxos_setup.py``, which converts GeoTIFF to ``.asc`` (for regular mesh) or generates an adaptive triangular mesh with DEM elevations embedded in vertex z-coordinates (for triangular mesh).
+    2. **GeoTIFF (.tif)** -- Via the Python model configuration template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``), which converts GeoTIFF to ``.asc`` (for regular mesh) or generates an adaptive triangular mesh with DEM elevations embedded in vertex z-coordinates (for triangular mesh).
 
     Open source spatial data editors such as SAGA (System for Automated Geoscientific Analyses, http://www.saga-gis.org/en/index.html) and QGIS can also be used for conversion between spatial data formats.
 
-Python Preprocessing Tool (GeoTIFF Support)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Python Preprocessing Template (GeoTIFF Support)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``fluxos_preprocessing/`` directory contains Python CLI tools for working with GeoTIFF DEMs and exporting simulation results. The preprocessing tool replaces the need for manual DEM format conversion, and the KML exporter enables animated flood visualization in Google Earth (see :doc:`SupportingScripts` for documentation).
+The ``fluxos_preprocessing/1_Model_Config/`` directory contains a template-driven preprocessing workflow that reads a GeoTIFF DEM and produces ``.asc``, ``.msh`` (triangular), and ``modset.json`` files in one run, plus an HTML report with copy-paste Docker commands for running the simulation. See :doc:`SupportingScripts` for the full reference.
 
 **Installation:**
 
@@ -20,46 +20,26 @@ The ``fluxos_preprocessing/`` directory contains Python CLI tools for working wi
    cd fluxos_preprocessing
    pip install -r requirements.txt
 
-**DEM Subcommand -- Inspect, Downscale, and Convert:**
+**Usage:**
+
+Edit the ``_config = dict(...)`` block at the top of ``model_config_template.py`` (DEM path, target resolution, mesh type, mesh sizing, modset name, forcing files, roughness, modules, ...), then run it:
 
 .. code-block:: bash
 
-   # Print GeoTIFF metadata
-   python fluxos_setup.py dem --input terrain.tif --info
+   cd fluxos_preprocessing/1_Model_Config
+   python model_config_template.py
 
-   # Convert GeoTIFF to ASC at native resolution
-   python fluxos_setup.py dem --input terrain.tif --output-asc terrain.asc
+The template handles all three stages internally:
 
-   # Downscale DEM to 10m resolution and export to ASC (for regular mesh)
-   python fluxos_setup.py dem --input terrain.tif --output-asc terrain_10m.asc --resolution 10
-
-**Mesh Subcommand -- Adaptive Triangular Mesh Generation:**
-
-.. code-block:: bash
-
-   # Generate adaptive triangular mesh from DEM (slope-based refinement)
-   python fluxos_setup.py mesh --input terrain.tif --output domain.msh \
-       --min-size 5.0 --max-size 50.0 --slope-factor 1.0
-
-The mesh generator computes slope from the DEM and creates finer elements in steep areas and coarser elements in flat areas. DEM elevations are embedded as z-coordinates in the ``.msh`` vertex data, so the C++ solver can read elevations directly from the mesh file.
-
-**Config Subcommand -- Generate modset.json:**
-
-.. code-block:: bash
-
-   # Generate FLUXOS JSON config for regular mesh
-   python fluxos_setup.py config --dem-file terrain_10m.asc --mesh-type regular \
-       --meteo-file forcing.fluxos --roughness 0.005 --output modset.json
-
-   # Generate config for triangular mesh
-   python fluxos_setup.py config --dem-file domain_dem.asc --mesh-type triangular \
-       --mesh-file domain.msh --meteo-file forcing.fluxos --output modset.json
+* **DEM preparation:** reads the GeoTIFF via ``rasterio``, optionally downscales via bilinear interpolation (``scipy.ndimage.zoom``), writes an ESRI ASCII ``.asc`` into ``<repo>/bin/``. For triangular meshes it writes a 10×10 placeholder ``.asc`` (elevations actually live in the ``.msh``), which keeps the ``DEM_FILE`` entry valid for the C++ side without duplicating the DEM on disk.
+* **Adaptive triangular mesh (triangular path only):** computes slope from the DEM, builds a size field with finer triangles in steep terrain, extracts the valid-data polygon, invokes ``pygmsh`` / ``gmsh`` to generate the mesh, and interpolates DEM elevations onto the vertices so the C++ solver can read elevations directly from the mesh file.
+* **modset.json:** writes the configuration with ``DEM_FILE``, ``MESH_FILE`` / ``MESH_FORMAT`` / ``BOUNDARY_CONDITIONS`` (for trimesh), forcing files, sim start, roughness, output options, and any enabled modules (ADE transport, soil infiltration, OpenWQ).
 
 .. note::
 
-   **Regular Mesh:** The Python tool converts GeoTIFF to ESRI ASCII ``.asc``. The C++ solver reads ``.asc`` files unchanged.
+   **Regular Mesh:** The template converts GeoTIFF to ESRI ASCII ``.asc``. The C++ solver reads ``.asc`` files unchanged.
 
-   **Triangular Mesh:** The Python tool generates a Gmsh ``.msh`` file with DEM elevations in vertex z-coordinates. The C++ solver reads vertex z values and computes cell bed elevation as the mean of its three vertices. If the mesh file has z=0 (e.g., manually created mesh), the solver falls back to interpolating from the DEM grid as before. A companion ``.asc`` file is also generated for the ``DEM_FILE`` config entry.
+   **Triangular Mesh:** The template generates a Gmsh ``.msh`` file with DEM elevations in vertex z-coordinates. The C++ solver reads vertex z values and computes cell bed elevation as the mean of its three vertices. If the mesh file has z=0 (e.g., manually created mesh), the solver falls back to interpolating from the DEM grid as before. A companion placeholder ``.asc`` file is also generated for the ``DEM_FILE`` config entry.
 
 ESRI ASCII Grid Format
 ^^^^^^^^^^^^^^^^^^^^^^^^
