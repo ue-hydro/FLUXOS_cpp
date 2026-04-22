@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FLUXOS - How to Compile</title>
+    <title>FLUXOS - How to Compile and Run</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -160,8 +160,8 @@
 
         <!-- Slide 1: Title -->
         <div class="slide title-slide active" data-slide="1">
-            <h1 class="reveal-title">How to Compile FLUX<span>OS</span></h1>
-            <div class="subtitle reveal-subtitle">Build System &amp; Configuration Guide</div>
+            <h1 class="reveal-title">How to Compile &amp; Run FLUX<span>OS</span></h1>
+            <div class="subtitle reveal-subtitle">Container &amp; native build workflows</div>
             <div class="author reveal-author">Diogo Costa</div>
             <div class="affiliation reveal-affiliation">University of &Eacute;vora, Portugal</div>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo reveal-logo">
@@ -176,26 +176,27 @@
             <div class="slide-content">
                 <div class="two-column" style="gap: 60px;">
                     <div class="column">
-                        <div style="font-size: 1.15rem; line-height: 2.2;">
-                            <p style="margin-bottom: 8px;">&bull; Prerequisites &amp; Dependencies</p>
-                            <p style="margin-bottom: 8px;">&bull; Optional Dependencies</p>
-                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Build Configurations</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Basic Build (Regular Mesh)</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Triangular Mesh Build</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; CUDA GPU Build</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; MPI Distributed Build</p>
+                        <div style="font-size: 1.05rem; line-height: 1.95;">
+                            <p style="margin-bottom: 6px;">&bull; Prerequisites &amp; Dependencies</p>
+                            <p style="margin-bottom: 6px;">&bull; Get the code &mdash; <code style="font-size:0.9em">git clone</code></p>
+                            <p style="margin-top: 12px; color: var(--primary); font-weight: 600;">Section 01: Containerized Builds</p>
+                            <p style="margin-left: 20px; margin-bottom: 2px;">&bull; Docker &mdash; Part 1 <span style="color: var(--text-light); font-size: 0.9rem;">· activate + create container</span></p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Docker &mdash; Part 2 <span style="color: var(--text-light); font-size: 0.9rem;">· shell + compile</span></p>
+                            <p style="margin-left: 20px; margin-bottom: 2px;">&bull; Apptainer (HPC) &mdash; Part 1 <span style="color: var(--text-light); font-size: 0.9rem;">· activate + create .sif</span></p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Apptainer (HPC) &mdash; Part 2 <span style="color: var(--text-light); font-size: 0.9rem;">· shell + compile</span></p>
                         </div>
                     </div>
                     <div class="column">
-                        <div style="font-size: 1.15rem; line-height: 2.2;">
-                            <p style="margin-top: 15px; color: #0891b2; font-weight: 600;">Section 02: Containerized Builds</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Docker / Docker Compose</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Apptainer (HPC)</p>
+                        <div style="font-size: 1.08rem; line-height: 2;">
+                            <p style="margin-top: 15px; color: #0891b2; font-weight: 600;">Section 02: Native Build</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; 1. Set up system dependencies</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; 2. Compile (basic / trimesh / MPI / CUDA)</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; 3. Run the model</p>
                             <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 03: Advanced &amp; Troubleshooting</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Hybrid Build Combinations</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Scalability Guidelines</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Common Build Errors</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Build Summary</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; Hybrid Build Combinations</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; Scalability Guidelines</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; Common Build Errors</p>
+                            <p style="margin-left: 20px; margin-bottom: 6px;">&bull; Build Summary</p>
                         </div>
                     </div>
                 </div>
@@ -212,41 +213,39 @@
                 <h2>Prerequisites &amp; Dependencies</h2>
             </div>
             <div class="slide-content">
-                <div class="two-column" style="gap: 50px;">
+                <p style="font-size: 1rem; margin-bottom: 14px; color: var(--text-light);">
+                    What FLUXOS links against at compile time. Installation commands come later
+                    &mdash; the container path handles them for you, the native path lists
+                    package names per OS.
+                </p>
+                <div class="two-column" style="gap: 40px;">
                     <div class="column">
                         <div class="card primary">
-                            <h3>&#128230; Required Dependencies</h3>
+                            <h3>&#128230; Required</h3>
                             <table style="font-size: 1rem; margin-top: 10px;">
                                 <tr><td><strong>CMake</strong></td><td>&ge; 3.18</td></tr>
-                                <tr><td><strong>C++ Compiler</strong></td><td>C++17 support (GCC 7+, Clang 5+)</td></tr>
-                                <tr><td><strong>Armadillo</strong></td><td>Linear algebra library</td></tr>
+                                <tr><td><strong>C++ compiler</strong></td><td>C++17 (GCC 7+, Clang 5+)</td></tr>
+                                <tr><td><strong>Armadillo</strong></td><td>linear algebra</td></tr>
                                 <tr><td><strong>nlohmann/json</strong></td><td>JSON config parser (header-only)</td></tr>
-                                <tr><td><strong>OpenMP</strong></td><td>Shared-memory parallelism</td></tr>
+                                <tr><td><strong>HDF5</strong></td><td>binary I/O backend</td></tr>
+                                <tr><td><strong>OpenMP</strong></td><td>shared-memory parallelism</td></tr>
                             </table>
                         </div>
-                        <pre style="font-size: 0.8rem; padding: 15px;">
-<span class="comment"># Ubuntu/Debian</span>
-sudo apt install cmake g++ libarmadillo-dev nlohmann-json3-dev
-
-<span class="comment"># macOS (Homebrew)</span>
-brew install cmake armadillo nlohmann-json</pre>
                     </div>
                     <div class="column">
                         <div class="card secondary">
-                            <h3>&#128268; Optional Dependencies</h3>
+                            <h3>&#128268; Optional</h3>
                             <table style="font-size: 1rem; margin-top: 10px;">
-                                <tr><td><strong>CUDA Toolkit</strong></td><td>&ge; 11.0 (GPU acceleration)</td></tr>
-                                <tr><td><strong>OpenMPI</strong></td><td>Distributed computing</td></tr>
-                                <tr><td><strong>Gmsh</strong></td><td>Mesh generation (trimesh)</td></tr>
-                                <tr><td><strong>OpenWQ</strong></td><td>Water quality coupling</td></tr>
+                                <tr><td><strong>OpenMPI / MPICH</strong></td><td>distributed computing &mdash; enables <code>USE_MPI=ON</code></td></tr>
+                                <tr><td><strong>CUDA Toolkit</strong></td><td>&ge; 11.0 &mdash; enables <code>USE_CUDA=ON</code></td></tr>
+                                <tr><td><strong>Gmsh</strong></td><td>mesh generation (triangular domain preprocessing)</td></tr>
+                                <tr><td><strong>OpenWQ</strong></td><td>water-quality coupling &mdash; enables <code>USE_OPENWQ=ON</code></td></tr>
                             </table>
                         </div>
-                        <pre style="font-size: 0.8rem; padding: 15px;">
-<span class="comment"># Ubuntu/Debian (optional)</span>
-sudo apt install libopenmpi-dev gmsh
-
-<span class="comment"># CUDA: Install from NVIDIA website</span>
-<span class="comment"># https://developer.nvidia.com/cuda-downloads</span></pre>
+                        <div class="highlight-box info" style="margin-top: 14px; font-size: 0.9rem; padding: 10px 14px;">
+                            <strong>Tip:</strong> the container path (Section 01) ships every required library
+                            inside the image &mdash; no system setup needed on the host.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -256,90 +255,93 @@ sudo apt install libopenmpi-dev gmsh
             </div>
         </div>
 
-        <!-- Slide 4: Section - Build Configurations -->
-        <div class="slide section-slide" data-slide="4">
-            <div class="section-number">01</div>
-            <h2>Build Configurations</h2>
-            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
-        </div>
-
-        <!-- Slide 5: Basic Build -->
-        <div class="slide" data-slide="5">
+        <!-- Slide 4: Get the code — git clone -->
+        <div class="slide" data-slide="4">
             <div class="slide-header">
-                <h2>Basic Build (Regular Mesh)</h2>
+                <h2>Get the code &mdash; <code style="font-size:0.85em">git clone</code></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    The default build compiles the regular Cartesian mesh solver with OpenMP parallelization:
+                <p style="font-size: 1.05rem; margin-bottom: 16px; color: var(--text-light);">
+                    Every method in the rest of this deck starts from the
+                    <strong>repository root</strong>. Clone once, <code>cd</code> into it,
+                    and keep that as your working directory for every command that follows.
                 </p>
-                <pre style="font-size: 1rem; padding: 30px;">
-<span class="comment"># Clone the repository</span>
-git clone https://github.com/ue-hydro/fluxos.git
-cd fluxos
 
-<span class="comment"># Create build directory</span>
-mkdir build && cd build
+                <pre style="font-size: 0.95rem; padding: 20px;">
+<span class="comment"># Clone the FLUXOS source</span>
+git clone https://github.com/ue-hydro/FLUXOS_cpp.git
 
-<span class="comment"># Configure with release optimizations</span>
-cmake -DMODE_release=ON ..
+<span class="comment"># Enter the repo — all container recipes, Python scripts and sample</span>
+<span class="comment"># inputs are referenced relative to this directory.</span>
+cd FLUXOS_cpp</pre>
 
-<span class="comment"># Compile using all available cores</span>
-make -j$(nproc)
-
-<span class="comment"># The executable will be at: build/fluxos</span></pre>
-                <div class="two-column" style="gap: 40px; margin-top: 20px;">
-                    <div class="highlight-box success">
-                        <strong>Release mode</strong> enables <code>-O3 -march=native -flto</code> for maximum performance with link-time optimization.
+                <div class="two-column" style="gap: 30px; margin-top: 20px;">
+                    <div class="card primary" style="padding: 14px 18px;">
+                        <h3 style="font-size: 1rem; margin-bottom: 8px;">What's inside</h3>
+                        <ul style="margin-left: 18px; font-size: 0.9rem; line-height: 1.7;">
+                            <li><code>containers/</code> &mdash; Dockerfile + Apptainer .def files</li>
+                            <li><code>src/fluxos/</code> &mdash; C++ source</li>
+                            <li><code>bin/</code> &mdash; DEMs, meshes, forcing, modset examples</li>
+                            <li><code>fluxos_preprocessing/</code> &mdash; Python config + post-processing templates</li>
+                        </ul>
                     </div>
-                    <div class="highlight-box info">
-                        <strong>Debug mode</strong> (default, no <code>-DMODE_release=ON</code>) enables <code>-g3 -Wall -pedantic</code> and produces <code>fluxos_debug</code>.
+                    <div class="highlight-box info" style="padding: 12px 16px; font-size: 0.9rem;">
+                        <strong>Branches:</strong> <code>main</code> is the stable branch;
+                        <code>development</code> collects feature-branch integrations.
+                        Switch with <code>git checkout development</code> if you want the latest
+                        work-in-progress.
                     </div>
                 </div>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">5</div>
+                <div class="page-number">4</div>
             </div>
         </div>
 
-        <!-- Slide 6: Triangular Mesh Build -->
+        <!-- Slide 5: Section - Containerized Builds (recommended path, presented first) -->
+        <div class="slide section-slide" data-slide="5">
+            <div class="section-number">01</div>
+            <h2>Containerized Builds</h2>
+            <p style="font-size: 1.2rem; opacity: 0.9; max-width: 820px; text-align: center; margin-top: 1.2rem;">
+                Recommended starting point &mdash; zero host dependencies,
+                works identically on macOS, Linux, Windows, and HPC clusters.
+            </p>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 6: Docker — Part 1 (activate + create container) -->
         <div class="slide" data-slide="6">
             <div class="slide-header">
-                <h2>Triangular Mesh Build</h2>
+                <h2>Docker &mdash; Part 1 <span style="font-weight: 400; color: var(--text-light);">· activate &amp; create the container</span></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    Enable unstructured triangular mesh support for complex geometries and VTK/ParaView output:
+                <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
+                    Two steps on the host: install Docker, then build the container image.
+                    The image ships every FLUXOS build-time dependency and the source tree.
+                    It does <strong>not</strong> compile FLUXOS yet &mdash; that's step 4, on the next slide.
                 </p>
-                <pre style="font-size: 1rem; padding: 30px;">
-<span class="comment"># Configure with triangular mesh support</span>
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
 
-<span class="comment"># Compile</span>
-make -j$(nproc)</pre>
-                <div class="two-column" style="gap: 40px; margin-top: 25px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>What Changes</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 1rem;">Compiles all <code>src/fluxos/trimesh/</code> sources</li>
-                                <li style="font-size: 1rem;">Edge-based finite volume solver</li>
-                                <li style="font-size: 1rem;">Input: Gmsh (.msh v2.2) or Triangle (.node/.ele)</li>
-                                <li style="font-size: 1rem;">Output: VTK XML (.vtu) + ParaView time series (.pvd)</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="column">
-                        <div class="card secondary">
-                            <h3>&#9889; Performance Advantage</h3>
-                            <p style="font-size: 1.1rem; margin-top: 10px;">
-                                Same Rosa_2m test domain:<br>
-                                <strong>Regular mesh:</strong> ~16 minutes<br>
-                                <strong>Triangular mesh:</strong> ~3 seconds<br><br>
-                                Slope-adaptive refinement places resolution where it matters.
-                            </p>
-                        </div>
-                    </div>
+                <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
+                    1&nbsp;·&nbsp;Activate Docker <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(host)</span>
+                </h3>
+                <pre style="font-size: 0.92rem; padding: 18px;">
+<span class="comment"># macOS / Windows:  install &amp; launch Docker Desktop  (https://www.docker.com/products/docker-desktop)</span>
+<span class="comment"># Linux:            install Docker Engine              (https://docs.docker.com/engine/install/)</span>
+docker --version &amp;&amp; docker compose version    <span class="comment"># sanity check: daemon is up</span></pre>
+
+                <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    2&nbsp;·&nbsp;Create the container image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build deps)</span>
+                </h3>
+                <pre style="font-size: 0.92rem; padding: 18px;">
+<span class="comment"># From the repo root. Installs CMake, GCC, Armadillo, HDF5, nlohmann/json, OpenMP.</span>
+docker compose -f containers/docker-compose.yml build
+
+<span class="comment"># Add MPI support (optional) — brings OpenMPI into the image:</span>
+USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
+
+                <div class="highlight-box info" style="margin-top: 16px; font-size: 0.9rem; padding: 10px 14px;">
+                    <strong>Next:</strong> open a shell inside this container and compile FLUXOS &rarr; slide 6.
                 </div>
             </div>
             <div class="slide-footer">
@@ -348,43 +350,44 @@ make -j$(nproc)</pre>
             </div>
         </div>
 
-        <!-- Slide 7: CUDA Build -->
+        <!-- Slide 7: Docker — Part 2 (shell + compile) -->
         <div class="slide" data-slide="7">
             <div class="slide-header">
-                <h2>CUDA GPU Build</h2>
+                <h2>Docker &mdash; Part 2 <span style="font-weight: 400; color: var(--text-light);">· shell in &amp; compile FLUXOS</span></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    Enable NVIDIA GPU acceleration for both regular and triangular meshes:
+                <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
+                    With the container image ready, open a shell and compile FLUXOS from
+                    the source already inside at <code>/opt/fluxos</code>.
                 </p>
-                <pre style="font-size: 1rem; padding: 30px;">
-<span class="comment"># Regular mesh + CUDA</span>
-cmake -DMODE_release=ON -DUSE_CUDA=ON ..
 
-<span class="comment"># Triangular mesh + CUDA (recommended for best performance)</span>
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..
+                <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
+                    3&nbsp;·&nbsp;Open a shell inside the container
+                </h3>
+                <pre style="font-size: 0.92rem; padding: 18px;">
+<span class="comment"># Drops you at a bash prompt inside the container. `./bin` → /work/bin (ro)</span>
+<span class="comment"># and `./Results` → /work/Results (rw) are bind-mounted from the host.</span>
+docker compose -f containers/docker-compose.yml run --rm fluxos</pre>
 
-<span class="comment"># Compile</span>
-make -j$(nproc)</pre>
-                <div class="two-column" style="gap: 40px; margin-top: 20px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>Requirements</h3>
-                            <table style="font-size: 1rem; margin-top: 10px;">
-                                <tr><td><strong>CUDA Toolkit</strong></td><td>&ge; 11.0</td></tr>
-                                <tr><td><strong>GPU Compute</strong></td><td>&ge; 6.0 (Pascal+)</td></tr>
-                                <tr><td><strong>Driver</strong></td><td>Compatible with CUDA version</td></tr>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="column">
-                        <div class="highlight-box success">
-                            <strong>Typical speedup:</strong> 10&ndash;50x over single CPU core, depending on domain size and GPU architecture.
-                        </div>
-                        <div class="highlight-box info" style="margin-top: 10px;">
-                            <strong>Verify GPU:</strong> Run <code>nvidia-smi</code> to check your GPU and driver version.
-                        </div>
-                    </div>
+                <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell)</span>
+                </h3>
+                <pre style="font-size: 0.92rem; padding: 18px;">
+<span class="comment"># You are now inside the container</span>
+cd /opt/fluxos
+mkdir -p build &amp;&amp; cd build
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+make -j$(nproc)
+
+<span class="comment"># Run the model — still inside the shell</span>
+./bin/fluxos /work/bin/modset_river_30h.json</pre>
+
+                <div class="highlight-box success" style="margin-top: 14px; font-size: 0.88rem; padding: 10px 14px;">
+                    <strong>Match step 2 and step 4:</strong> the <code>USE_MPI=ON</code> env var in step 2
+                    installs OpenMPI <em>inside the image</em>; you must also pass <code>-DUSE_MPI=ON</code>
+                    to <code>cmake</code> here in step 4 for FLUXOS to actually link against it.
+                    The resulting binary is then <code>./bin/fluxos_mpi</code> &mdash; launch with
+                    <code>mpirun -n N ./bin/fluxos_mpi /work/bin/modset.json</code>.
                 </div>
             </div>
             <div class="slide-footer">
@@ -393,41 +396,43 @@ make -j$(nproc)</pre>
             </div>
         </div>
 
-        <!-- Slide 8: MPI Build -->
+        <!-- Slide 8: Apptainer — Part 1 (activate + create .sif) -->
         <div class="slide" data-slide="8">
             <div class="slide-header">
-                <h2>MPI Distributed Build</h2>
+                <h2>Apptainer (HPC) &mdash; Part 1 <span style="font-weight: 400; color: var(--text-light);">· activate &amp; create the container</span></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    Enable MPI for distributed computing on HPC clusters:
+                <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
+                    Apptainer (formerly Singularity) runs rootless on HPC clusters and mounts
+                    user home directories transparently. Two recipes are provided:
+                    <strong>fluxos_apptainer.def</strong> (CPU + OpenMP + MPI) and
+                    <strong>fluxos_apptainer_cuda.def</strong> (CUDA + MPI). Neither
+                    compiles FLUXOS during image build &mdash; that's step 4, next slide.
                 </p>
-                <pre style="font-size: 1rem; padding: 30px;">
-<span class="comment"># Configure with MPI</span>
-cmake -DMODE_release=ON -DUSE_MPI=ON ..
 
-<span class="comment"># Compile</span>
-make -j$(nproc)
+                <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
+                    1&nbsp;·&nbsp;Activate Apptainer <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(login node)</span>
+                </h3>
+                <pre style="font-size: 0.9rem; padding: 16px;">
+<span class="comment"># Most HPC systems provide Apptainer as a module:</span>
+module load apptainer      <span class="comment"># or: module load singularity</span>
+apptainer --version        <span class="comment"># sanity check</span>
+<span class="comment"># Local install (workstation): https://apptainer.org/docs/admin/main/installation.html</span></pre>
 
-<span class="comment"># Run with multiple processes</span>
-mpirun -np 16 ./fluxos modset.json
+                <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    2&nbsp;·&nbsp;Create the .sif image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build deps)</span>
+                </h3>
+                <pre style="font-size: 0.9rem; padding: 16px;">
+<span class="comment"># CPU + OpenMP + MPI — run from the repo root</span>
+apptainer build --fakeroot fluxos_cpu.sif \
+    containers/fluxos_apptainer.def
 
-<span class="comment"># Hybrid MPI+OpenMP (4 MPI procs x 4 threads each)</span>
-export OMP_NUM_THREADS=4
-mpirun -np 4 ./fluxos modset.json</pre>
-                <div class="two-column" style="gap: 40px; margin-top: 15px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>Regular Mesh MPI</h3>
-                            <p style="font-size: 1rem;">2D Cartesian domain decomposition with ghost cell exchange at subdomain boundaries.</p>
-                        </div>
-                    </div>
-                    <div class="column">
-                        <div class="card secondary">
-                            <h3>Triangular Mesh MPI</h3>
-                            <p style="font-size: 1rem;">Graph-based partitioning (METIS support) for balanced load distribution across nodes.</p>
-                        </div>
-                    </div>
+<span class="comment"># CUDA + MPI (GPU nodes) — the resulting run must use --nv to expose host GPUs</span>
+apptainer build --fakeroot fluxos_cuda.sif \
+    containers/fluxos_apptainer_cuda.def</pre>
+
+                <div class="highlight-box info" style="margin-top: 14px; font-size: 0.9rem; padding: 10px 14px;">
+                    <strong>Next:</strong> shell into the .sif and compile FLUXOS &rarr; slide 8.
                 </div>
             </div>
             <div class="slide-footer">
@@ -436,100 +441,98 @@ mpirun -np 4 ./fluxos modset.json</pre>
             </div>
         </div>
 
-        <!-- Slide 9: Section - Containerized Builds -->
-        <div class="slide section-slide teal" data-slide="9">
-            <div class="section-number">02</div>
-            <h2>Containerized Builds</h2>
-            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
-        </div>
-
-        <!-- Slide 10: Docker / Docker Compose -->
-        <div class="slide" data-slide="10">
+        <!-- Slide 9: Apptainer — Part 2 (shell + compile) -->
+        <div class="slide" data-slide="9">
             <div class="slide-header">
-                <h2>Docker / Docker Compose</h2>
+                <h2>Apptainer (HPC) &mdash; Part 2 <span style="font-weight: 400; color: var(--text-light);">· shell in &amp; compile FLUXOS</span></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
-                    Run FLUXOS locally without installing any system dependencies &mdash;
-                    all libraries (Armadillo, HDF5, OpenMP, optional OpenMPI) ship inside the image.
+                <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
+                    Apptainer .sif images are read-only, so compile into a bind-mounted host
+                    directory. The container's source tree lives at <code>/opt/fluxos</code>;
+                    point CMake at it and build into the writable mount.
                 </p>
-                <pre style="font-size: 0.95rem; padding: 25px;">
-<span class="comment"># From the repo root &mdash; build the image</span>
-docker compose -f containers/docker-compose.yml build
 
-<span class="comment"># Run a simulation (modset JSON passed as an argument)</span>
-docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset_river_30h.json
+                <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
+                    3&nbsp;·&nbsp;Open a shell inside the container
+                </h3>
+                <pre style="font-size: 0.9rem; padding: 16px;">
+<span class="comment"># CPU shell with the current dir bind-mounted at /src (writable)</span>
+apptainer shell --bind $PWD:/src fluxos_cpu.sif
 
-<span class="comment"># Enable MPI at build time (build arg)</span>
-USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
-                <div class="two-column" style="gap: 40px; margin-top: 15px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>Build arguments</h3>
-                            <p style="font-size: 1rem;">
-                                <code>USE_TRIMESH</code>, <code>USE_MPI</code>, <code>USE_OPENWQ</code>, <code>MODE_release</code>
-                                &mdash; all forwarded to CMake. Defaults: release + triangular mesh.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="column">
-                        <div class="card secondary">
-                            <h3>Volume mounts</h3>
-                            <p style="font-size: 1rem;">
-                                <code>./bin</code> &rarr; <code>/work/bin</code> (read-only: DEMs, meshes, JSON configs).
-                                <code>./Results</code> &rarr; <code>/work/Results</code> (writable: simulation outputs).
-                            </p>
-                        </div>
-                    </div>
-                </div>
+<span class="comment"># CUDA shell — --nv exposes host GPUs + drivers</span>
+apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif</pre>
+
+                <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell, build into /src)</span>
+                </h3>
+                <pre style="font-size: 0.9rem; padding: 16px;">
+<span class="comment"># You are now inside the container</span>
+cd /src
+mkdir -p build &amp;&amp; cd build
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON /opt/fluxos
+make -j$(nproc)
+
+<span class="comment"># Run — still inside the shell</span>
+./bin/fluxos_mpi /src/bin/modset_river_30h.json
+
+<span class="comment"># Multi-process MPI: launch from the login node using `apptainer exec`</span>
+<span class="comment"># (exit the shell first)</span>
+mpirun -n 16 apptainer exec --bind $PWD:/src fluxos_cpu.sif \
+    /src/build/bin/fluxos_mpi /src/bin/modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">10</div>
+                <div class="page-number">9</div>
             </div>
         </div>
 
-        <!-- Slide 11: Apptainer (HPC) -->
+        <!-- Slide 7: Section - Native Build -->
+        <div class="slide section-slide teal" data-slide="10">
+            <div class="section-number">02</div>
+            <h2>Native Build</h2>
+            <p style="font-size: 1.15rem; opacity: 0.9; max-width: 820px; text-align: center; margin-top: 1.2rem;">
+                ⚠️ Commands below target Debian / Ubuntu with <code>apt</code>.
+                <br>Other systems (macOS Homebrew, Fedora / RHEL <code>dnf</code>,
+                Arch <code>pacman</code>, Windows WSL) need equivalent package-manager tweaks
+                &mdash; the CMake options themselves are identical.
+            </p>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 8: Native — 1. Set up system dependencies -->
         <div class="slide" data-slide="11">
             <div class="slide-header">
-                <h2>Apptainer (HPC)</h2>
+                <h2>Native &mdash; 1&nbsp;·&nbsp;Set up <span style="font-weight: 400; color: var(--text-light);">(host system)</span></h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 15px;">
-                    Apptainer (formerly Singularity) runs rootless on HPC clusters and mounts user
-                    home directories transparently. Two recipes are provided: CPU (OpenMP + MPI) and CUDA.
+                <p style="font-size: 1.05rem; margin-bottom: 12px; color: var(--text-light);">
+                    You should already be in the repo root from slide 4
+                    (<code>git clone</code> &amp; <code>cd FLUXOS_cpp</code>).
+                    Install the toolchain and libraries FLUXOS links against. All commands
+                    below target Debian / Ubuntu; adjust for your package manager.
                 </p>
-                <pre style="font-size: 0.9rem; padding: 20px;">
-<span class="comment"># CPU + OpenMP + MPI (trimesh) &mdash; run from repo root</span>
-apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
-apptainer run fluxos_cpu.sif bin/modset_river_30h.json
+                <pre style="font-size: 0.88rem; padding: 16px;">
+<span class="comment"># 1. Compiler + build tools (GCC 7+ or Clang 5+ for C++17)</span>
+sudo apt install build-essential cmake git ca-certificates
 
-<span class="comment"># Multi-process MPI run on a compute node</span>
-mpirun -n 16 apptainer exec fluxos_cpu.sif \
-    /opt/fluxos/build/bin/fluxos_mpi bin/modset.json
+<span class="comment"># 2. Required libraries — always needed</span>
+sudo apt install libarmadillo-dev nlohmann-json3-dev libhdf5-dev libomp-dev
 
-<span class="comment"># CUDA + MPI build (requires --nv at runtime to expose host GPUs)</span>
-apptainer build --fakeroot fluxos_cuda.sif containers/fluxos_apptainer_cuda.def
-apptainer run --nv fluxos_cuda.sif bin/modset.json</pre>
-                <div class="two-column" style="gap: 40px; margin-top: 15px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>fluxos_apptainer.def</h3>
-                            <p style="font-size: 1rem;">
-                                Ubuntu 24.04 base. Builds with <code>USE_TRIMESH=ON USE_MPI=ON</code>.
-                                OpenMP is always linked (<code>libgomp1</code> + <code>libomp-dev</code>).
-                                Control threads with <code>OMP_NUM_THREADS</code>.
-                            </p>
-                        </div>
+<span class="comment"># 3. Optional: MPI (for multi-node / multi-process runs)</span>
+sudo apt install libopenmpi-dev openmpi-bin
+
+<span class="comment"># 4. Optional: CUDA Toolkit &ge; 11.0 for GPU builds</span>
+<span class="comment">#    Follow NVIDIA's instructions at https://developer.nvidia.com/cuda-downloads</span>
+nvidia-smi     <span class="comment"># verify the driver is installed</span></pre>
+                <div class="two-column" style="gap: 30px; margin-top: 12px;">
+                    <div class="highlight-box info" style="padding: 10px 14px; font-size: 0.85rem;">
+                        <strong>CMake ≥ 3.18</strong>, <strong>C++17</strong> compiler, <strong>Armadillo</strong>, <strong>HDF5</strong>,
+                        <strong>nlohmann/json</strong>, <strong>OpenMP</strong> are the mandatory dependencies.
                     </div>
-                    <div class="column">
-                        <div class="card accent">
-                            <h3>fluxos_apptainer_cuda.def</h3>
-                            <p style="font-size: 1rem;">
-                                <code>nvidia/cuda:12.4.1-devel</code> base. Adds <code>USE_CUDA=ON</code>.
-                                Run with <code>--nv</code> so the host NVIDIA driver is exposed inside the container.
-                            </p>
-                        </div>
+                    <div class="highlight-box warning" style="padding: 10px 14px; font-size: 0.85rem;">
+                        <strong>macOS:</strong> <code>brew install cmake gcc armadillo nlohmann-json hdf5 libomp open-mpi</code>
+                        <br><strong>Fedora/RHEL:</strong> <code>dnf install ...</code> with equivalent package names.
                     </div>
                 </div>
             </div>
@@ -539,15 +542,139 @@ apptainer run --nv fluxos_cuda.sif bin/modset.json</pre>
             </div>
         </div>
 
-        <!-- Slide 12: Section - Advanced -->
-        <div class="slide section-slide purple" data-slide="12">
+        <!-- Slide 12: Native — 2. Compile -->
+        <div class="slide" data-slide="12">
+            <div class="slide-header">
+                <h2>Native &mdash; 2&nbsp;·&nbsp;Compile <span style="font-weight: 400; color: var(--text-light);">(on the host)</span></h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.05rem; margin-bottom: 12px; color: var(--text-light);">
+                    All variants share the same CMake pattern &mdash; only the feature flags differ.
+                </p>
+                <pre style="font-size: 0.9rem; padding: 18px;">
+<span class="comment"># Generic pattern (run from the repo root)</span>
+mkdir build && cd build
+cmake -DMODE_release=ON  &lt;flags&gt;  ..
+make -j$(nproc)</pre>
+
+                <h3 style="margin: 14px 0 8px; font-size: 1rem;">Build variants — pick the CMake flags you need</h3>
+                <div class="table-wrap" style="margin-top: 8px;">
+                    <table style="font-size: 0.88rem;">
+                        <thead>
+                            <tr>
+                                <th>Variant</th>
+                                <th>CMake flags</th>
+                                <th>Produces</th>
+                                <th>Needs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Basic (regular mesh)</strong></td>
+                                <td><code>-DMODE_release=ON</code></td>
+                                <td><code>build/bin/fluxos</code></td>
+                                <td>toolchain only</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Triangular mesh</strong></td>
+                                <td><code>-DUSE_TRIMESH=ON</code></td>
+                                <td><code>build/bin/fluxos</code> with <code>src/fluxos/trimesh/</code></td>
+                                <td>same as basic</td>
+                            </tr>
+                            <tr>
+                                <td><strong>MPI (distributed)</strong></td>
+                                <td><code>-DUSE_MPI=ON</code></td>
+                                <td><code>build/bin/fluxos_mpi</code></td>
+                                <td>OpenMPI / MPICH</td>
+                            </tr>
+                            <tr>
+                                <td><strong>CUDA (GPU)</strong></td>
+                                <td><code>-DUSE_CUDA=ON</code></td>
+                                <td><code>build/bin/fluxos_cuda</code></td>
+                                <td>CUDA Toolkit ≥ 11.0, compute ≥ 6.0</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Hybrid trimesh + CUDA</strong></td>
+                                <td><code>-DUSE_TRIMESH=ON -DUSE_CUDA=ON</code></td>
+                                <td>CUDA-accelerated trimesh solver</td>
+                                <td>both</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="highlight-box success" style="margin-top: 12px; padding: 10px 14px; font-size: 0.88rem;">
+                    <strong>Release mode</strong> (<code>-DMODE_release=ON</code>) enables <code>-O3 -march=native -flto</code>.
+                    <strong>Debug mode</strong> (default) adds <code>-g3 -Wall</code> and produces a <code>_debug</code> suffix binary.
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">12</div>
+            </div>
+        </div>
+
+        <!-- Slide 13: Native — 3. Run -->
+        <div class="slide" data-slide="13">
+            <div class="slide-header">
+                <h2>Native &mdash; 3&nbsp;·&nbsp;Run <span style="font-weight: 400; color: var(--text-light);">(on the host)</span></h2>
+            </div>
+            <div class="slide-content">
+                <p style="font-size: 1.05rem; margin-bottom: 12px; color: var(--text-light);">
+                    The modset JSON is the single argument. Paths inside the modset are resolved
+                    relative to the working directory from which you launch the binary.
+                </p>
+                <pre style="font-size: 0.88rem; padding: 16px;">
+<span class="comment"># Coming from slide 12 you ended in build/; step back to the repo root</span>
+<span class="comment"># so the relative paths inside the modset resolve against the right place.</span>
+cd ..
+
+<span class="comment"># Basic / trimesh run (OpenMP threads auto-detected)</span>
+./build/bin/fluxos bin/modset.json
+
+<span class="comment"># Control OpenMP threads explicitly</span>
+OMP_NUM_THREADS=8 ./build/bin/fluxos bin/modset_trimesh.json
+
+<span class="comment"># MPI: distributed across N processes</span>
+mpirun -np 16 ./build/bin/fluxos_mpi bin/modset.json
+
+<span class="comment"># Hybrid MPI + OpenMP (4 MPI procs × 4 threads each)</span>
+export OMP_NUM_THREADS=4
+mpirun -np 4 ./build/bin/fluxos_mpi bin/modset.json
+
+<span class="comment"># GPU run</span>
+./build/bin/fluxos_cuda bin/modset_trimesh.json</pre>
+                <div class="two-column" style="gap: 30px; margin-top: 12px;">
+                    <div class="card primary" style="padding: 12px 16px;">
+                        <h3 style="font-size: 1rem; margin-bottom: 6px;">Outputs</h3>
+                        <p style="font-size: 0.88rem;">
+                            Per-timestep snapshots land in <code>OUTPUT.OUTPUT_FOLDER</code> (from the modset).
+                            Regular mesh &rarr; <code>&lt;sec&gt;.txt</code>, triangular &rarr; <code>&lt;sec&gt;.vtu</code>.
+                        </p>
+                    </div>
+                    <div class="card accent" style="padding: 12px 16px;">
+                        <h3 style="font-size: 1rem; margin-bottom: 6px;">Post-processing</h3>
+                        <p style="font-size: 0.88rem;">
+                            Run <code>fluxos_preprocessing/2_Read_Outputs/read_output_template.py</code>
+                            for an HTML statistics report; <code>fluxos_viewer.py</code> for KML / WebGL / MP4.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">13</div>
+            </div>
+        </div>
+
+        <!-- Slide 14: Section - Advanced -->
+        <div class="slide section-slide purple" data-slide="14">
             <div class="section-number">03</div>
             <h2>Advanced &amp; Troubleshooting</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
         <!-- Slide 13: Hybrid Build -->
-        <div class="slide" data-slide="13">
+        <div class="slide" data-slide="15">
             <div class="slide-header">
                 <h2>Hybrid Build Combinations</h2>
             </div>
@@ -593,12 +720,12 @@ apptainer run --nv fluxos_cuda.sif bin/modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">13</div>
+                <div class="page-number">15</div>
             </div>
         </div>
 
-        <!-- Slide 14: Scalability -->
-        <div class="slide" data-slide="14">
+        <!-- Slide 16: Scalability -->
+        <div class="slide" data-slide="16">
             <div class="slide-header">
                 <h2>Scalability Guidelines</h2>
             </div>
@@ -641,12 +768,12 @@ apptainer run --nv fluxos_cuda.sif bin/modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">14</div>
+                <div class="page-number">16</div>
             </div>
         </div>
 
-        <!-- Slide 15: Common Build Errors -->
-        <div class="slide" data-slide="15">
+        <!-- Slide 17: Common Build Errors -->
+        <div class="slide" data-slide="17">
             <div class="slide-header">
                 <h2>Common Build Errors</h2>
             </div>
@@ -691,12 +818,12 @@ sudo apt install nlohmann-json3-dev
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">15</div>
+                <div class="page-number">17</div>
             </div>
         </div>
 
-        <!-- Slide 16: Summary -->
-        <div class="slide" data-slide="16">
+        <!-- Slide 18: Summary -->
+        <div class="slide" data-slide="18">
             <div class="slide-header">
                 <h2>Build Summary</h2>
             </div>
@@ -705,15 +832,15 @@ sudo apt install nlohmann-json3-dev
                     <div style="max-width: 900px;">
                         <pre style="font-size: 1rem; padding: 30px; margin-bottom: 20px;">
 <span class="comment"># Quick start: clone, build, run (native)</span>
-git clone https://github.com/ue-hydro/fluxos.git
-cd fluxos && mkdir build && cd build
+git clone https://github.com/ue-hydro/FLUXOS_cpp.git
+cd FLUXOS_cpp && mkdir build && cd build
 cmake -DMODE_release=ON ..
 make -j$(nproc)
 ./fluxos ../bin/modset.json</pre>
                         <pre style="font-size: 1rem; padding: 30px; margin-bottom: 30px;">
 <span class="comment"># Quick start: containerized (no host dependencies)</span>
-git clone https://github.com/ue-hydro/fluxos.git
-cd fluxos
+git clone https://github.com/ue-hydro/FLUXOS_cpp.git
+cd FLUXOS_cpp
 docker compose -f containers/docker-compose.yml build
 docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset.json</pre>
                         <div class="three-column" style="gap: 25px;">
@@ -735,17 +862,17 @@ docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset.json<
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">16</div>
+                <div class="page-number">18</div>
             </div>
         </div>
 
-        <!-- Slide 17: Thank You -->
-        <div class="slide title-slide" data-slide="17">
+        <!-- Slide 19: Thank You -->
+        <div class="slide title-slide" data-slide="19">
             <h1 style="font-size: 3.5rem;">Thank You</h1>
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
                 <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
-                    <strong>GitHub:</strong> github.com/ue-hydro/fluxos
+                    <strong>GitHub:</strong> github.com/ue-hydro/FLUXOS_cpp
                 </p>
                 <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
                     <strong>Documentation:</strong> fluxos-cpp.readthedocs.io

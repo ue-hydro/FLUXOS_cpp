@@ -1,23 +1,32 @@
 Bootstrap: docker
 From: ubuntu:24.04
 
-# FLUXOS C++ — Apptainer recipe (CPU: OpenMP + MPI, triangular mesh)
+# FLUXOS C++ — Apptainer recipe (CPU: OpenMP + MPI, dependency container)
 #
-# Build (run from the repo root so the relative path `%files ../ /opt/fluxos`
-# resolves to the FLUXOS source tree):
-#   apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
+# This .sif image installs the build dependencies and ships the FLUXOS source
+# tree at /opt/fluxos, but it does NOT compile FLUXOS during image build.
+# Compilation is a separate, interactive step inside the container shell.
 #
-# Run:
-#   apptainer run fluxos_cpu.sif bin/modset_river_30h.json
-#   # or with MPI on an HPC node:
-#   mpirun -n 16 apptainer exec fluxos_cpu.sif /opt/fluxos/build/bin/fluxos_mpi bin/modset.json
+# The intended 4-step workflow — matches the in_a_nutshell deck:
 #
-# Notes:
-#   - OpenMP is always linked by CMakeLists.txt. The runtime comes from
-#     libgomp1 (bundled with g++) and the `libomp-dev` dev headers ensure
-#     `#include <omp.h>` is always available at build time.
-#   - Control thread count at runtime with OMP_NUM_THREADS=<n>.
-#   - For GPU / CUDA builds, use fluxos_apptainer_cuda.def instead.
+#   1. Activate Apptainer on the HPC login node:
+#        module load apptainer
+#   2. Build the .sif image (installs deps, copies source):
+#        apptainer build --fakeroot fluxos_cpu.sif \
+#                        containers/fluxos_apptainer.def
+#   3. Open a shell inside the container:
+#        apptainer shell fluxos_cpu.sif
+#   4. Compile FLUXOS inside the shell (build into a bind-mounted or
+#      writable-tmpfs directory since the .sif root is read-only):
+#        apptainer shell --bind $PWD:/src --writable-tmpfs fluxos_cpu.sif
+#        # inside:
+#        cp -r /opt/fluxos /tmp/fluxos && cd /tmp/fluxos
+#        mkdir -p build && cd build
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON ..
+#        make -j$(nproc)
+#        # or: compile into a host bind-mount at /src (persistent on the host)
+#
+# For GPU / CUDA builds use fluxos_apptainer_cuda.def instead.
 
 %files
     ../ /opt/fluxos
@@ -38,32 +47,35 @@ From: ubuntu:24.04
         openmpi-bin
     rm -rf /var/lib/apt/lists/*
 
-    cd /opt/fluxos
-    # Clean any pre-existing host build artefacts that may have been copied in
-    rm -rf build
-    mkdir build && cd build
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DMODE_release=ON \
-        -DUSE_TRIMESH=ON \
-        -DUSE_MPI=ON
-    make -j$(nproc)
+    # Clean any pre-existing host build artefacts that may have been copied in.
+    rm -rf /opt/fluxos/build
 
 %environment
-    export PATH=/opt/fluxos/build/bin:$PATH
-    # Leave OMP_NUM_THREADS unset so users / schedulers control thread count.
+    # Left unset by design — OMP_NUM_THREADS is scheduler-controlled at runtime.
+    :
 
 %runscript
-    exec /opt/fluxos/build/bin/fluxos_mpi "$@"
+    # Default run action = open a shell. The user compiles FLUXOS manually in
+    # step 4 and then runs the resulting binary from that shell.
+    exec /bin/bash "$@"
 
 %labels
     Author      Diogo Costa <diogo.costa@uevora.pt>
     Application FLUXOS
-    Version     cpu-mpi-trimesh
-    BuildFlags  MODE_release=ON USE_TRIMESH=ON USE_MPI=ON
+    Version     cpu-mpi-deps-only
+    Note        Dependencies + source only; compile FLUXOS inside the shell.
 
 %help
-    FLUXOS CPU build with OpenMP + MPI + triangular mesh support.
-    Run:    apptainer run fluxos_cpu.sif <path-to-modset.json>
-    MPI:    mpirun -n <N> apptainer exec fluxos_cpu.sif \
-              /opt/fluxos/build/bin/fluxos_mpi <modset.json>
+    FLUXOS CPU dependency image (OpenMP + MPI + triangular mesh toolchain).
+
+    Step 3 — enter the container:
+        apptainer shell fluxos_cpu.sif
+
+    Step 4 — compile FLUXOS inside the shell. Because the .sif root is
+    read-only, compile either into a bind-mounted host dir:
+        apptainer shell --bind $PWD:/src fluxos_cpu.sif
+        # inside:
+        cd /src && mkdir -p build && cd build
+        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+              /opt/fluxos
+        make -j$(nproc)

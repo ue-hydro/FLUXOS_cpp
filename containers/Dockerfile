@@ -1,32 +1,39 @@
-# FLUXOS C++ — Docker image
+# FLUXOS C++ — Docker image (dependency container)
 #
-# Build (from repo root):
-#   docker compose -f containers/docker-compose.yml build
+# This image installs everything FLUXOS NEEDS to build (compilers, CMake,
+# Armadillo, HDF5, nlohmann/json, OpenMP, optional OpenMPI) AND ships the
+# source tree at /opt/fluxos, but it does NOT compile FLUXOS during the
+# image build.
 #
-# Or directly:
-#   docker build -f containers/Dockerfile -t fluxos:latest .
+# The intended workflow — matches the in_a_nutshell deck:
 #
-# With MPI enabled:
-#   docker build -f containers/Dockerfile --build-arg USE_MPI=ON -t fluxos:mpi .
+#   1. Install / start Docker on the host
+#   2. Build the image:
+#        docker compose -f containers/docker-compose.yml build
+#   3. Open a shell inside the container:
+#        docker compose -f containers/docker-compose.yml run --rm fluxos
+#   4. Compile FLUXOS inside the shell:
+#        cd /opt/fluxos
+#        mkdir -p build && cd build
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+#        make -j$(nproc)
 #
-# Note: CUDA builds are NOT supported by this Dockerfile. For GPU runs on HPC
-# use containers/fluxos_apptainer_cuda.def instead (requires an NVIDIA base image
-# and --nv / --gpus at runtime).
+# Keeping the compile step explicit lets developers iterate on source without
+# re-building the whole image each time, and makes the dependency vs. build
+# separation obvious.
+#
+# CUDA is not supported by this Dockerfile. For GPU runs use
+# containers/fluxos_apptainer_cuda.def (NVIDIA base image + --nv at runtime).
 
 ARG UBUNTU_VERSION=24.04
 
-# -----------------------------------------------------------------------------
-# Stage 1: builder — compile FLUXOS
-# -----------------------------------------------------------------------------
-FROM ubuntu:${UBUNTU_VERSION} AS builder
+FROM ubuntu:${UBUNTU_VERSION}
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG USE_TRIMESH=ON
 ARG USE_MPI=OFF
-ARG USE_OPENWQ=OFF
-ARG MODE_release=ON
-ARG JOBS
 
+# --- Step 2: dependencies -------------------------------------------------
+# Everything FLUXOS links against + the toolchain needed to compile it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
@@ -41,56 +48,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/fluxos
-
-# Copy the full source tree (docker-compose build context is repo root)
+# --- Source is copied in so it's available for the in-container compile ---
+# (Alternative: omit this COPY and bind-mount the repo at run time via
+# docker-compose. We copy by default so the image is self-sufficient.)
 COPY . /opt/fluxos
 
-# Configure + build
-RUN mkdir -p build && cd build \
-    && cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DMODE_release=${MODE_release} \
-        -DUSE_TRIMESH=${USE_TRIMESH} \
-        -DUSE_MPI=${USE_MPI} \
-        -DUSE_OPENWQ=${USE_OPENWQ} \
-    && make -j${JOBS:-$(nproc)}
-
-# Identify the produced binary name (varies with build flags — see CMakeLists.txt)
-# and copy it to a stable path for the runtime stage.
-RUN set -e; \
-    if [ "$USE_MPI" = "ON" ]; then \
-        cp /opt/fluxos/build/bin/fluxos_mpi /opt/fluxos/build/bin/fluxos_final; \
-    else \
-        cp /opt/fluxos/build/bin/fluxos /opt/fluxos/build/bin/fluxos_final; \
-    fi
-
-# -----------------------------------------------------------------------------
-# Stage 2: runtime — minimal image with just the binary + shared libraries
-# -----------------------------------------------------------------------------
-FROM ubuntu:${UBUNTU_VERSION} AS runtime
-
-ARG DEBIAN_FRONTEND=noninteractive
-ARG USE_MPI=OFF
-
-# Runtime shared libraries. libgomp1 ships with g++ but is not present in the
-# slim runtime base — OpenMP is always linked (see CMakeLists.txt line ~216),
-# so libgomp1 is always required.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libarmadillo-dev \
-        libhdf5-dev \
-        libgomp1 \
-    && if [ "$USE_MPI" = "ON" ]; then \
-         apt-get install -y --no-install-recommends libopenmpi-dev openmpi-bin; \
-       fi \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the built binary
-COPY --from=builder /opt/fluxos/build/bin/fluxos_final /opt/fluxos/bin/fluxos
-
-# Working directory — docker-compose bind-mounts inputs/outputs here.
-# Relative paths inside the modset JSON resolve against /work.
+# Working dir where docker-compose bind-mounts bin/ and Results/
 WORKDIR /work
 
-ENTRYPOINT ["/opt/fluxos/bin/fluxos"]
-CMD ["bin/modset.json"]
+# Default: drop the user into a shell — they'll compile FLUXOS here (step 4).
+CMD ["/bin/bash"]
