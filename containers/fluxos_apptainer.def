@@ -16,15 +16,18 @@ From: ubuntu:24.04
 #                        containers/fluxos_apptainer.def
 #   3. Open a shell inside the container:
 #        apptainer shell fluxos_cpu.sif
-#   4. Compile FLUXOS inside the shell (build into a bind-mounted or
-#      writable-tmpfs directory since the .sif root is read-only):
-#        apptainer shell --bind $PWD:/src --writable-tmpfs fluxos_cpu.sif
-#        # inside:
-#        cp -r /opt/fluxos /tmp/fluxos && cd /tmp/fluxos
-#        mkdir -p build && cd build
-#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON ..
+#   4. Compile FLUXOS inside the shell. The .sif root is read-only, so we
+#      bind-mount the host repo at /src and redirect the compiled binary
+#      into the host's ./bin/ via CMAKE_RUNTIME_OUTPUT_DIRECTORY:
+#        apptainer shell --bind $PWD:/src fluxos_cpu.sif
+#        # inside the container:
+#        cd /src && mkdir -p build && cd build
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 #        make -j$(nproc)
-#        # or: compile into a host bind-mount at /src (persistent on the host)
+#      Then run — still inside the shell, from /src:
+#        cd /src
+#        ./bin/fluxos_mpi Working_example/modset_river_30h.json
 #
 # For GPU / CUDA builds use fluxos_apptainer_cuda.def instead.
 
@@ -72,10 +75,13 @@ From: ubuntu:24.04
         apptainer shell fluxos_cpu.sif
 
     Step 4 — compile FLUXOS inside the shell. Because the .sif root is
-    read-only, compile either into a bind-mounted host dir:
+    read-only, compile via a bind-mounted host dir, and redirect the binary
+    output into the host's ./bin/:
         apptainer shell --bind $PWD:/src fluxos_cpu.sif
-        # inside:
+        # inside the container:
         cd /src && mkdir -p build && cd build
         cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
-              /opt/fluxos
+              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
         make -j$(nproc)
+        # run — from /src so modset paths resolve correctly
+        cd /src && ./bin/fluxos_mpi Working_example/modset_river_30h.json

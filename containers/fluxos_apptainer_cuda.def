@@ -16,14 +16,18 @@ From: nvidia/cuda:12.4.1-devel-ubuntu22.04
 #                        containers/fluxos_apptainer_cuda.def
 #   3. Open a shell inside the container — needs --nv for GPU access:
 #        apptainer shell --nv fluxos_cuda.sif
-#   4. Compile FLUXOS inside the shell (use a bind-mount for writability
-#      since the .sif root is read-only):
+#   4. Compile FLUXOS inside the shell. The .sif root is read-only, so we
+#      bind-mount the host repo at /src and redirect the compiled binary
+#      into the host's ./bin/ via CMAKE_RUNTIME_OUTPUT_DIRECTORY:
 #        apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif
-#        # inside:
+#        # inside the container:
 #        cd /src && mkdir -p build && cd build
-#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-#              -DUSE_MPI=ON -DUSE_CUDA=ON /opt/fluxos
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON -DUSE_CUDA=ON \
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 #        make -j$(nproc)
+#      Then run — still inside the shell, from /src:
+#        cd /src
+#        ./bin/fluxos_cuda Working_example/modset_river_30h.json
 #
 # The CUDA 12.4 toolchain ships inside the image; the host only needs a
 # compatible NVIDIA driver. Always pass --nv to expose host GPUs + drivers.
@@ -68,10 +72,13 @@ From: nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 %help
     FLUXOS GPU dependency image (CUDA 12.4 + OpenMP + MPI + trimesh toolchain).
-    Always invoke with --nv to expose host GPUs:
+    Always invoke with --nv to expose host GPUs. Compile via a bind-mounted
+    host dir, and redirect the binary output into the host's ./bin/:
         apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif
-        # inside:
+        # inside the container:
         cd /src && mkdir -p build && cd build
         cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON -DUSE_CUDA=ON \
-              /opt/fluxos
+              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
         make -j$(nproc)
+        # run — from /src so modset paths resolve correctly
+        cd /src && ./bin/fluxos_cuda Working_example/modset_river_30h.json

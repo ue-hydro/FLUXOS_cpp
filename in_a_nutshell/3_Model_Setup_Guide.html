@@ -254,12 +254,12 @@ python model_config_template.py</pre>
                     <div class="column">
                         <pre style="font-size: 0.78rem; padding: 18px;">
 {
-  <span class="string">"DEM_FILE"</span>: <span class="string">"bin/Rosa_2m.asc"</span>,
+  <span class="string">"DEM_FILE"</span>: <span class="string">"Working_example/Rosa_2m.asc"</span>,
   <span class="string">"SIM_DATETIME_START"</span>: <span class="string">"2009-01-01 00:00:00"</span>,
   <span class="string">"RESTART"</span>: <span class="keyword">false</span>,
 
   <span class="string">"INFLOW_FILE"</span>: {
-    <span class="string">"FILENAME"</span>: <span class="string">"bin/Flow.fluxos"</span>,
+    <span class="string">"FILENAME"</span>: <span class="string">"Working_example/Flow.fluxos"</span>,
     <span class="string">"DISCHARGE_LOCATION"</span>: {
       <span class="string">"X_COORDINATE"</span>: 426107,
       <span class="string">"Y_COORDINATE"</span>: 5785362
@@ -563,13 +563,12 @@ mpirun -np 4 ./fluxos modset.json</pre>
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
                         <pre style="font-size: 0.85rem; padding: 20px;">
-<span class="comment"># Generate WebGL data from results</span>
-python export_webgl.py \
-    --results Results/ \
-    --dem bin/Rosa_2m.asc \
-    --output fluxos_web/data/ \
+<span class="comment"># Generate WebGL data from results (writes index.html + data/ into --webgl-output)</span>
+python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
+    --results-dir Results/ \
+    --dem Working_example/Rosa_2m.asc \
     --utm-zone 10 \
-    --max-frames 120
+    --webgl-output fluxos_web
 
 <span class="comment"># Serve locally</span>
 cd fluxos_web

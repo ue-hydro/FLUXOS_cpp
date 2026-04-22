@@ -1,8 +1,9 @@
 # FLUXOS — Model Configuration
 
 One-stop template that turns a raw GeoTIFF DEM into the inputs FLUXOS needs
-(`bin/*.asc`, `bin/*.msh`, `bin/modset_*.json`) and produces an HTML summary
-with copy-paste Docker commands for building and running the simulation.
+(`Working_example/*.asc`, `Working_example/*.msh`, `Working_example/modset_*.json`)
+and produces an HTML summary with copy-paste container-run commands for
+building and running the simulation.
 
 The pattern mirrors OpenWQ's `1_Model_Config/` template: **you edit one file**
 (`model_config_template.py`), everything else is library code.

@@ -2739,12 +2739,13 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
 def _generate_webgl_html():
     """Generate the complete self-contained 3D WebGL particle viewer HTML.
 
-    Reads the HTML from the canonical index.html template in the fluxos_web
-    directory (sibling to fluxos_preprocessing).  Falls back to the embedded
-    copy below if the file doesn't exist (e.g. standalone script usage).
+    Reads the HTML from the canonical index.html template at
+    fluxos_preprocessing/2_Read_Outputs/fluxos_web/index.html. Falls back to
+    the embedded copy below if the file doesn't exist (e.g. if this script
+    was copied out of the repo and invoked stand-alone).
     """
     import pathlib as _pathlib
-    # Try canonical location first
+    # Canonical location: sibling of output_supporting_lib/
     _html_path = _pathlib.Path(__file__).parent.parent / 'fluxos_web' / 'index.html'
     if _html_path.exists():
         return _html_path.read_text()
@@ -5679,7 +5680,7 @@ Output:
 def _read_velocity_arrows_config(modset_path=None):
     """Read VELOCITY_ARROWS section from modset JSON config."""
     import json
-    paths = [modset_path] if modset_path else ["modset.json", "bin/modset.json"]
+    paths = [modset_path] if modset_path else ["modset.json", "Working_example/modset.json", "bin/modset.json"]
     for path in paths:
         if path and os.path.isfile(path):
             try:
@@ -5694,7 +5695,7 @@ def _read_velocity_arrows_config(modset_path=None):
 def _read_sim_start():
     """Try to read SIM_DATETIME_START from modset.json."""
     import json
-    for path in ["modset.json", "bin/modset.json"]:
+    for path in ["modset.json", "Working_example/modset.json", "bin/modset.json"]:
         if os.path.isfile(path):
             try:
                 with open(path) as f:
