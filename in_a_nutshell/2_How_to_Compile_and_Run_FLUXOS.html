@@ -328,7 +328,8 @@ cd FLUXOS_cpp</pre>
                 <pre style="font-size: 0.92rem; padding: 18px;">
 <span class="comment"># macOS / Windows:  install &amp; launch Docker Desktop  (https://www.docker.com/products/docker-desktop)</span>
 <span class="comment"># Linux:            install Docker Engine              (https://docs.docker.com/engine/install/)</span>
-docker --version &amp;&amp; docker compose version    <span class="comment"># sanity check: daemon is up</span></pre>
+<span class="comment"># Sanity check: daemon is up</span>
+docker --version &amp;&amp; docker compose version</pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
                     2&nbsp;·&nbsp;Create the container image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build deps)</span>
@@ -420,9 +421,10 @@ cd /work
                     1&nbsp;·&nbsp;Activate Apptainer <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(login node)</span>
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># Most HPC systems provide Apptainer as a module:</span>
-module load apptainer      <span class="comment"># or: module load singularity</span>
-apptainer --version        <span class="comment"># sanity check</span>
+<span class="comment"># Most HPC systems provide Apptainer as a module (or: module load singularity)</span>
+module load apptainer
+<span class="comment"># Sanity check</span>
+apptainer --version
 <span class="comment"># Local install (workstation): https://apptainer.org/docs/admin/main/installation.html</span></pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
@@ -534,7 +536,8 @@ sudo apt install libopenmpi-dev openmpi-bin
 
 <span class="comment"># 4. Optional: CUDA Toolkit &ge; 11.0 for GPU builds</span>
 <span class="comment">#    Follow NVIDIA's instructions at https://developer.nvidia.com/cuda-downloads</span>
-nvidia-smi     <span class="comment"># verify the driver is installed</span></pre>
+<span class="comment"># Verify the driver is installed</span>
+nvidia-smi</pre>
                 <div class="two-column" style="gap: 30px; margin-top: 12px;">
                     <div class="highlight-box info" style="padding: 10px 14px; font-size: 0.85rem;">
                         <strong>CMake ≥ 3.18</strong>, <strong>C++17</strong> compiler, <strong>Armadillo</strong>, <strong>HDF5</strong>,
