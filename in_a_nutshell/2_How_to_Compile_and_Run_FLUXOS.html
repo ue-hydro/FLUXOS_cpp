@@ -372,22 +372,28 @@ docker compose -f containers/docker-compose.yml run --rm fluxos</pre>
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
                     4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell)</span>
                 </h3>
-                <pre style="font-size: 0.92rem; padding: 18px;">
+                <pre style="font-size: 0.9rem; padding: 16px;">
 <span class="comment"># You are now inside the container</span>
 cd /opt/fluxos
 mkdir -p build &amp;&amp; cd build
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+
+<span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin drops the binary onto the host's ./bin/</span>
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
 make -j$(nproc)
 
-<span class="comment"># Run the model — still inside the shell</span>
-./bin/fluxos /work/bin/modset_river_30h.json</pre>
+<span class="comment"># Run from /work so the relative paths inside the modset resolve against</span>
+<span class="comment"># the bind-mounted inputs at /work/Working_example/ .</span>
+cd /work
+./bin/fluxos Working_example/modset_river_30h.json</pre>
 
                 <div class="highlight-box success" style="margin-top: 14px; font-size: 0.88rem; padding: 10px 14px;">
-                    <strong>Match step 2 and step 4:</strong> the <code>USE_MPI=ON</code> env var in step 2
-                    installs OpenMPI <em>inside the image</em>; you must also pass <code>-DUSE_MPI=ON</code>
-                    to <code>cmake</code> here in step 4 for FLUXOS to actually link against it.
-                    The resulting binary is then <code>./bin/fluxos_mpi</code> &mdash; launch with
-                    <code>mpirun -n N ./bin/fluxos_mpi /work/bin/modset.json</code>.
+                    <strong>Match step 2 and step 4 for MPI:</strong> the <code>USE_MPI=ON</code> env var
+                    in step 2 installs OpenMPI <em>inside the image</em>; you must also pass
+                    <code>-DUSE_MPI=ON</code> to <code>cmake</code> here in step 4 for FLUXOS to link
+                    against it. The resulting binary is then <code>./bin/fluxos_mpi</code> &mdash; launch
+                    with <code>mpirun -n N ./bin/fluxos_mpi Working_example/modset.json</code>
+                    (still from <code>/work</code>).
                 </div>
             </div>
             <div class="slide-footer">
@@ -464,22 +470,26 @@ apptainer shell --bind $PWD:/src fluxos_cpu.sif
 apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif</pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
-                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell, build into /src)</span>
+                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell, binary lands in host's ./bin)</span>
                 </h3>
-                <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># You are now inside the container</span>
+                <pre style="font-size: 0.88rem; padding: 16px;">
+<span class="comment"># You are now inside the container. Source tree is at /opt/fluxos (read-only).</span>
 cd /src
 mkdir -p build &amp;&amp; cd build
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON /opt/fluxos
+
+<span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin → binary appears on the host at ./bin/</span>
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 make -j$(nproc)
 
-<span class="comment"># Run — still inside the shell</span>
-./bin/fluxos_mpi /src/bin/modset_river_30h.json
+<span class="comment"># Run from /src so the modset's relative paths resolve against Working_example/</span>
+cd /src
+./bin/fluxos_mpi Working_example/modset_river_30h.json
 
 <span class="comment"># Multi-process MPI: launch from the login node using `apptainer exec`</span>
 <span class="comment"># (exit the shell first)</span>
 mpirun -n 16 apptainer exec --bind $PWD:/src fluxos_cpu.sif \
-    /src/build/bin/fluxos_mpi /src/bin/modset.json</pre>
+    /src/bin/fluxos_mpi /src/Working_example/modset.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
@@ -629,20 +639,20 @@ make -j$(nproc)</pre>
 cd ..
 
 <span class="comment"># Basic / trimesh run (OpenMP threads auto-detected)</span>
-./build/bin/fluxos bin/modset.json
+./build/bin/fluxos Working_example/modset.json
 
 <span class="comment"># Control OpenMP threads explicitly</span>
-OMP_NUM_THREADS=8 ./build/bin/fluxos bin/modset_trimesh.json
+OMP_NUM_THREADS=8 ./build/bin/fluxos Working_example/modset_trimesh.json
 
 <span class="comment"># MPI: distributed across N processes</span>
-mpirun -np 16 ./build/bin/fluxos_mpi bin/modset.json
+mpirun -np 16 ./build/bin/fluxos_mpi Working_example/modset.json
 
 <span class="comment"># Hybrid MPI + OpenMP (4 MPI procs × 4 threads each)</span>
 export OMP_NUM_THREADS=4
-mpirun -np 4 ./build/bin/fluxos_mpi bin/modset.json
+mpirun -np 4 ./build/bin/fluxos_mpi Working_example/modset.json
 
 <span class="comment"># GPU run</span>
-./build/bin/fluxos_cuda bin/modset_trimesh.json</pre>
+./build/bin/fluxos_cuda Working_example/modset_trimesh.json</pre>
                 <div class="two-column" style="gap: 30px; margin-top: 12px;">
                     <div class="card primary" style="padding: 12px 16px;">
                         <h3 style="font-size: 1rem; margin-bottom: 6px;">Outputs</h3>
@@ -836,13 +846,18 @@ git clone https://github.com/ue-hydro/FLUXOS_cpp.git
 cd FLUXOS_cpp && mkdir build && cd build
 cmake -DMODE_release=ON ..
 make -j$(nproc)
-./fluxos ../bin/modset.json</pre>
+cd .. && ./build/bin/fluxos Working_example/modset.json</pre>
                         <pre style="font-size: 1rem; padding: 30px; margin-bottom: 30px;">
 <span class="comment"># Quick start: containerized (no host dependencies)</span>
 git clone https://github.com/ue-hydro/FLUXOS_cpp.git
 cd FLUXOS_cpp
 docker compose -f containers/docker-compose.yml build
-docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset.json</pre>
+docker compose -f containers/docker-compose.yml run --rm fluxos \
+    bash -c "cd /opt/fluxos && mkdir -p build && cd build && \
+             cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+                   -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin .. && \
+             make -j\$(nproc) && \
+             cd /work && ./bin/fluxos Working_example/modset.json"</pre>
                         <div class="three-column" style="gap: 25px;">
                             <div class="card primary" style="text-align: center; padding: 20px;">
                                 <h3 style="justify-content: center; font-size: 1.2rem;">&#128230; Required</h3>

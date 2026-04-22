@@ -210,7 +210,7 @@
 
 _config = dict(
     project_name   = <span class="string">"Rosa Creek"</span>,
-    dem_source_geotiff = <span class="string">"bin/Rosa_2m.tif"</span>,
+    dem_source_geotiff = <span class="string">"Working_example/Rosa_2m.tif"</span>,
     dem_target_resolution_m = 2.0,
     mesh_type      = <span class="string">"triangular"</span>,
     trimesh_min_size = 2.0,
@@ -320,7 +320,7 @@ python model_config_template.py
 <span class="comment"># Generate animated KML for Google Earth</span>
 python fluxos_viewer.py \
     --results Results/ \
-    --dem bin/Rosa_2m.asc \
+    --dem Working_example/Rosa_2m.asc \
     --output flood_animation.kml \
     --variable h \
     --utm-zone 10
@@ -328,7 +328,7 @@ python fluxos_viewer.py \
 <span class="comment"># Multiple variables</span>
 python fluxos_viewer.py \
     --results Results/ \
-    --dem bin/Rosa_2m.asc \
+    --dem Working_example/Rosa_2m.asc \
     --output transport.kml \
     --variable conc \
     --utm-zone 10</pre>

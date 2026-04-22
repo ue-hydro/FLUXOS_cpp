@@ -63,7 +63,7 @@ _config = dict(
 
     # The modset .json that drove the run — used to detect mesh type, CRS,
     # whether transport was enabled, etc.
-    modset_file  = "bin/modset_river_30h.json",
+    modset_file  = "Working_example/modset_river_30h.json",
 
     # ------------------------------------------------------------------
     # 3. Analysis settings

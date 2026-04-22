@@ -7,20 +7,28 @@
 #        docker compose -f containers/docker-compose.yml build
 #   3. Open a shell inside the container:
 #        docker compose -f containers/docker-compose.yml run --rm fluxos
-#   4. Compile FLUXOS inside the shell:
+#   4. Compile FLUXOS inside the shell. The -DCMAKE_RUNTIME_OUTPUT_DIRECTORY
+#      flag drops the binary into the host's ./bin/ through the bind mount:
 #        cd /opt/fluxos
 #        mkdir -p build && cd build
-#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
 #        make -j$(nproc)
-#   # Then run the model — still inside the shell:
-#        ./bin/fluxos /work/bin/modset.json
+#      Then run the model (still inside the shell, cd back to /work so
+#      relative paths inside the modset resolve against the bind mounts):
+#        cd /work
+#        ./bin/fluxos Working_example/modset_river_30h.json
 #
 # Enable MPI at image-build time (brings OpenMPI into the image):
 #   USE_MPI=ON docker compose -f containers/docker-compose.yml build
 #
 # Bind mounts:
-#   ../bin     -> /work/bin      (read-only) — DEMs, meshes, modset JSONs
-#   ../Results -> /work/Results  (read-write) — simulation outputs
+#   ../Working_example -> /work/Working_example (read-only) — modset JSONs,
+#                                                             DEMs, meshes,
+#                                                             forcing files
+#   ../bin             -> /work/bin             (read-write) — compiled
+#                                                             binaries land here
+#   ../Results         -> /work/Results         (read-write) — simulation outputs
 
 services:
   fluxos:
@@ -32,7 +40,8 @@ services:
         USE_MPI: ${USE_MPI:-OFF}
     working_dir: /work
     volumes:
-      - ../bin:/work/bin:ro
+      - ../Working_example:/work/Working_example:ro
+      - ../bin:/work/bin
       - ../Results:/work/Results
     # Needed so `docker compose run` gives a nice interactive shell.
     stdin_open: true

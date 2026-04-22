@@ -24,15 +24,29 @@ Three ways to build FLUXOS, in order of friction:
 **1. Docker (zero host dependencies)** — see [`in_a_nutshell/2_How_to_Compile_and_Run_FLUXOS.html`](in_a_nutshell/2_How_to_Compile_and_Run_FLUXOS.html)
 
 ```bash
+# Build the container image (installs deps, ships source)
 docker compose -f containers/docker-compose.yml build
-docker compose -f containers/docker-compose.yml run --rm fluxos bin/modset.json
+# Open a shell inside the container
+docker compose -f containers/docker-compose.yml run --rm fluxos
+# Inside the shell — compile, then run
+cd /opt/fluxos && mkdir -p build && cd build
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+make -j$(nproc)
+cd /work && ./bin/fluxos Working_example/modset.json
 ```
 
 **2. Apptainer (for HPC)** — see [`containers/fluxos_apptainer.def`](containers/fluxos_apptainer.def) (CPU+MPI+OpenMP) or [`fluxos_apptainer_cuda.def`](containers/fluxos_apptainer_cuda.def) (GPU+MPI)
 
 ```bash
 apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
-apptainer run fluxos_cpu.sif bin/modset.json
+apptainer shell --bind $PWD:/src fluxos_cpu.sif
+# Inside — compile + run:
+cd /src && mkdir -p build && cd build
+cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
+make -j$(nproc)
+cd /src && ./bin/fluxos_mpi Working_example/modset.json
 ```
 
 **3. Native CMake build**
@@ -41,7 +55,7 @@ apptainer run fluxos_cpu.sif bin/modset.json
 mkdir build && cd build
 cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..   # see the deck for all flags
 make -j$(nproc)
-./bin/fluxos ../bin/modset.json
+cd .. && ./build/bin/fluxos Working_example/modset.json
 ```
 
 Requires CMake ≥ 3.18, C++17, Armadillo, nlohmann/json (bundled), HDF5, OpenMP.
@@ -80,7 +94,7 @@ Requires CMake ≥ 3.18, C++17, Armadillo, nlohmann/json (bundled), HDF5, OpenMP
 | `bin/` | Input examples (DEMs, meshes, forcing files, modset JSONs) |
 | `in_a_nutshell/` | Interactive HTML slide decks: overview, compile guide, model setup, supporting scripts |
 | `wikipage/source/` | ReadTheDocs (Sphinx) sources |
-| `fluxos_web/` | Browser-based WebGL animation viewer |
+| `fluxos_preprocessing/2_Read_Outputs/fluxos_web/` | Browser-based WebGL animation viewer (template) |
 | `Working_example/` | Legacy self-contained example (pre-JSON modset format) kept for reference |
 
 ## Introduction

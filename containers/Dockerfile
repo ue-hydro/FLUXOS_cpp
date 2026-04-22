@@ -12,11 +12,17 @@
 #        docker compose -f containers/docker-compose.yml build
 #   3. Open a shell inside the container:
 #        docker compose -f containers/docker-compose.yml run --rm fluxos
-#   4. Compile FLUXOS inside the shell:
+#   4. Compile FLUXOS inside the shell. The -DCMAKE_RUNTIME_OUTPUT_DIRECTORY
+#      flag makes the compiled binary land on the host's ./bin/ through the
+#      bind mount:
 #        cd /opt/fluxos
 #        mkdir -p build && cd build
-#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
 #        make -j$(nproc)
+#      Then run — still inside the shell:
+#        cd /work
+#        ./bin/fluxos Working_example/modset_river_30h.json
 #
 # Keeping the compile step explicit lets developers iterate on source without
 # re-building the whole image each time, and makes the dependency vs. build
@@ -53,7 +59,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # docker-compose. We copy by default so the image is self-sufficient.)
 COPY . /opt/fluxos
 
-# Working dir where docker-compose bind-mounts bin/ and Results/
+# Working dir — docker-compose bind-mounts Working_example/ (ro inputs),
+# bin/ (rw compiled binary output), and Results/ (rw simulation outputs) here.
 WORKDIR /work
 
 # Default: drop the user into a shell — they'll compile FLUXOS here (step 4).

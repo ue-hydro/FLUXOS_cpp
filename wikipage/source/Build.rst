@@ -183,14 +183,14 @@ Windows builds are supported via:
 Running the Example
 -------------------
 
-FLUXOS includes a test case in the ``bin/`` directory (Rosa Creek watershed, 859x618 cells at 2m resolution).
+FLUXOS includes a test case in the ``Working_example/`` directory (Rosa Creek watershed, 859x618 cells at 2m resolution). The repository's ``bin/`` directory is reserved for compiled binaries.
 
 **Regular Mesh:**
 
 .. code-block:: bash
 
    mkdir -p Results
-   ./build/bin/fluxos bin/modset.json
+   ./build/bin/fluxos Working_example/modset.json
 
 **Triangular Mesh:**
 
@@ -207,7 +207,7 @@ Then run FLUXOS with the triangular mesh config produced by the template:
 
    cd <repo_root>
    mkdir -p Results
-   ./build/bin/fluxos bin/modset_trimesh.json
+   ./build/bin/fluxos Working_example/modset_trimesh.json
 
 Visualizing Results in Google Earth
 -------------------------------------
@@ -218,11 +218,11 @@ Export simulation results as KMZ files for animated visualization:
 
    # Regular mesh results
    python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
-       --results-dir Results --dem bin/Rosa_2m.asc --utm-zone 10
+       --results-dir Results --dem Working_example/Rosa_2m.asc --utm-zone 10
 
    # Triangular mesh results
    python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
-       --results-dir Results --dem bin/Rosa_2m.asc \
+       --results-dir Results --dem Working_example/Rosa_2m.asc \
        --mesh-type triangular --utm-zone 10
 
    # Open in Google Earth
@@ -269,7 +269,7 @@ After building, verify the executable:
    ls -la build/bin/fluxos
 
    # Run with the example case
-   ./build/bin/fluxos bin/modset.json
+   ./build/bin/fluxos Working_example/modset.json
 
 Troubleshooting
 ---------------

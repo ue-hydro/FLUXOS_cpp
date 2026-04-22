@@ -60,9 +60,11 @@ _config = dict(
     repo_root       = None,
 
     # Directory (relative to repo_root) where generated .asc / .msh /
-    # modset.json files will be written.  This is the directory the
-    # Docker container mounts read-only at /work/bin.
-    output_bin_dir  = "bin",
+    # modset.json files will be written. This is the self-contained
+    # "working example" directory — the Docker container mounts it
+    # read-only at /work/Working_example, and modsets reference files
+    # in here with paths like "Working_example/Rosa_2m.asc".
+    output_bin_dir  = "Working_example",
 
     # Final name of the modset JSON inside output_bin_dir.
     modset_name     = "modset_rosa.json",
@@ -85,7 +87,7 @@ _config = dict(
     # Path to your GeoTIFF DEM. Can be absolute or relative to repo_root.
     # Must be in a projected CRS (UTM / equivalent) — geographic (degrees)
     # DEMs will emit a warning and produce incorrect slopes.
-    dem_source_geotiff      = "bin/Rosa_2m.tif",
+    dem_source_geotiff      = "Working_example/Rosa_2m.tif",
 
     # --- Only used when dem_source_mode == "download" -----------------
     # Bounding box in WGS84 lon/lat: (lon_min, lat_min, lon_max, lat_max).
@@ -164,8 +166,8 @@ _config = dict(
     # that's /work, which maps to the repo root — so leave these as
     # `bin/<filename>`).
     # ------------------------------------------------------------------
-    meteo_file   = "bin/Qmelt_synthetic.fluxos",
-    inflow_file  = None,   # e.g. "bin/Flow_river.fluxos" — set to None to disable
+    meteo_file   = "Working_example/Qmelt_synthetic.fluxos",
+    inflow_file  = None,   # e.g. "Working_example/Flow_river.fluxos" — set to None to disable
 
     # ------------------------------------------------------------------
     # 6. Simulation settings
