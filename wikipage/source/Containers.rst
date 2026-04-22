@@ -26,7 +26,8 @@ Both paths give the same four-step flow:
 Mount layout
 ------------
 
-The compose / ``.def`` files bind three host directories into the container:
+Both compose / ``.def`` files bind-mount **the entire repository** at a
+single path inside the container:
 
 .. list-table::
    :header-rows: 1
@@ -35,24 +36,23 @@ The compose / ``.def`` files bind three host directories into the container:
    * - Host path
      - Container path
      - Access
-     - Purpose
-   * - ``Working_example/``
-     - ``/work/Working_example``
-     - read-only
-     - canonical inputs (DEMs, meshes, modset JSONs, forcing files)
-   * - ``bin/``
-     - ``/work/bin``
+     - Notes
+   * - repo root (``.``)
+     - ``/work`` (Docker) or ``/src`` (Apptainer)
      - read-write
-     - where the compiled ``fluxos`` binary lands
-   * - ``Results/``
-     - ``/work/Results``
-     - read-write
-     - simulation outputs (``.txt`` or ``.vtu``)
+     - sources, inputs (``Working_example/``), compiled binary (``bin/``), and every ``Results*/`` folder are the same files on the host and in the container
+
+Mounting the whole repo (rather than picking individual subfolders) means
+every file the simulation writes — no matter which ``OUTPUT_FOLDER`` the
+modset names — lands on the host automatically. ``Results/``,
+``Results_river_30h/``, ``Results_trimesh_soil/``, etc. all work without
+changes to the compose / ``.def`` file.
 
 The key CMake flag in the four-step flow is
 ``-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin`` (Docker) or ``/src/bin``
-(Apptainer) — it redirects the compiled binary to a bind-mounted path so you
-can run it from the host as ``./bin/fluxos`` after exiting the shell.
+(Apptainer) — it redirects the compiled binary to the bind-mounted ``bin/``
+folder so you can run it from the host as ``./bin/fluxos`` after exiting
+the shell.
 
 Docker
 ------
@@ -88,36 +88,36 @@ Armadillo, nlohmann/json, HDF5, OpenMP, and optionally OpenMPI (pass
 
    docker compose -f containers/docker-compose.yml run --rm fluxos
 
-You land in ``/work`` with the three bind mounts above already in place and
-the source tree at ``/opt/fluxos``.
+You land in ``/work`` with the host repo bind-mounted there. A baked-in
+copy of the source at ``/opt/fluxos`` also ships in the image as a
+fallback for image-only workflows, but the recommended path is to compile
+from ``/work`` directly so host edits are picked up automatically.
 
 **4. Compile and run (inside the container shell)**
 
 .. code-block:: bash
 
-   cd /opt/fluxos && mkdir -p build && cd build
+   cd /work && mkdir -p build && cd build
    cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
    make -j$(nproc)
 
    cd /work
    ./bin/fluxos Working_example/modset_trimesh.json
 
 When you exit the shell (``exit`` / Ctrl-D) the container is removed (thanks
-to ``--rm``), but the binary at ``bin/fluxos`` and the output files at
-``Results/`` stay on the host.
+to ``--rm``), but the binary at ``bin/fluxos``, the ``build/`` tree, and
+every simulation-output file stay on the host — they were always on the
+host through the bind mount.
 
 Re-compile after editing source — no image rebuild needed
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The source is copied into the image at ``/opt/fluxos`` when you build the
-image. To pick up edits without rebuilding the image, either:
-
-* Bind-mount the repo explicitly when starting the shell
-  (``docker compose run --rm -v "$PWD:/opt/fluxos" fluxos``) and recompile
-  inside; or
-* Rebuild the image with ``docker compose ... build`` — fast because the
-  dependency layer is cached.
+Because the repo is bind-mounted at ``/work``, edits made on the host
+(in your editor) are immediately visible inside the container. Just
+re-enter the container shell and ``make -j$(nproc)`` from ``build/`` —
+no image rebuild required. Run ``docker compose ... build`` only when you
+change the Dockerfile or want a fresh dependency layer.
 
 Apptainer / Singularity (HPC)
 -----------------------------
@@ -224,13 +224,23 @@ mirror issue. Rerun ``docker compose ... build``.
 
 **``cmake`` cannot find Armadillo inside the container** — the image already
 ships ``libarmadillo-dev``; you most likely ran ``cmake`` from the wrong
-directory. Always invoke it from ``/opt/fluxos/build`` (Docker) or
-``/src/build`` (Apptainer).
+directory. Always invoke it from ``/work/build`` (Docker) or
+``/src/build`` (Apptainer), pointing the source-tree argument at the
+bind-mounted repo (``/work`` or ``/src``).
 
 **Binary ends up in ``build/bin/`` instead of the host ``bin/``** — you
 forgot ``-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin`` (or ``/src/bin``).
 Either re-run CMake with the flag, or copy the binary manually:
-``cp /opt/fluxos/build/bin/fluxos /work/bin/``.
+``cp /work/build/bin/fluxos /work/bin/``.
+
+**Simulation runs but I cannot find the results** — the output folder is
+taken from the modset's ``OUTPUT.OUTPUT_FOLDER`` field (e.g.
+``"Results_river_30h/"``), resolved **relative to the current working
+directory at run time**. Because the whole repo is bind-mounted at
+``/work`` (Docker) or ``/src`` (Apptainer), running from that path means
+the results appear alongside ``bin/``, ``Working_example/``, and the rest
+of your checkout on the host. If you ``cd`` somewhere else before running,
+they land there instead.
 
 **Apptainer ``--nv`` reports "Failed to find NVIDIA driver"** — the host has
 no NVIDIA driver (or an incompatible version). Use the CPU ``.sif`` instead.

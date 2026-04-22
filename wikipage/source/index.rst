@@ -41,10 +41,10 @@ All paths below assume you have cloned the repository:
    # open an interactive shell in the container
    docker compose -f containers/docker-compose.yml run --rm fluxos
 
-   # inside the container shell:
-   cd /opt/fluxos && mkdir -p build && cd build
+   # inside the container shell — /work is the bind-mounted repo root:
+   cd /work && mkdir -p build && cd build
    cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+         -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
    make -j$(nproc)
 
    cd /work

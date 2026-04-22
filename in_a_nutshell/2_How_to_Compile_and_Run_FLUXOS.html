@@ -357,33 +357,36 @@ USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
             </div>
             <div class="slide-content">
                 <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
-                    With the container image ready, open a shell and compile FLUXOS from
-                    the source already inside at <code>/opt/fluxos</code>.
+                    With the container image ready, open a shell and compile FLUXOS.
+                    The whole repo is bind-mounted at <code>/work</code>, so every file
+                    the build writes lands on the host automatically.
                 </p>
 
                 <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
                     3&nbsp;·&nbsp;Open a shell inside the container
                 </h3>
                 <pre style="font-size: 0.92rem; padding: 18px;">
-<span class="comment"># Drops you at a bash prompt inside the container. `./bin` → /work/bin (ro)</span>
-<span class="comment"># and `./Results` → /work/Results (rw) are bind-mounted from the host.</span>
+<span class="comment"># Drops you at a bash prompt inside the container. The host repo is</span>
+<span class="comment"># bind-mounted at /work, so sources, bin/, and any Results*/ folders</span>
+<span class="comment"># are the same files on the host and in the container.</span>
 docker compose -f containers/docker-compose.yml run --rm fluxos</pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
                     4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell)</span>
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># You are now inside the container</span>
-cd /opt/fluxos
+<span class="comment"># You are now inside the container; /work is the bind-mounted repo root</span>
+cd /work
 mkdir -p build &amp;&amp; cd build
 
 <span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin drops the binary onto the host's ./bin/</span>
 cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 make -j$(nproc)
 
 <span class="comment"># Run from /work so the relative paths inside the modset resolve against</span>
-<span class="comment"># the bind-mounted inputs at /work/Working_example/ .</span>
+<span class="comment"># the bind-mounted inputs at /work/Working_example/ . Simulation outputs</span>
+<span class="comment"># land at whichever folder the modset's OUTPUT_FOLDER names.</span>
 cd /work
 ./bin/fluxos Working_example/modset_river_30h.json</pre>
 
@@ -850,9 +853,9 @@ git clone https://github.com/ue-hydro/FLUXOS_cpp.git
 cd FLUXOS_cpp
 docker compose -f containers/docker-compose.yml build
 docker compose -f containers/docker-compose.yml run --rm fluxos \
-    bash -c "cd /opt/fluxos && mkdir -p build && cd build && \
+    bash -c "cd /work && mkdir -p build && cd build && \
              cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-                   -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin .. && \
+                   -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work && \
              make -j\$(nproc) && \
              cd /work && ./bin/fluxos Working_example/modset.json"</pre>
                         <div class="three-column" style="gap: 25px;">

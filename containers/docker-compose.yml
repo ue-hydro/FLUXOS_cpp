@@ -7,28 +7,33 @@
 #        docker compose -f containers/docker-compose.yml build
 #   3. Open a shell inside the container:
 #        docker compose -f containers/docker-compose.yml run --rm fluxos
-#   4. Compile FLUXOS inside the shell. The -DCMAKE_RUNTIME_OUTPUT_DIRECTORY
-#      flag drops the binary into the host's ./bin/ through the bind mount:
-#        cd /opt/fluxos
-#        mkdir -p build && cd build
+#   4. Compile FLUXOS inside the shell. The whole repo is bind-mounted at
+#      /work, so edits on the host are picked up without rebuilding the image,
+#      and every file the binary writes (binary itself, simulation results,
+#      etc.) lands on the host filesystem automatically.
+#        cd /work && mkdir -p build && cd build
 #        cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 #        make -j$(nproc)
-#      Then run the model (still inside the shell, cd back to /work so
-#      relative paths inside the modset resolve against the bind mounts):
+#      Then run the model (still inside the shell, from /work so modset
+#      relative paths resolve correctly):
 #        cd /work
 #        ./bin/fluxos Working_example/modset_river_30h.json
+#
+#      Simulation outputs land at whichever folder the modset's
+#      OUTPUT.OUTPUT_FOLDER names — e.g. "Results_river_30h/" — on the HOST
+#      filesystem, sibling to bin/ and Working_example/.
 #
 # Enable MPI at image-build time (brings OpenMPI into the image):
 #   USE_MPI=ON docker compose -f containers/docker-compose.yml build
 #
-# Bind mounts:
-#   ../Working_example -> /work/Working_example (read-only) — modset JSONs,
-#                                                             DEMs, meshes,
-#                                                             forcing files
-#   ../bin             -> /work/bin             (read-write) — compiled
-#                                                             binaries land here
-#   ../Results         -> /work/Results         (read-write) — simulation outputs
+# Bind mount:
+#   ..                 -> /work  (read-write) — the whole repo. Sources,
+#                                                inputs (Working_example/),
+#                                                compiled binary (bin/),
+#                                                and every Results*/ folder
+#                                                are all the same files on
+#                                                the host and in the container.
 
 services:
   fluxos:
@@ -40,9 +45,7 @@ services:
         USE_MPI: ${USE_MPI:-OFF}
     working_dir: /work
     volumes:
-      - ../Working_example:/work/Working_example:ro
-      - ../bin:/work/bin
-      - ../Results:/work/Results
+      - ..:/work
     # Needed so `docker compose run` gives a nice interactive shell.
     stdin_open: true
     tty: true
