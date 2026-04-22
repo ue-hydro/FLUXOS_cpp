@@ -281,7 +281,7 @@ def _mesh_preview(msh_path: str, max_triangles: int = 4000) -> dict:
     compact even after subsampling).
     """
     try:
-        xs, ys = [], []
+        xs, ys, zs = [], [], []
         tris = []
         with open(msh_path) as f:
             mode = None
@@ -302,9 +302,10 @@ def _mesh_preview(msh_path: str, max_triangles: int = 4000) -> dict:
                 if mode == "nodes":
                     parts = line.split()
                     if len(parts) >= 4:
-                        # id x y z — id is 1-indexed
+                        # id x y z — id is 1-indexed; z carries the DEM elevation
                         xs.append(float(parts[1]))
                         ys.append(float(parts[2]))
+                        zs.append(float(parts[3]))
                     continue
                 if mode == "elem_hdr":
                     mode = "elements"; continue
@@ -327,7 +328,7 @@ def _mesh_preview(msh_path: str, max_triangles: int = 4000) -> dict:
     kept = tris[::stride]
     # Compact to only the vertices touched by kept triangles
     seen = {}
-    comp_x, comp_y, comp_tris = [], [], []
+    comp_x, comp_y, comp_z, comp_tris = [], [], [], []
     for (a, b, c) in kept:
         new_ids = []
         for v in (a, b, c):
@@ -335,11 +336,13 @@ def _mesh_preview(msh_path: str, max_triangles: int = 4000) -> dict:
                 seen[v] = len(comp_x)
                 comp_x.append(xs[v])
                 comp_y.append(ys[v])
+                comp_z.append(zs[v] if v < len(zs) else 0.0)
             new_ids.append(seen[v])
         comp_tris.append(new_ids)
     return {
         "x": comp_x,
         "y": comp_y,
+        "z": comp_z,
         "tris": comp_tris,
         "stride": stride,
         "total_triangles": len(tris),
