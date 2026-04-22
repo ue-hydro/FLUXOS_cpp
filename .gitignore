@@ -1,6 +1,8 @@
 Results/
 Results_steady/
 Results_river_steady/
+Results_river_30h/
+Results_docker_test/
 CMakefiles/
 .gitignore
 .vscode
@@ -18,3 +20,16 @@ bin/fluxos_run.log
 fluxos_web/data/
 fluxos_kml_regular/
 horton_infiltration_results.png
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Generated reports from the preprocessing templates
+fluxos_preprocessing/**/reports/
+
+# Cached DEM tiles downloaded by dem_download.py
+bin/dem_cache/
+
+# Local Claude Code / IDE state
+.claude/settings.local.json

@@ -1,0 +1,51 @@
+# .dockerignore — keep Docker build context small.
+# Applies when building from the repo root (as docker-compose.yml does:
+#   context: ..  → this file).
+#
+# Only source code + CMakeLists.txt are needed to build FLUXOS inside the
+# image. Simulation outputs, local build dirs, git history, web assets, and
+# auxiliary Python/R scripts are all excluded.
+
+# Version control
+.git
+.gitignore
+.gitmodules
+.github
+
+# Local IDE / tooling state
+.claude
+.vscode
+.idea
+.DS_Store
+
+# Local CMake build outputs (users often have several of these)
+build
+build_*
+cmake-build-*
+
+# Simulation outputs (can be multi-GB)
+Results
+Results_*
+Working_example
+
+# Documentation / web / wiki assets — not needed for the FLUXOS build
+in_a_nutshell
+wikipage
+fluxos_web
+fluxos_preprocessing
+
+# Stray images / figures at the repo root
+*.png
+*.jpg
+*.pdf
+
+# Runtime input data — mounted at runtime via docker-compose volumes,
+# so not needed inside the image itself.
+bin
+
+# Python caches
+__pycache__
+*.pyc
+
+# Container files themselves are not needed inside the image we're building
+containers
