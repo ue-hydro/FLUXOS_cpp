@@ -84,7 +84,7 @@ Export simulation results as KMZ files for animated visualization in Google Eart
 Model Configuration Template (``1_Model_Config/model_config_template.py``)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The model configuration template replaces the old ``fluxos_setup.py`` CLI. A single editable Python file drives DEM preparation, Gmsh mesh generation, and ``modset.json`` creation in one run — and produces a self-contained HTML report that summarises the build and lists copy-paste Docker commands for running the model.
+A single editable Python file drives DEM preparation, Gmsh mesh generation, and ``modset.json`` creation in one run — and produces a self-contained HTML report that summarises the build and lists copy-paste Docker commands for running the model.
 
 .. code-block:: bash
 

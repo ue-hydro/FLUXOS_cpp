@@ -1,7 +1,10 @@
-Linux Installation
-==================================
+Linux Installation (native)
+=================================
 
-This guide provides detailed instructions for installing FLUXOS on Linux systems, including workstations and HPC clusters.
+This guide covers **native** installation on Linux workstations and HPC
+clusters. For a container-based build (Docker on workstations, Apptainer on
+HPC), see :doc:`Containers` — that is the recommended path for most users
+because it ships every system dependency pre-installed.
 
 Quick Start
 -----------
@@ -11,17 +14,19 @@ For users familiar with Linux development:
 .. code-block:: bash
 
    # Install dependencies (Ubuntu/Debian)
-   sudo apt-get install cmake libarmadillo-dev libomp-dev
+   sudo apt-get install cmake libarmadillo-dev libomp-dev \
+                        nlohmann-json3-dev libhdf5-dev
 
    # Clone and build
-   git clone https://github.com/DiogoCostaPT/FLUXOS_cpp.git
+   git clone https://github.com/ue-hydro/FLUXOS_cpp.git
    cd FLUXOS_cpp
    mkdir build && cd build
-   cmake -DMODE_release=ON ..
+   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
    make -j$(nproc)
 
-   # Run
-   ./bin/fluxos ../input/modset.json
+   # Run (binary is at build/bin/fluxos)
+   cd ..
+   ./build/bin/fluxos Working_example/modset_trimesh.json
 
 Detailed Installation
 ---------------------
@@ -164,7 +169,7 @@ On HPC systems with environment modules:
    module load openmpi/4.1.1
 
    # Clone repository
-   git clone https://github.com/DiogoCostaPT/FLUXOS_cpp.git
+   git clone https://github.com/ue-hydro/FLUXOS_cpp.git
    cd FLUXOS_cpp
 
    # Build with MPI support

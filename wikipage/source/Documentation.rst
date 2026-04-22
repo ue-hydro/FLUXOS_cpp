@@ -9,7 +9,6 @@ Documentation
    CUDA
    HPC
    Example
-   Software
 
 
 
