@@ -1,9 +1,13 @@
 # FLUXOS C++ — Docker image (dependency container)
 #
 # This image installs everything FLUXOS NEEDS to build (compilers, CMake,
-# Armadillo, HDF5, nlohmann/json, OpenMP, optional OpenMPI) AND ships the
-# source tree at /opt/fluxos, but it does NOT compile FLUXOS during the
-# image build.
+# Armadillo, HDF5, nlohmann/json, OpenMP, optional OpenMPI). It does NOT
+# compile FLUXOS during the image build — compilation happens interactively
+# inside the container, against the source tree that is bind-mounted from
+# the host at /work (see docker-compose.yml).
+#
+# A copy of the source at /opt/fluxos is also shipped as a fallback (useful
+# if the image is used standalone, without the compose bind mount).
 #
 # The intended workflow — matches the in_a_nutshell deck:
 #
@@ -12,20 +16,20 @@
 #        docker compose -f containers/docker-compose.yml build
 #   3. Open a shell inside the container:
 #        docker compose -f containers/docker-compose.yml run --rm fluxos
-#   4. Compile FLUXOS inside the shell. The -DCMAKE_RUNTIME_OUTPUT_DIRECTORY
-#      flag makes the compiled binary land on the host's ./bin/ through the
-#      bind mount:
-#        cd /opt/fluxos
-#        mkdir -p build && cd build
+#   4. Compile FLUXOS inside the shell. The whole repo is bind-mounted at
+#      /work, so compiling from there means host edits are immediately
+#      visible and every file the binary writes (binary itself, simulation
+#      results, etc.) lands on the host filesystem automatically:
+#        cd /work && mkdir -p build && cd build
 #        cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+#              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 #        make -j$(nproc)
-#      Then run — still inside the shell:
+#      Then run — still inside the shell, from /work so modset paths resolve:
 #        cd /work
 #        ./bin/fluxos Working_example/modset_river_30h.json
 #
-# Keeping the compile step explicit lets developers iterate on source without
-# re-building the whole image each time, and makes the dependency vs. build
+# Keeping the compile step explicit lets developers iterate on source
+# without rebuilding the image, and makes the dependency vs. build
 # separation obvious.
 #
 # CUDA is not supported by this Dockerfile. For GPU runs use

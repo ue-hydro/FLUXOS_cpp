@@ -26,12 +26,12 @@ Three ways to build FLUXOS, in order of friction:
 ```bash
 # Build the container image (installs deps, ships source)
 docker compose -f containers/docker-compose.yml build
-# Open a shell inside the container
+# Open a shell inside the container (the repo is bind-mounted at /work)
 docker compose -f containers/docker-compose.yml run --rm fluxos
 # Inside the shell — compile, then run
-cd /opt/fluxos && mkdir -p build && cd build
+cd /work && mkdir -p build && cd build
 cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
-      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin ..
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 make -j$(nproc)
 cd /work && ./bin/fluxos Working_example/modset.json
 ```

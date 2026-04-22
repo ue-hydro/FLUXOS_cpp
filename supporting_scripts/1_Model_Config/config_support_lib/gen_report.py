@@ -1051,8 +1051,9 @@ def _next_steps_section(data: dict) -> str:
     shell_cmd = 'docker compose -f containers/docker-compose.yml run --rm fluxos'
 
     # Step 4: inside the shell, compile FLUXOS and run the simulation.
-    # -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin drops the compiled binary
-    # onto the host's ./bin/ via the docker-compose bind mount.
+    # The whole repo is bind-mounted at /work, so compiling from there means
+    # every file the build writes (binary, build/ tree, and every Results*/
+    # folder the simulation produces) lands on the host automatically.
     cmake_flags = ["-DMODE_release=ON"]
     if config.get("use_trimesh_build"):
         cmake_flags.append("-DUSE_TRIMESH=ON")
@@ -1066,14 +1067,15 @@ def _next_steps_section(data: dict) -> str:
         else f'./bin/{binary_name} {modset_rel}'
     )
     compile_cmd = (
-        "# You are now inside the container\n"
-        "cd /opt/fluxos\n"
+        "# You are now inside the container; /work is the bind-mounted repo\n"
+        "cd /work\n"
         "mkdir -p build && cd build\n"
-        f"cmake {' '.join(cmake_flags)} ..\n"
+        f"cmake {' '.join(cmake_flags)} /work\n"
         "make -j$(nproc)\n"
         "\n"
-        "# Run the model — cd to /work so the modset's relative paths\n"
-        "# resolve against the bind-mounted Working_example/ directory\n"
+        "# Run the model — from /work so the modset's relative paths resolve.\n"
+        "# Simulation output lands at whatever folder the modset's\n"
+        "# OUTPUT_FOLDER names, on the host filesystem.\n"
         "cd /work\n"
         f"{run_line}"
     )
