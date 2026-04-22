@@ -17,6 +17,57 @@ The ``supporting_scripts/`` directory contains modern Python CLI tools for DEM p
    cd supporting_scripts
    pip install -r requirements.txt
 
+Model Configuration Template (``1_Model_Config/model_config_template.py``)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A single editable Python file drives DEM preparation, Gmsh mesh generation, and ``modset.json`` creation in one run — and produces a self-contained HTML report that summarises the build and lists copy-paste Docker commands for running the model.
+
+.. code-block:: bash
+
+   cd supporting_scripts/1_Model_Config
+   # open model_config_template.py in your editor, fill in the _config dict, then:
+   python model_config_template.py
+
+The template is organised into ten labelled sections (project metadata, paths, DEM source, mesh, forcing files, simulation settings, output, optional modules, Docker/run, report options). A typical edit for a new project only needs the project name, the GeoTIFF path, the mesh type, and the modset filename.
+
+**What it produces:**
+
+.. list-table::
+   :widths: 40 60
+   :header-rows: 1
+
+   * - Output
+     - Purpose
+   * - ``bin/<dem>.asc``
+     - Downscaled DEM in ESRI ASCII (or a 10×10 dummy ASC when ``mesh_type = "triangular"``, since elevations then live in the ``.msh`` vertex z-coordinates)
+   * - ``bin/<mesh>.msh``
+     - Slope-adaptive triangular mesh (triangular path only)
+   * - ``bin/<modset>.json``
+     - FLUXOS configuration consumed by the C++ binary
+   * - ``1_Model_Config/reports/<project>_report.html``
+     - Self-contained HTML summary with KPI tiles, domain/mesh statistics, modset table, module status, and a *Next Steps* section with OS-aware Docker / viewer snippets
+
+**Internal layout (don't edit):**
+
+The template delegates to three utility modules inside ``config_support_lib/``:
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Module
+     - Responsibility
+   * - ``dem_operations.py``
+     - GeoTIFF reading (``rasterio``), bilinear downscaling (``scipy.ndimage.zoom``), ESRI ASCII writing
+   * - ``mesh_generation.py``
+     - Slope-based size field + boundary extraction + Gmsh triangular mesh generation (``pygmsh``/``gmsh``); embeds DEM elevations in vertex z-coordinates
+   * - ``driver.py``
+     - Orchestrator that calls the preprocessing modules, writes ``modset.json`` (in the format read by ``read_modset()`` in ``src/read_functions.cpp``), captures metadata, and invokes the report generator
+   * - ``gen_report.py``
+     - Builds the inline-styled HTML report (no Jinja, no external assets beyond CDN fonts)
+
+See :doc:`Digital` for details on the DEM preprocessing pipeline.
+
 Google Earth KML Exporter (``fluxos_viewer.py``)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -80,57 +131,6 @@ Export simulation results as KMZ files for animated visualization in Google Eart
 2. Use the **time slider** (top-left) to animate through simulation timesteps
 3. Water depth is shown as blue polygons clamped to the terrain surface
 4. Each timestep is a separate time-aware folder — drag the slider to scrub through them
-
-Model Configuration Template (``1_Model_Config/model_config_template.py``)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-A single editable Python file drives DEM preparation, Gmsh mesh generation, and ``modset.json`` creation in one run — and produces a self-contained HTML report that summarises the build and lists copy-paste Docker commands for running the model.
-
-.. code-block:: bash
-
-   cd supporting_scripts/1_Model_Config
-   # open model_config_template.py in your editor, fill in the _config dict, then:
-   python model_config_template.py
-
-The template is organised into ten labelled sections (project metadata, paths, DEM source, mesh, forcing files, simulation settings, output, optional modules, Docker/run, report options). A typical edit for a new project only needs the project name, the GeoTIFF path, the mesh type, and the modset filename.
-
-**What it produces:**
-
-.. list-table::
-   :widths: 40 60
-   :header-rows: 1
-
-   * - Output
-     - Purpose
-   * - ``bin/<dem>.asc``
-     - Downscaled DEM in ESRI ASCII (or a 10×10 dummy ASC when ``mesh_type = "triangular"``, since elevations then live in the ``.msh`` vertex z-coordinates)
-   * - ``bin/<mesh>.msh``
-     - Slope-adaptive triangular mesh (triangular path only)
-   * - ``bin/<modset>.json``
-     - FLUXOS configuration consumed by the C++ binary
-   * - ``1_Model_Config/reports/<project>_report.html``
-     - Self-contained HTML summary with KPI tiles, domain/mesh statistics, modset table, module status, and a *Next Steps* section with OS-aware Docker / viewer snippets
-
-**Internal layout (don't edit):**
-
-The template delegates to three utility modules inside ``config_support_lib/``:
-
-.. list-table::
-   :widths: 30 70
-   :header-rows: 1
-
-   * - Module
-     - Responsibility
-   * - ``dem_operations.py``
-     - GeoTIFF reading (``rasterio``), bilinear downscaling (``scipy.ndimage.zoom``), ESRI ASCII writing
-   * - ``mesh_generation.py``
-     - Slope-based size field + boundary extraction + Gmsh triangular mesh generation (``pygmsh``/``gmsh``); embeds DEM elevations in vertex z-coordinates
-   * - ``driver.py``
-     - Orchestrator that calls the preprocessing modules, writes ``modset.json`` (in the format read by ``read_modset()`` in ``src/read_functions.cpp``), captures metadata, and invokes the report generator
-   * - ``gen_report.py``
-     - Builds the inline-styled HTML report (no Jinja, no external assets beyond CDN fonts)
-
-See :doc:`Digital` for details on the DEM preprocessing pipeline.
 
 External Visualization Tools
 -----------------------------
