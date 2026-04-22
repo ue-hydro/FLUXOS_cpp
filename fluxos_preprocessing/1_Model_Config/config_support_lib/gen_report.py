@@ -180,6 +180,29 @@ td code{font-family:'JetBrains Mono',monospace;font-size:.82rem;
 .viz-toggle-label code{font-family:'JetBrains Mono',monospace;font-size:.78rem;
   background:rgba(0,102,204,.08);padding:.05rem .35rem;border-radius:3px;color:var(--primary)}
 
+/* 2D / 3D map view toggle */
+.map-view-toggle{display:inline-flex;border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;background:var(--surface);flex-shrink:0}
+.map-view-toggle .view-btn{border:0;background:transparent;color:var(--text2);
+  padding:.4rem .9rem;cursor:pointer;font-family:inherit;font-size:.82rem;
+  font-weight:500;transition:background .15s,color .15s}
+.map-view-toggle .view-btn:not(:last-child){border-right:1px solid var(--border)}
+.map-view-toggle .view-btn:hover{background:rgba(0,102,204,.08);color:var(--primary)}
+.map-view-toggle .view-btn.active{background:var(--primary);color:#fff}
+[data-theme="dark"] .map-view-toggle .view-btn.active{background:var(--primary);color:#0f1117}
+
+/* Vertical-exaggeration slider (3D view only) */
+.ve-slider-wrap{display:flex;align-items:center;gap:.8rem;margin:.2rem 0 .6rem;
+  padding:.5rem .8rem;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;flex-wrap:wrap}
+.ve-slider-wrap label{font-size:.82rem;color:var(--text2);display:flex;
+  align-items:center;gap:.6rem;flex-wrap:wrap}
+.ve-slider-wrap .ve-label{font-family:'JetBrains Mono',monospace;font-size:.9rem;
+  color:var(--primary);font-weight:700;min-width:3em}
+.ve-slider-wrap .ve-note{font-size:.72rem;color:var(--text3);font-weight:400}
+.ve-slider-wrap input[type="range"]{flex:1 1 200px;min-width:120px;
+  accent-color:var(--primary);cursor:pointer}
+
 .os-badge{display:inline-block;padding:3px 12px;border-radius:14px;font-size:.75rem;
   font-weight:600;color:#fff;margin-right:.5rem}
 
@@ -317,19 +340,27 @@ _JS = r"""
     if (tries <= 0) { console.warn('Plotly CDN failed to load'); return; }
     setTimeout(() => waitForPlotly(cb, tries - 1), 100);
   }
+  function renderPlot(el) {
+    try {
+      const fig = JSON.parse(el.getAttribute('data-fig'));
+      // Don't apply the 2D layoutPatch to 3D scene plots — they use
+      // layout.scene.{xaxis,yaxis,zaxis} instead of top-level axes.
+      const is3d = (fig.data || []).some(t => (t.type || '').includes('3d')
+                                            || t.type === 'surface');
+      const layoutOpts = Object.assign({}, fig.layout || {},
+                                       is3d ? {} : layoutPatch());
+      Plotly.newPlot(el, fig.data || [], layoutOpts,
+                     { displaylogo: false, responsive: true });
+      el._fluxosFig = fig;
+      el._rendered = true;
+    } catch (e) { console.error('plot render failed', e); }
+  }
   waitForPlotly(() => {
-    document.querySelectorAll('.plot[data-fig]').forEach(el => {
-      try {
-        const fig = JSON.parse(el.getAttribute('data-fig'));
-        Plotly.newPlot(el,
-          fig.data || [],
-          Object.assign({}, fig.layout || {}, layoutPatch()),
-          { displaylogo: false, responsive: true }
-        );
-        el._fluxosFig = fig;
-      } catch (e) { console.error('plot render failed', e); }
-    });
+    // Skip elements flagged as lazy (rendered on first user interaction)
+    document.querySelectorAll('.plot[data-fig]:not([data-lazy])').forEach(renderPlot);
   });
+  // Expose so other UI (e.g. 2D/3D toggle) can lazy-render on demand.
+  window.__fluxosRenderPlot = renderPlot;
   // Re-theme charts when the user toggles dark / light
   const btn = document.getElementById('theme-btn');
   if (btn) {
@@ -339,6 +370,59 @@ _JS = r"""
         if (el._fluxosFig) Plotly.relayout(el, layoutPatch());
       });
     });
+  }
+})();
+
+// DEM map: 2D / 3D view toggle + vertical-exaggeration slider
+(function(){
+  const toggle = document.querySelector('.map-view-toggle');
+  if (!toggle) return;
+  const plot2d = document.getElementById('dem-mesh-plot-2d');
+  const plot3d = document.getElementById('dem-mesh-plot-3d');
+  const slider = document.getElementById('ve-slider');
+  const sliderWrap = document.querySelector('.ve-slider-wrap');
+  const veLabel = sliderWrap && sliderWrap.querySelector('.ve-label');
+  if (!plot2d || !plot3d) return;
+
+  toggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('.view-btn');
+    if (!btn) return;
+    const want3d = btn.dataset.view === '3d';
+    toggle.querySelectorAll('.view-btn').forEach(b => {
+      const isActive = b === btn;
+      b.classList.toggle('active', isActive);
+      b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    plot2d.style.display = want3d ? 'none' : '';
+    plot3d.style.display = want3d ? '' : 'none';
+    if (sliderWrap) sliderWrap.style.display = want3d ? '' : 'none';
+    // Lazy-render 3D on first activation (spares the initial-load WebGL cost)
+    if (want3d && !plot3d._rendered && window.__fluxosRenderPlot) {
+      plot3d.removeAttribute('data-lazy');
+      window.__fluxosRenderPlot(plot3d);
+    }
+    // Plotly needs a resize notification after a display:none → '' flip
+    if (window.Plotly) {
+      const target = want3d ? plot3d : plot2d;
+      try { Plotly.Plots.resize(target); } catch (_) { /* no-op */ }
+    }
+  });
+
+  // VE slider — live-update scene.aspectratio.z as the user drags
+  if (slider && veLabel) {
+    const dz = parseFloat(slider.dataset.dz) || 1.0;
+    const horiz = parseFloat(slider.dataset.horiz) || 1.0;
+    const apply = () => {
+      const ve = parseFloat(slider.value) || 1;
+      veLabel.textContent = ve + '×';
+      if (plot3d._rendered && window.Plotly) {
+        const zAspect = Math.max(0.01, Math.min(3.0, ve * dz / horiz));
+        try {
+          Plotly.relayout(plot3d, { 'scene.aspectratio.z': zAspect });
+        } catch (_) { /* no-op */ }
+      }
+    };
+    slider.addEventListener('input', apply);
   }
 })();
 
@@ -480,53 +564,55 @@ def _summary_section(data: dict) -> str:
     """
 
 
-def _fig_dem_mesh_map(dem: dict, mesh: dict | None, mesh_type: str) -> dict | None:
+def _fig_dem_mesh_map(dem: dict, mesh: dict | None,
+                      mesh_type: str) -> dict | None:
     """
-    Build a Plotly figure dict with an interactive heatmap of the DEM and,
-    for triangular meshes, an overlay of triangle edges.
+    Build two Plotly figure dicts for the preview map:
+
+    - ``fig2d``: top-down ``heatmap`` of the DEM + ``scattergl`` triangle edges
+    - ``fig3d``: ``surface`` of the DEM + ``scatter3d`` triangle edges lifted
+      onto the vertex elevations
+
+    Returns ``{"fig2d": …, "fig3d": …}`` or ``None`` if the DEM preview is
+    missing. The 3D figure is included regardless of mesh type (for a
+    regular mesh it is just the DEM surface).
     """
     preview = (dem or {}).get("preview")
     if not preview:
         return None
 
-    data = [{
+    # -- 2D heatmap + mesh overlay ----------------------------------------
+    data2d = [{
         "type": "heatmap",
         "z": preview["z"],
         "x": preview["x_vals"],
         "y": preview["y_vals"],
         "colorscale": "earth",
-        "reversescale": False,
-        "colorbar": {"title": "Elevation (m)", "thickness": 14,
-                     "xpad": 0},
+        "colorbar": {"title": "Elevation (m)", "thickness": 14, "xpad": 0},
         "hovertemplate": "x: %{x:.0f}<br>y: %{y:.0f}<br>z: %{z:.2f} m<extra></extra>",
         "zsmooth": False,
         "name": "DEM",
     }]
 
-    # Mesh overlay (triangular only)
     mesh_preview = (mesh or {}).get("preview") if mesh_type == "triangular" else None
     if mesh_preview and mesh_preview.get("tris"):
         xs = mesh_preview["x"]
         ys = mesh_preview["y"]
-        # Build an unconnected line-segment trace for all triangle edges.
-        # Each triangle contributes 4 points: v0, v1, v2, v0 (to close),
-        # then a None-None break before the next triangle.
         ex: list = []
         ey: list = []
         for a, b, c in mesh_preview["tris"]:
             ex += [xs[a], xs[b], xs[c], xs[a], None]
             ey += [ys[a], ys[b], ys[c], ys[a], None]
-        data.append({
-            "type": "scattergl",
-            "mode": "lines",
+        data2d.append({
+            "type": "scattergl", "mode": "lines",
             "x": ex, "y": ey,
-            "line": {"color": "rgba(255,107,53,0.65)", "width": 0.8},
+            "line": {"color": "rgba(255,107,53,0.75)", "width": 0.8},
             "hoverinfo": "skip",
-            "name": f"Mesh ({mesh_preview['shown_triangles']:,} "
-                    f"of {mesh_preview['total_triangles']:,} triangles)",
+            "name": f"Mesh ({mesh_preview['shown_triangles']:,} of "
+                    f"{mesh_preview['total_triangles']:,} triangles)",
         })
 
-    layout = {
+    layout2d = {
         "xaxis": {"title": "X (projected CRS, m)",
                   "scaleanchor": "y", "scaleratio": 1},
         "yaxis": {"title": "Y (projected CRS, m)"},
@@ -536,22 +622,132 @@ def _fig_dem_mesh_map(dem: dict, mesh: dict | None, mesh_type: str) -> dict | No
         "legend": {"orientation": "h", "y": 1.05, "x": 0,
                    "font": {"size": 11}},
     }
-    return {"data": data, "layout": layout}
+    fig2d = {"data": data2d, "layout": layout2d}
+
+    # -- 3D surface + mesh-edge overlay -----------------------------------
+    data3d = [{
+        "type": "surface",
+        "x": preview["x_vals"],
+        "y": preview["y_vals"],
+        "z": preview["z"],
+        "colorscale": "earth",
+        "colorbar": {"title": "Elevation (m)", "thickness": 14, "xpad": 0},
+        "hovertemplate": "x: %{x:.0f}<br>y: %{y:.0f}<br>z: %{z:.2f} m<extra></extra>",
+        "contours": {
+            "z": {"show": False},
+        },
+        "lighting": {"ambient": 0.7, "diffuse": 0.6,
+                     "specular": 0.15, "roughness": 0.6},
+        "name": "DEM",
+    }]
+
+    if mesh_preview and mesh_preview.get("tris") and mesh_preview.get("z"):
+        xs = mesh_preview["x"]
+        ys = mesh_preview["y"]
+        zs = mesh_preview["z"]
+        # Bump the edge z a few metres above the surface so lines aren't
+        # eaten by the surface polygons due to z-fighting / aliasing.
+        elev_range = (max(zs) - min(zs)) if zs else 0.0
+        offset = max(0.002 * elev_range, 0.5)
+        ex: list = []
+        ey: list = []
+        ez: list = []
+        for a, b, c in mesh_preview["tris"]:
+            ex += [xs[a], xs[b], xs[c], xs[a], None]
+            ey += [ys[a], ys[b], ys[c], ys[a], None]
+            ez += [zs[a] + offset, zs[b] + offset, zs[c] + offset,
+                   zs[a] + offset, None]
+        data3d.append({
+            "type": "scatter3d", "mode": "lines",
+            "x": ex, "y": ey, "z": ez,
+            "line": {"color": "rgba(255,107,53,0.9)", "width": 1.5},
+            "hoverinfo": "skip",
+            "name": f"Mesh ({mesh_preview['shown_triangles']:,} of "
+                    f"{mesh_preview['total_triangles']:,} triangles)",
+        })
+
+    # Pick a z-aspect that makes relief visible even for floodplain DEMs.
+    # Without vertical exaggeration a river valley with ~20 m of relief over
+    # 2 km horizontal would look completely flat. Strategy:
+    #   - compute the "natural" ratio dz / max(dx, dy)
+    #   - if that's already >= 0.35 (rough / mountainous terrain), keep it
+    #   - otherwise force z to occupy 35% of the horizontal footprint so
+    #     the surface has legible relief
+    # The annotated "vertical exaggeration: Nx" tells the user how stretched
+    # the plot is vs. reality.
+    # z-aspect: default to a generous vertical exaggeration so floodplain
+    # DEMs (where Δz ≪ Δx) show visible relief. The user can tune this
+    # live via the VE slider in the report. Also CLAMP the z-axis range to
+    # the actual elevation range — otherwise Plotly extends the axis to
+    # include 0 for surface traces, which squashes the terrain to the top.
+    zs_all: list = []
+    for row in preview["z"]:
+        zs_all.extend(v for v in row if v is not None)
+    x_vals = preview["x_vals"]; y_vals = preview["y_vals"]
+    dx = (max(x_vals) - min(x_vals)) if x_vals else 1.0
+    dy = (max(y_vals) - min(y_vals)) if y_vals else 1.0
+    horiz = max(dx, dy) or 1.0
+    if zs_all:
+        z_min = min(zs_all); z_max = max(zs_all)
+        dz = max(z_max - z_min, 1.0)
+        natural = dz / horiz
+        # Default VE: ~20× for flat floodplains, 1× for already-steep terrain.
+        default_ve = max(1.0, 20.0 * min(1.0, 0.02 / max(natural, 1e-6)))
+        z_aspect = max(natural, default_ve * natural)
+        z_aspect = min(z_aspect, 2.0)  # cap
+        ve_factor = (z_aspect * horiz) / dz
+    else:
+        z_min, z_max = 0.0, 1.0
+        dz = 1.0
+        z_aspect = 0.35
+        ve_factor = 1.0
+
+    # Padding on the z-range so the surface doesn't touch the top face
+    pad = max(0.05 * dz, 0.5)
+
+    layout3d = {
+        "scene": {
+            "xaxis": {"title": "X (m)"},
+            "yaxis": {"title": "Y (m)"},
+            "zaxis": {"title": "Elevation (m)",
+                      "range": [z_min - pad, z_max + pad]},
+            "aspectmode": "manual",
+            "aspectratio": {"x": 1, "y": 1, "z": z_aspect},
+            "camera": {"eye": {"x": 1.6, "y": -1.6, "z": 0.9}},
+        },
+        "height": 620,
+        "margin": {"l": 0, "r": 0, "t": 30, "b": 0},
+        "showlegend": True,
+        "legend": {"orientation": "h", "y": 1.02, "x": 0,
+                   "font": {"size": 11}},
+    }
+    fig3d = {
+        "data": data3d,
+        "layout": layout3d,
+        # Plumbed through to the client so the VE slider can recompute aspect.z
+        "meta": {
+            "dz": float(dz),
+            "horiz": float(horiz),
+            "z_aspect_default": float(z_aspect),
+            "ve_default": float(ve_factor),
+        },
+    }
+
+    return {"fig2d": fig2d, "fig3d": fig3d}
 
 
 def _map_section(data: dict) -> str:
-    """HTML section: interactive DEM + mesh preview map."""
+    """HTML section: interactive DEM + mesh preview map (2D / 3D toggle)."""
     dem = data.get("dem") or {}
     mesh = data.get("mesh")
     mesh_type = data["config"]["mesh_type"]
 
-    fig = _fig_dem_mesh_map(dem, mesh, mesh_type)
-    if not fig:
+    figs = _fig_dem_mesh_map(dem, mesh, mesh_type)
+    if not figs:
         return ""
 
     preview = dem.get("preview") or {}
     stride = preview.get("stride", 1)
-    shown = preview.get("rows", 0) * preview.get("cols", 0)
     note_parts = []
     if stride > 1:
         note_parts.append(f"DEM shown at stride {stride} "
@@ -565,19 +761,59 @@ def _map_section(data: dict) -> str:
     note = (f'<p style="color:var(--text2);font-size:.82rem;margin-top:.6rem">'
             + "; ".join(note_parts) + "</p>") if note_parts else ""
 
-    encoded = _esc(json.dumps(fig, default=float))
+    enc_2d = _esc(json.dumps(figs["fig2d"], default=float))
+    enc_3d = _esc(json.dumps(figs["fig3d"], default=float))
+
+    body_note = ("Orange lines show the computational mesh."
+                 if mesh_type == "triangular"
+                 else "Uses a regular Cartesian grid aligned with the DEM cells.")
+
+    meta = figs["fig3d"].get("meta", {})
+    ve_default = meta.get("ve_default", 1.0)
+    # Expose dz / horiz so the slider JS can convert VE ↔ aspect.z
+    dz = meta.get("dz", 1.0)
+    horiz = meta.get("horiz", 1.0)
+    # Reasonable slider bounds: 1× to 100× (covers flat floodplains up to
+    # pretty mountainous terrain without looking silly).
+    ve_max = 100
+    ve_init = max(1, min(ve_max, round(ve_default)))
+
     return f"""
     <section class="section" id="dem-mesh-map">
       <h2>DEM &amp; mesh preview</h2>
       <div class="card">
-        <p style="color:var(--text2);margin-bottom:.3rem">
-          Interactive elevation map of the simulation domain.
-          {"Orange lines show the computational mesh." if mesh_type == "triangular"
-            else "Uses a regular Cartesian grid aligned with the DEM cells."}
-          Zoom / pan with the mouse; hover a cell for the elevation value.
-        </p>
-        <div id="dem-mesh-plot" class="plot" data-fig="{encoded}"
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    gap:1rem;margin-bottom:.4rem;flex-wrap:wrap">
+          <p style="color:var(--text2);margin:0;flex:1 1 380px">
+            Interactive elevation map of the simulation domain.
+            {body_note} Zoom / pan with the mouse; hover for the elevation value.
+          </p>
+          <div class="map-view-toggle" role="tablist" aria-label="Map view">
+            <button type="button" class="view-btn active" data-view="2d"
+                    aria-selected="true">🗺️ 2D</button>
+            <button type="button" class="view-btn" data-view="3d"
+                    aria-selected="false">🏔️ 3D</button>
+          </div>
+        </div>
+        <div class="ve-slider-wrap" style="display:none">
+          <label for="ve-slider">
+            Vertical exaggeration
+            <span class="ve-label">{ve_init}×</span>
+            <span class="ve-note">
+              (Δz = {dz:.1f} m over {horiz / 1000:.2f} km horizontal)
+            </span>
+          </label>
+          <input id="ve-slider" type="range" min="1" max="{ve_max}"
+                 step="1" value="{ve_init}"
+                 data-dz="{dz:.6f}" data-horiz="{horiz:.6f}">
+        </div>
+        <div id="dem-mesh-plot-2d" class="plot map-view map-view-2d"
+             data-fig="{enc_2d}"
              style="width:100%;min-height:540px"></div>
+        <div id="dem-mesh-plot-3d" class="plot map-view map-view-3d"
+             data-fig="{enc_3d}" data-lazy="1"
+             data-dz="{dz:.6f}" data-horiz="{horiz:.6f}"
+             style="width:100%;min-height:600px;display:none"></div>
         {note}
       </div>
     </section>
