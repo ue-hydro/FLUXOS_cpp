@@ -1,39 +1,52 @@
-Windows
-==================================
+Windows Installation (native)
+===============================
 
-1.Armadillo
-	Download the latest stable package from the website 
-	
-	arma.sourceforge.net/download.html
-	
-	After extract, copy the "include" folder to a convenient directory. We will need this directroy for the cmake file.
-	
-.. image:: windows1.PNG
+Windows support is offered via three routes, in order of preference:
 
-2.OpenMP
-	We could build the C++ compiler with MinGW. Please install the Windows 64bit MinGW, otherwise you are likely meet problems when working with Armadillo library. Here is the link
-	
-	https://sourceforge.net/projects/mingw-w64/
-	
-	Running the setup file and set the architecture to "x86_64", also remember the installation directory.	
+1. **WSL2 (recommended)** — install Ubuntu via the Microsoft Store, then
+   follow :doc:`Linux`. This is the smoothest path and matches what the
+   project is tested against.
+2. **Docker Desktop** — the container workflow documented in
+   :doc:`Containers` works natively on Windows once Docker Desktop is
+   installed (it runs Linux containers via WSL2 under the hood).
+3. **Native MSYS2 / MinGW-w64** — possible but not actively tested.
 
-	Then go to the installation folder, add the ``<mingw installation path>\i686-8.1.0-posix-dwarf-rt_v6-rev0/mingw32/include`` to the windows environment path. By now, MinGW should have been configurated successfully. 
-	
-	MinGW has a package manager which would be convenient to install the libraries and packages. We could setup OpenMP with it.
-	
-	https://sourceforge.net/projects/mingw/
-	
-	The installation process is quite straight forward. After installation, you could be able to use "MinGW Installation Manager". In order to use OpenMP, we need to install "mingw-pthread" shown as the figure below
-	
-.. image:: windows3.PNG
-	
-.. image:: windows2.PNG
+Route 1 — WSL2 + Ubuntu
+-----------------------
 
-3. cmake and compile
-	Before runing the cmake file, please write the armadillo include directory to the "target_include_directorties" in the cmake file. After that, open the cmd and go to the directroy of the "CmakeLists.txt". Then
-	
-	``cmake -G "Unix Makefiles"``
-	
-	``make``
-	
-	The executable file will be generated to the "Results" folder
+.. code-block:: powershell
+
+   wsl --install -d Ubuntu
+
+Open the Ubuntu shell, then follow the native Linux quick-start:
+
+.. code-block:: bash
+
+   sudo apt-get install cmake libarmadillo-dev libomp-dev \
+                        nlohmann-json3-dev libhdf5-dev
+   git clone https://github.com/ue-hydro/FLUXOS_cpp.git
+   cd FLUXOS_cpp
+   mkdir build && cd build
+   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   make -j$(nproc)
+   cd ..
+   ./build/bin/fluxos Working_example/modset_trimesh.json
+
+WSL2 sees your Windows filesystem under ``/mnt/c/…`` and its own Linux
+filesystem via the ``\\wsl$\Ubuntu`` share in Windows Explorer.
+
+Route 2 — Docker Desktop
+------------------------
+
+Install Docker Desktop for Windows
+(https://www.docker.com/products/docker-desktop), then use the container
+workflow in :doc:`Containers`. All commands in that page work as-is in
+PowerShell.
+
+Route 3 — Native MSYS2 / MinGW-w64
+-----------------------------------
+
+The dependencies (Armadillo, OpenMP, HDF5, nlohmann/json, CMake) are
+installable via pacman under MSYS2. This route is rarely used and not
+regularly tested; expect to debug PATH / linker issues on your own. For
+most Windows users the WSL2 or Docker routes above are simpler.
