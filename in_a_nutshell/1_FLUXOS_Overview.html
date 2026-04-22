@@ -1510,41 +1510,41 @@
                 <h2>CUDA GPU Kernels</h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.15rem; margin-bottom: 20px;">
+                <p style="font-size: 1.05rem; margin-bottom: 10px;">
                     7 specialized kernels for unstructured triangular mesh (edge-based finite volume):
                 </p>
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <div class="card primary" style="padding: 20px;">
-                            <h3 style="margin-bottom: 10px;">Kernel Pipeline</h3>
-                            <div class="flow-vertical">
-                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">1. Wet/Dry Classification</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">2. Gradient Computation</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px;">3. Barth-Jespersen Limiting</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box accent" style="font-size: 0.9rem; padding: 12px 25px;">4. Edge-Based Roe Flux</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box" style="font-size: 0.9rem; padding: 12px 25px;">5. Flux Accumulation (atomicAdd)</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box secondary" style="font-size: 0.9rem; padding: 12px 25px;">6. State Update</div>
-                                <div class="flow-arrow">&#9660;</div>
-                                <div class="flow-box light" style="font-size: 0.9rem; padding: 12px 25px;">7. CFL Reduction</div>
+                        <div class="card primary" style="padding: 14px 18px;">
+                            <h3 style="margin-bottom: 6px; font-size: 1.05rem;">Kernel Pipeline</h3>
+                            <div class="flow-vertical" style="gap: 0;">
+                                <div class="flow-box" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">1. Wet/Dry Classification</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">2. Gradient Computation</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">3. Barth-Jespersen Limiting</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box accent" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">4. Edge-Based Roe Flux</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">5. Flux Accumulation (atomicAdd)</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box secondary" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">6. State Update</div>
+                                <div class="flow-arrow" style="font-size: 0.8rem; margin: 1px 0;">&#9660;</div>
+                                <div class="flow-box light" style="font-size: 0.78rem; padding: 6px 18px; margin: 0;">7. CFL Reduction</div>
                             </div>
                         </div>
                     </div>
                     <div class="column">
-                        <div class="card secondary">
-                            <h3>&#9889; Performance</h3>
-                            <table style="font-size: 1rem; margin-top: 10px;">
+                        <div class="card secondary" style="padding: 14px 18px;">
+                            <h3 style="font-size: 1.05rem;">&#9889; Performance</h3>
+                            <table style="font-size: 0.92rem; margin-top: 8px;">
                                 <tr><td><strong>Speedup</strong></td><td>10&ndash;50x over single CPU core</td></tr>
                                 <tr><td><strong>Min GPU</strong></td><td>Compute Capability 6.0+</td></tr>
                                 <tr><td><strong>Architecture</strong></td><td>Pascal, Volta, Turing, Ampere</td></tr>
                                 <tr><td><strong>CUDA version</strong></td><td>11.0+</td></tr>
                             </table>
                         </div>
-                        <div class="highlight-box success" style="margin-top: 15px;">
+                        <div class="highlight-box success" style="margin-top: 12px; padding: 10px 14px; font-size: 0.9rem;">
                             <strong>Key design:</strong> Race-free flux accumulation via <code>atomicAdd</code> for shared edges between triangular cells.
                         </div>
                     </div>
@@ -1767,7 +1767,7 @@
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
                 <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
-                    <strong>GitHub:</strong> github.com/ue-hydro/fluxos
+                    <strong>GitHub:</strong> github.com/ue-hydro/FLUXOS_cpp
                 </p>
                 <p style="font-size: 1.4rem; color: #a0aec0; margin-bottom: 15px;">
                     <strong>Documentation:</strong> fluxos-cpp.readthedocs.io

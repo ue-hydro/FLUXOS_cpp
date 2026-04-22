@@ -742,7 +742,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       <footer class="footer">
         <div class="logo">FLUX<span>OS</span></div>
         Generated {_esc(generated_at)} —
-        <a href="https://github.com/ue-hydro/fluxos">github.com/ue-hydro/fluxos</a>
+        <a href="https://github.com/ue-hydro/FLUXOS_cpp">github.com/ue-hydro/FLUXOS_cpp</a>
       </footer>
     </main>
   </div>

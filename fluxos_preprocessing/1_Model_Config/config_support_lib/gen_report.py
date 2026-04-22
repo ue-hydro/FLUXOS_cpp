@@ -1047,25 +1047,38 @@ def _next_steps_section(data: dict) -> str:
 
     cd_repo = f'cd "{repo_root}"'
 
-    build_flags = []
-    if config.get("use_trimesh_build"):
-        build_flags.append("USE_TRIMESH=ON")
-    else:
-        build_flags.append("USE_TRIMESH=OFF")
-    if config.get("use_mpi"):
-        build_flags.append("USE_MPI=ON")
-    build_prefix = " ".join(build_flags) + " " if build_flags else ""
+    # Step 2: build the container image (installs deps, ships source).
+    # The Dockerfile no longer compiles FLUXOS — that's step 4, in the shell.
+    build_prefix = "USE_MPI=ON " if config.get("use_mpi") else ""
     build_cmd = (f'{build_prefix}'
                  f'docker compose -f containers/docker-compose.yml build')
 
+    # Step 3: open a shell inside the container
+    shell_cmd = 'docker compose -f containers/docker-compose.yml run --rm fluxos'
+
+    # Step 4: inside the shell, compile FLUXOS and run the simulation
+    cmake_flags = ["-DMODE_release=ON"]
+    if config.get("use_trimesh_build"):
+        cmake_flags.append("-DUSE_TRIMESH=ON")
     if config.get("use_mpi"):
-        # fluxos_mpi binary expects mpirun -n <N> inside the container
-        run_cmd = (f'docker compose -f containers/docker-compose.yml run --rm '
-                   f'--entrypoint mpirun fluxos -n {int(config["mpi_np"])} '
-                   f'/opt/fluxos/bin/fluxos {modset_rel}')
-    else:
-        run_cmd = (f'docker compose -f containers/docker-compose.yml run --rm '
-                   f'fluxos {modset_rel}')
+        cmake_flags.append("-DUSE_MPI=ON")
+    binary_name = "fluxos_mpi" if config.get("use_mpi") else "fluxos"
+    run_line = (
+        f'mpirun -n {int(config["mpi_np"])} ./bin/{binary_name} '
+        f'/work/{modset_rel}'
+        if config.get("use_mpi")
+        else f'./bin/{binary_name} /work/{modset_rel}'
+    )
+    compile_cmd = (
+        "# You are now inside the container\n"
+        "cd /opt/fluxos\n"
+        "mkdir -p build && cd build\n"
+        f"cmake {' '.join(cmake_flags)} ..\n"
+        "make -j$(nproc)\n"
+        "\n"
+        "# Run the model — still inside the shell\n"
+        f"{run_line}"
+    )
 
     check_cmd = f'ls -la "{results_dir}"\n{_open_outputs_cmd(os_key, results_dir)}'
 
@@ -1097,27 +1110,31 @@ def _next_steps_section(data: dict) -> str:
       <div class="card primary">
         <p style="margin-bottom:.4rem">
           <span class="os-badge" style="background:{os_color}">💻 {_esc(os_label)}</span>
-          Copy-paste these snippets into your terminal to build the Docker image,
-          run the simulation, and inspect results.
+          Copy-paste these snippets into your terminal. The container ships the
+          build dependencies and the source tree &mdash; FLUXOS is compiled
+          inside the container shell in step 4.
         </p>
 
         <h3>1. Move into the FLUXOS repo</h3>
         {_code_block(cd_repo)}
 
-        <h3>2. Build the Docker image</h3>
+        <h3>2. Build the container image <span style="font-weight:400;color:var(--text2)">(deps only)</span></h3>
         {_code_block(build_cmd)}
 
-        <h3>3. Run the simulation</h3>
-        {_code_block(run_cmd)}
+        <h3>3. Open a shell inside the container</h3>
+        {_code_block(shell_cmd)}
 
-        <h3>4. Check outputs</h3>
+        <h3>4. Compile FLUXOS and run the simulation <span style="font-weight:400;color:var(--text2)">(inside the shell)</span></h3>
+        {_code_block(compile_cmd)}
+
+        <h3>5. Check outputs <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
         {_code_block(check_cmd)}
 
-        <h3>5. Visualise results</h3>
+        <h3>6. Visualise results</h3>
         <p>Two complementary post-processing tools are provided in
         <code>2_Read_Outputs/</code>.</p>
 
-        <h4 style="margin-top:1rem;font-size:.95rem">5a. Interactive WebGL animation (KML / MP4 / WebGL)</h4>
+        <h4 style="margin-top:1rem;font-size:.95rem">6a. Interactive WebGL animation (KML / MP4 / WebGL)</h4>
         <div class="viz-toggle-card">
           <label class="viz-toggle-label">
             <input type="checkbox" id="viz-conc-toggle"{checked_attr}>
@@ -1128,7 +1145,7 @@ def _next_steps_section(data: dict) -> str:
           <div class="viz-cmd-transport" style="display:{transport_display}">{_code_block(viz_with_transport)}</div>
         </div>
 
-        <h4 style="margin-top:1.5rem;font-size:.95rem">5b. Statistics report
+        <h4 style="margin-top:1.5rem;font-size:.95rem">6b. Statistics report
           <span style="font-weight:400;color:var(--text2)">
             — flood volume / flooded-area time series, max-inundation map,
             hazard classification (ARR-2019 H·V), depth histogram, and first-inundation map
@@ -1145,7 +1162,7 @@ def _footer(generated_at: str) -> str:
     <footer class="footer">
       <div class="logo">FLUX<span>OS</span></div>
       Report generated {_esc(generated_at)} —
-      <a href="https://github.com/ue-hydro/fluxos">github.com/ue-hydro/fluxos</a>
+      <a href="https://github.com/ue-hydro/FLUXOS_cpp">github.com/ue-hydro/FLUXOS_cpp</a>
     </footer>
     """
 

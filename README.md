@@ -21,7 +21,7 @@ advection–dispersion transport.
 
 Three ways to build FLUXOS, in order of friction:
 
-**1. Docker (zero host dependencies)** — see [`in_a_nutshell/2_How_to_Compile_FLUXOS.html`](in_a_nutshell/2_How_to_Compile_FLUXOS.html)
+**1. Docker (zero host dependencies)** — see [`in_a_nutshell/2_How_to_Compile_and_Run_FLUXOS.html`](in_a_nutshell/2_How_to_Compile_and_Run_FLUXOS.html)
 
 ```bash
 docker compose -f containers/docker-compose.yml build
