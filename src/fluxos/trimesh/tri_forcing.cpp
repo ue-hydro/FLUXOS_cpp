@@ -71,7 +71,7 @@ bool tri_add_meteo(
                 sol.h0[ci] = sol.h[ci];
 
                 // Concentration adjustment for mass balance
-                if (ds.ade_solver && hp > 0.0 && ds.openwq == false) {
+                if (ds.ade_solver && hp > 0.0) {
                     for (int ichem = 0; ichem < nchem; ichem++) {
                         sol.conc_SW[ichem][ci] =
                             (sol.conc_SW[ichem][ci] * hp + meteoi * meteo_conci[ichem])
@@ -145,7 +145,7 @@ bool tri_add_inflow(
             sol.h0[ci] = sol.h[ci];
 
             // Concentration adjustment
-            if (ds.ade_solver && hp > 0.0 && ds.openwq == false) {
+            if (ds.ade_solver && hp > 0.0) {
                 for (int ichem = 0; ichem < nchem; ichem++) {
                     sol.conc_SW[ichem][ci] =
                         (sol.conc_SW[ichem][ci] * hp + inflowi * inflow_conci[ichem])

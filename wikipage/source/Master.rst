@@ -25,10 +25,6 @@ The master configuration is JSON file that provides FLUXOS with information and 
         - activate 2D advection-dispersion solver
     *   - ``EXTERNAL_MODULES`` => ``ADE_TRANSPORT`` => ``D_COEF``
         - dispersion coefficient
-    *   - ``EXTERNAL_MODULES`` => ``OPENWQ`` => ``STATUS``
-        - activate openwq (disabled if ``ADE_TRANSPORT:STATUS`` is ``FALSE``)
-    *   - ``EXTERNAL_MODULES`` => ``OPENWQ`` => ``MASTERFILE_DIR``
-        - path to openwq master file
 
 Triangular Mesh Configuration (optional)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -70,10 +66,6 @@ Example (Regular Mesh):
             "ADE_TRANSPORT":{
                 "STATUS": true,
                 "D_COEF": 0.01
-            },
-            "OPENWQ": {
-                "STATUS": true,
-                "MASTERFILE_DIR": "../openwq_in/openWQ_master.json"
             }
         },
         "METEO_FILE": "Qmelt_synthetic.fluxos",
@@ -116,10 +108,6 @@ Example (Triangular Mesh):
             "ADE_TRANSPORT":{
                 "STATUS": true,
                 "D_COEF": 0.01
-            },
-            "OPENWQ": {
-                "STATUS": false,
-                "MASTERFILE_DIR": ""
             }
         },
         "METEO_FILE": "Qmelt_synthetic.fluxos",

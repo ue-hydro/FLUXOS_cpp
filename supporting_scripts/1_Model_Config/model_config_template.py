@@ -191,7 +191,6 @@ _config = dict(
     # Set `enabled=False` to skip transport entirely.
     ade_transport      = dict(enabled=True, d_coef=0.5),
     soil_infiltration  = dict(enabled=False, default_ks_mm_hr=10.0),
-    openwq             = dict(enabled=False, masterfile_dir=""),
 
     # ------------------------------------------------------------------
     # 9. Docker / run settings

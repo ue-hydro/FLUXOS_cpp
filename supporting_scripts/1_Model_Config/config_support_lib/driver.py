@@ -410,10 +410,6 @@ def _step_config(config: dict, repo_root: str, bin_dir: str,
                 "STATUS": bool(config["ade_transport"]["enabled"]),
                 "D_COEF": float(config["ade_transport"]["d_coef"]),
             },
-            "OPENWQ": {
-                "STATUS": bool(config["openwq"]["enabled"]),
-                "MASTERFILE_DIR": config["openwq"]["masterfile_dir"],
-            },
         },
     }
 

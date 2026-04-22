@@ -142,8 +142,7 @@ public:
     json master_MODSET;
 
     // Modules
-    bool ade_solver, openwq;
-    std::string openwq_masterfile; // openwq
+    bool ade_solver;
 
     // Restart option
     bool restart_opt;

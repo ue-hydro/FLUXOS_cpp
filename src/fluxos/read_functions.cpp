@@ -70,11 +70,6 @@ bool read_modset(
             ds.D_coef = ds.master_MODSET["EXTERNAL_MODULES"]["ADE_TRANSPORT"]["D_COEF"];
         }
 
-        // openwq
-        ds.openwq = ds.master_MODSET["EXTERNAL_MODULES"]["OPENWQ"]["STATUS"];
-        if (ds.openwq == true){
-            ds.openwq_masterfile = ds.master_MODSET["EXTERNAL_MODULES"]["OPENWQ"]["MASTERFILE_DIR"];
-        }
         // Mesh type (regular or triangular)
         auto exist_mesh_type = ds.master_MODSET.find("MESH_TYPE");
         if (exist_mesh_type != ds.master_MODSET.end()) {
