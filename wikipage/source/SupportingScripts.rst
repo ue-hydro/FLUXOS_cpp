@@ -7,14 +7,14 @@ FLUXOS includes two collections of supporting scripts for preprocessing, post-pr
    :local:
    :depth: 2
 
-Python Preprocessing Tools (``fluxos_preprocessing/``)
+Python Preprocessing Tools (``supporting_scripts/``)
 -------------------------------------------------------
 
-The ``fluxos_preprocessing/`` directory contains modern Python CLI tools for DEM preprocessing and results visualization. These tools are installed via:
+The ``supporting_scripts/`` directory contains modern Python CLI tools for DEM preprocessing and results visualization. These tools are installed via:
 
 .. code-block:: bash
 
-   cd fluxos_preprocessing
+   cd supporting_scripts
    pip install -r requirements.txt
 
 Google Earth KML Exporter (``fluxos_viewer.py``)
@@ -88,7 +88,7 @@ The model configuration template replaces the old ``fluxos_setup.py`` CLI. A sin
 
 .. code-block:: bash
 
-   cd fluxos_preprocessing/1_Model_Config
+   cd supporting_scripts/1_Model_Config
    # open model_config_template.py in your editor, fill in the _config dict, then:
    python model_config_template.py
 

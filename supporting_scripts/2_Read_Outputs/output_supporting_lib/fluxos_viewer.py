@@ -2740,7 +2740,7 @@ def _generate_webgl_html():
     """Generate the complete self-contained 3D WebGL particle viewer HTML.
 
     Reads the HTML from the canonical index.html template at
-    fluxos_preprocessing/2_Read_Outputs/fluxos_web/index.html. Falls back to
+    supporting_scripts/2_Read_Outputs/fluxos_web/index.html. Falls back to
     the embedded copy below if the file doesn't exist (e.g. if this script
     was copied out of the repo and invoked stand-alone).
     """

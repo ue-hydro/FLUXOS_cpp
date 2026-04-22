@@ -31,7 +31,7 @@ Working_example
 # Documentation / web / wiki assets — not needed for the FLUXOS build
 in_a_nutshell
 wikipage
-fluxos_preprocessing
+supporting_scripts
 
 # Stray images / figures at the repo root
 *.png

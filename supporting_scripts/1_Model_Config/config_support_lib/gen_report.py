@@ -1086,7 +1086,7 @@ def _next_steps_section(data: dict) -> str:
 
     check_cmd = f'ls -la "{results_dir}"\n{_open_outputs_cmd(os_key, results_dir)}'
 
-    viewer_script = os.path.join(repo_root, "fluxos_preprocessing",
+    viewer_script = os.path.join(repo_root, "supporting_scripts",
                                  "2_Read_Outputs", "output_supporting_lib",
                                  "fluxos_viewer.py")
     viz_base = (f'python "{viewer_script}" \\\n'
@@ -1101,7 +1101,7 @@ def _next_steps_section(data: dict) -> str:
     transport_display = "block" if ade_enabled else "none"
 
     # Statistics report snippet — runs the 2_Read_Outputs template.
-    stats_template = os.path.join(repo_root, "fluxos_preprocessing",
+    stats_template = os.path.join(repo_root, "supporting_scripts",
                                   "2_Read_Outputs", "read_output_template.py")
     stats_cmd = (
         f'# Edit results_dir / modset_file at the top of the file, then:\n'

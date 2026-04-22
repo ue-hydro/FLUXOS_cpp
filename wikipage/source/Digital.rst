@@ -4,20 +4,20 @@ Digital Elevation Model (DEM)
     The DEM provides detailed information about the topography of the terrain. FLUXOS supports two DEM input workflows:
 
     1. **ESRI ASCII Grid (.asc)** -- The native C++ format. The solver reads ``.asc`` files directly with header keywords (NCOLS, NROWS, XLLCORNER, YLLCORNER, CELLSIZE, NODATA_VALUE).
-    2. **GeoTIFF (.tif)** -- Via the Python model configuration template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``), which converts GeoTIFF to ``.asc`` (for regular mesh) or generates an adaptive triangular mesh with DEM elevations embedded in vertex z-coordinates (for triangular mesh).
+    2. **GeoTIFF (.tif)** -- Via the Python model configuration template (``supporting_scripts/1_Model_Config/model_config_template.py``), which converts GeoTIFF to ``.asc`` (for regular mesh) or generates an adaptive triangular mesh with DEM elevations embedded in vertex z-coordinates (for triangular mesh).
 
     Open source spatial data editors such as SAGA (System for Automated Geoscientific Analyses, http://www.saga-gis.org/en/index.html) and QGIS can also be used for conversion between spatial data formats.
 
 Python Preprocessing Template (GeoTIFF Support)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``fluxos_preprocessing/1_Model_Config/`` directory contains a template-driven preprocessing workflow that reads a GeoTIFF DEM and produces ``.asc``, ``.msh`` (triangular), and ``modset.json`` files in one run, plus an HTML report with copy-paste Docker commands for running the simulation. See :doc:`SupportingScripts` for the full reference.
+The ``supporting_scripts/1_Model_Config/`` directory contains a template-driven preprocessing workflow that reads a GeoTIFF DEM and produces ``.asc``, ``.msh`` (triangular), and ``modset.json`` files in one run, plus an HTML report with copy-paste Docker commands for running the simulation. See :doc:`SupportingScripts` for the full reference.
 
 **Installation:**
 
 .. code-block:: bash
 
-   cd fluxos_preprocessing
+   cd supporting_scripts
    pip install -r requirements.txt
 
 **Usage:**
@@ -26,7 +26,7 @@ Edit the ``_config = dict(...)`` block at the top of ``model_config_template.py`
 
 .. code-block:: bash
 
-   cd fluxos_preprocessing/1_Model_Config
+   cd supporting_scripts/1_Model_Config
    python model_config_template.py
 
 The template handles all three stages internally:

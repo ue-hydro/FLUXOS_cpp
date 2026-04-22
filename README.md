@@ -71,16 +71,16 @@ Requires CMake ≥ 3.18, C++17, Armadillo, nlohmann/json (bundled), HDF5, OpenMP
  └─────────────────────────┘    └───────────────┘    └──────────────────────────┘
 ```
 
-* **Preprocessing** — edit and run [`fluxos_preprocessing/1_Model_Config/model_config_template.py`](fluxos_preprocessing/1_Model_Config/model_config_template.py).
+* **Preprocessing** — edit and run [`supporting_scripts/1_Model_Config/model_config_template.py`](supporting_scripts/1_Model_Config/model_config_template.py).
   Handles GeoTIFF → ESRI-ASCII DEM, slope-adaptive Gmsh triangular mesh,
   `modset.json`, and an interactive HTML config report with copy-paste
   Docker commands and an embedded DEM + mesh preview map. Supports
   auto-downloading DEMs from OpenTopography / USGS 3DEP.
-* **Post-processing** — edit and run [`fluxos_preprocessing/2_Read_Outputs/read_output_template.py`](fluxos_preprocessing/2_Read_Outputs/read_output_template.py).
+* **Post-processing** — edit and run [`supporting_scripts/2_Read_Outputs/read_output_template.py`](supporting_scripts/2_Read_Outputs/read_output_template.py).
   Produces an HTML results report with time-series (volume, flooded area,
   max depth, velocity), maximum-inundation map, flood-hazard
   classification (ARR-2019), depth histogram, and first-inundation map.
-  The same folder also hosts [`fluxos_viewer.py`](fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py)
+  The same folder also hosts [`fluxos_viewer.py`](supporting_scripts/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py)
   (Google-Earth KML / MP4 / WebGL animation exporter).
 
 ## Repository layout
@@ -89,12 +89,12 @@ Requires CMake ≥ 3.18, C++17, Armadillo, nlohmann/json (bundled), HDF5, OpenMP
 |---|---|
 | `src/fluxos/` | C++ solver — regular and triangular mesh paths |
 | `containers/` | Dockerfile + Apptainer recipes (CPU / GPU) |
-| `fluxos_preprocessing/1_Model_Config/` | User-editable template that builds DEM / mesh / modset.json + HTML config report |
-| `fluxos_preprocessing/2_Read_Outputs/` | User-editable template that builds the HTML results report + KML / WebGL exporters |
+| `supporting_scripts/1_Model_Config/` | User-editable template that builds DEM / mesh / modset.json + HTML config report |
+| `supporting_scripts/2_Read_Outputs/` | User-editable template that builds the HTML results report + KML / WebGL exporters |
 | `bin/` | Input examples (DEMs, meshes, forcing files, modset JSONs) |
 | `in_a_nutshell/` | Interactive HTML slide decks: overview, compile guide, model setup, supporting scripts |
 | `wikipage/source/` | ReadTheDocs (Sphinx) sources |
-| `fluxos_preprocessing/2_Read_Outputs/fluxos_web/` | Browser-based WebGL animation viewer (template) |
+| `supporting_scripts/2_Read_Outputs/fluxos_web/` | Browser-based WebGL animation viewer (template) |
 | `Working_example/` | Legacy self-contained example (pre-JSON modset format) kept for reference |
 
 ## Introduction

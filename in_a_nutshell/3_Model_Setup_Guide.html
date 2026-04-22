@@ -223,7 +223,7 @@ NODATA_value  -9999
                             <h3>Python Preprocessing</h3>
                             <pre style="font-size: 0.85rem; padding: 15px;">
 <span class="comment"># Edit the config dict, then run:</span>
-cd fluxos_preprocessing/1_Model_Config
+cd supporting_scripts/1_Model_Config
 python model_config_template.py</pre>
                             <ul style="margin-left: 15px; margin-top: 15px;">
                                 <li style="font-size: 0.95rem;">GeoTIFF &rarr; ESRI ASCII (with optional downscale)</li>
@@ -564,7 +564,7 @@ mpirun -np 4 ./fluxos modset.json</pre>
                     <div class="column">
                         <pre style="font-size: 0.85rem; padding: 20px;">
 <span class="comment"># Generate WebGL data from results (writes index.html + data/ into --webgl-output)</span>
-python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
+python supporting_scripts/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
     --results-dir Results/ \
     --dem Working_example/Rosa_2m.asc \
     --utm-zone 10 \
