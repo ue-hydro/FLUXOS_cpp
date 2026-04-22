@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FLUXOS - Model Setup Guide</title>
+    <title>FLUXOS - Supporting Scripts &amp; Tools</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -70,8 +70,7 @@
         .copy-btn:hover { background: rgba(255,255,255,0.25); color: white; }
         .copy-btn.copied { background: var(--secondary); color: white; }
         /* Per-line copy buttons — always visible, one per command.
-           Block-level Copy button removed via display:none (JS still creates it,
-           but users only see the per-line buttons). */
+           Block-level Copy button removed via display:none. */
         .code-container .copy-btn { display: none !important; }
         .code-container pre { padding-right: 42px; }
         .code-container pre .code-cmd { display: block; position: relative; border-radius: 3px; padding-right: 32px; }
@@ -100,6 +99,12 @@
         .nav-hint.visible { opacity: 1; }
         .diagram { background: white; border: 2px solid #e2e8f0; border-radius: 16px; padding: 30px; text-align: center; }
         .diagram pre { background: transparent; color: var(--text); display: inline-block; text-align: left; }
+        .flow-vertical { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        .flow-box { background: var(--primary); color: white; padding: 18px 35px; border-radius: 12px; font-weight: 600; font-size: 1.1rem; }
+        .flow-box.secondary { background: var(--secondary); }
+        .flow-box.accent { background: var(--accent); }
+        .flow-box.light { background: white; color: var(--dark); border: 2px solid #e2e8f0; }
+        .flow-arrow { font-size: 1.5rem; color: var(--text-light); }
         @media print { .slide { page-break-after: always; display: flex !important; } .nav-hint { display: none; } }
     </style>
 </head>
@@ -108,8 +113,8 @@
 
         <!-- Slide 1: Title -->
         <div class="slide title-slide active" data-slide="1">
-            <h1 class="reveal-title">Model Setup <span>Guide</span></h1>
-            <div class="subtitle reveal-subtitle">Input Files, Configuration &amp; Running FLUXOS</div>
+            <h1 class="reveal-title" style="font-size: 4rem;">Supporting <span>Scripts</span></h1>
+            <div class="subtitle reveal-subtitle">Python Tools &amp; Post-Processing</div>
             <div class="author reveal-author">Diogo Costa</div>
             <div class="affiliation reveal-affiliation">University of &Eacute;vora, Portugal</div>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo reveal-logo">
@@ -125,21 +130,20 @@
                 <div class="two-column" style="gap: 60px;">
                     <div class="column">
                         <div style="font-size: 1.15rem; line-height: 2.2;">
-                            <p style="margin-bottom: 8px;">&bull; Input Files Overview</p>
-                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Input Data</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; DEM Preparation</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; JSON Configuration</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Boundary Conditions</p>
+                            <p style="margin-bottom: 8px;">&bull; Python Environment Setup</p>
+                            <p style="margin-bottom: 8px;">&bull; Tools Overview</p>
+                            <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Preprocessing</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; <code>1_Model_Config/model_config_template.py</code></p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; The HTML configuration report</p>
                         </div>
                     </div>
                     <div class="column">
                         <div style="font-size: 1.15rem; line-height: 2.2;">
-                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Modules &amp; Output</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; ADE Solute Transport</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Soil Infiltration</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Running the Model</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Output Files &amp; Formats</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; WebGL Export</p>
+                            <p style="margin-top: 15px; color: #7c3aed; font-weight: 600;">Section 02: Post-Processing</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; <code>2_Read_Outputs/read_output_template.py</code></p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; The HTML flood-statistics report</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; <code>fluxos_viewer.py</code> (KML / WebGL / MP4)</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; Summary</p>
                         </div>
                     </div>
                 </div>
@@ -150,34 +154,58 @@
             </div>
         </div>
 
-        <!-- Slide 3: Input Files Overview -->
+        <!-- Slide 3: Python environment setup -->
         <div class="slide" data-slide="3">
             <div class="slide-header">
-                <h2>Input Files Overview</h2>
+                <h2>Python Environment Setup</h2>
             </div>
             <div class="slide-content">
-                <div class="three-column" style="gap: 30px;">
-                    <div class="card primary" style="height: 100%;">
-                        <h3>&#128506;&#65039; DEM File</h3>
-                        <p style="font-size: 1rem;"><strong>Format:</strong> ESRI ASCII (.asc)<br>
-                        Contains terrain elevation data. Defines the domain extent, cell size, and topography.<br><br>
-                        <strong>Headers:</strong> ncols, nrows, xllcorner, yllcorner, cellsize, NODATA_value</p>
+                <p style="font-size: 1.1rem; margin-bottom: 20px;">
+                    The two templates and the results viewer are pure Python. A virtual environment
+                    keeps their dependencies isolated from your system Python. Run this once, after
+                    cloning the repo:
+                </p>
+                <div class="two-column" style="gap: 40px;">
+                    <div class="column">
+                        <pre style="font-size: 0.85rem; padding: 20px;">
+<span class="comment"># 1. Create a virtual environment at the repo root</span>
+python3 -m venv .venv
+
+<span class="comment"># 2. Activate it</span>
+<span class="comment"># macOS / Linux:</span>
+source .venv/bin/activate
+
+<span class="comment"># Windows (PowerShell):</span>
+.venv\Scripts\Activate.ps1
+
+<span class="comment"># 3. Install the dependencies</span>
+pip install --upgrade pip
+pip install -r supporting_scripts/requirements.txt
+
+<span class="comment"># 4. Verify</span>
+python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span></pre>
                     </div>
-                    <div class="card secondary" style="height: 100%;">
-                        <h3>&#9881;&#65039; JSON Config</h3>
-                        <p style="font-size: 1rem;"><strong>Format:</strong> JSON (.json)<br>
-                        Master configuration file. Controls all simulation parameters: domain, output, modules, boundary conditions.<br><br>
-                        <strong>Example:</strong> <code>modset.json</code></p>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">What's in requirements.txt</h3>
+                            <table style="font-size: 0.9rem;">
+                                <tr><td><code>rasterio</code></td><td>GeoTIFF I/O</td></tr>
+                                <tr><td><code>numpy</code></td><td>arrays</td></tr>
+                                <tr><td><code>scipy</code></td><td>resampling</td></tr>
+                                <tr><td><code>pygmsh</code>, <code>gmsh</code></td><td>triangular meshing</td></tr>
+                                <tr><td><code>pyvista</code></td><td>read <code>.vtu</code> output</td></tr>
+                            </table>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Reactivate next time:</strong> every new terminal needs
+                            <code>source .venv/bin/activate</code> before running the templates.
+                        </div>
+                        <div class="highlight-box warning">
+                            <strong>gmsh on macOS / Linux:</strong> if <code>pip install gmsh</code>
+                            fails on the binary wheel, install via your package manager
+                            (<code>brew install gmsh</code> / <code>apt install gmsh</code>) first.
+                        </div>
                     </div>
-                    <div class="card accent" style="height: 100%;">
-                        <h3>&#127754; Boundary File</h3>
-                        <p style="font-size: 1rem;"><strong>Format:</strong> Text (.fluxos)<br>
-                        Time series of inflow discharge (m&sup3;/s) and optional concentration (mg/L). Two columns: time (s) and discharge.<br><br>
-                        <strong>Example:</strong> <code>Flow.fluxos</code></p>
-                    </div>
-                </div>
-                <div class="highlight-box info" style="margin-top: 20px;">
-                    <strong>Optional inputs:</strong> Soil map (.asc grid of soil type IDs), triangular mesh files (.msh or .node/.ele), and ADE source/injection timeseries.
                 </div>
             </div>
             <div class="slide-footer">
@@ -186,108 +214,121 @@
             </div>
         </div>
 
-        <!-- Slide 4: Section - Input Data -->
-        <div class="slide section-slide" data-slide="4">
-            <div class="section-number">01</div>
-            <h2>Input Data</h2>
-            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
-        </div>
-
-        <!-- Slide 5: DEM Preparation -->
-        <div class="slide" data-slide="5">
+        <!-- Slide 4: Tools Overview -->
+        <div class="slide" data-slide="4">
             <div class="slide-header">
-                <h2>DEM Preparation</h2>
+                <h2>Tools Overview</h2>
             </div>
             <div class="slide-content">
-                <div class="two-column" style="gap: 40px;">
-                    <div class="column">
-                        <div class="card primary">
-                            <h3>ESRI ASCII Format</h3>
-                            <pre style="font-size: 0.85rem; padding: 15px;">
-ncols         859
-nrows         618
-xllcorner     425200
-yllcorner     5784100
-cellsize      2
-NODATA_value  -9999
-547.21 547.35 547.48 ...
-547.19 547.33 547.45 ...
-...</pre>
-                        </div>
-                        <div class="highlight-box info">
-                            <strong>Coordinate system:</strong> The DEM must be in a projected CRS (e.g., UTM). Geographic coordinates (lat/lon) are not supported directly.
-                        </div>
+                <p style="font-size: 1.2rem; margin-bottom: 25px;">
+                    Two editable templates drive the full workflow &mdash; the user only edits these
+                    two files. Everything else is internal library code.
+                </p>
+                <div class="three-column" style="gap: 30px;">
+                    <div class="card primary" style="height: 100%;">
+                        <h3>&#128295; Preprocessing</h3>
+                        <p style="font-size: 0.95rem;"><code>1_Model_Config/<br>model_config_template.py</code></p>
+                        <p style="font-size: 1rem; margin-top: 10px;">
+                        One editable template that builds the DEM (<code>.asc</code>), Gmsh triangular mesh
+                        (<code>.msh</code>), and <code>modset.json</code> in one run &mdash; and emits an
+                        HTML configuration report with copy-paste Docker commands.</p>
                     </div>
-                    <div class="column">
-                        <div class="card secondary">
-                            <h3>Python Preprocessing</h3>
-                            <pre style="font-size: 0.85rem; padding: 15px;">
-<span class="comment"># Edit the config dict, then run:</span>
-cd supporting_scripts/1_Model_Config
-python model_config_template.py</pre>
-                            <ul style="margin-left: 15px; margin-top: 15px;">
-                                <li style="font-size: 0.95rem;">GeoTIFF &rarr; ESRI ASCII (with optional downscale)</li>
-                                <li style="font-size: 0.95rem;">Slope-adaptive Gmsh mesh (trimesh path)</li>
-                                <li style="font-size: 0.95rem;">modset.json written automatically</li>
-                                <li style="font-size: 0.95rem;">HTML report with copy-paste Docker commands</li>
-                            </ul>
-                        </div>
+                    <div class="card purple" style="height: 100%;">
+                        <h3>&#128202; Post-Processing</h3>
+                        <p style="font-size: 0.95rem;"><code>2_Read_Outputs/<br>read_output_template.py</code></p>
+                        <p style="font-size: 1rem; margin-top: 10px;">
+                        Streams FLUXOS output files and emits an HTML flood-statistics report
+                        with time-series (volume, flooded area, depth, velocity), max-inundation map,
+                        hazard classification, depth histogram, and first-inundation map.</p>
                     </div>
+                    <div class="card secondary" style="height: 100%;">
+                        <h3>&#127758; Results Viewer</h3>
+                        <p style="font-size: 0.95rem;"><code>2_Read_Outputs/output_supporting_lib/<br>fluxos_viewer.py</code></p>
+                        <p style="font-size: 1rem; margin-top: 10px;">
+                        Standalone CLI that exports the same results as animated KML (Google Earth),
+                        MP4 video, or an interactive 3D WebGL page.</p>
+                    </div>
+                </div>
+                <div class="highlight-box info" style="margin-top: 20px; text-align: center;">
+                    <strong>Folder layout:</strong>
+                    <code>supporting_scripts/1_Model_Config/</code> &nbsp;+&nbsp;
+                    <code>supporting_scripts/2_Read_Outputs/</code>
                 </div>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">5</div>
+                <div class="page-number">4</div>
             </div>
         </div>
 
-        <!-- Slide 6: JSON Configuration -->
+        <!-- Slide 5: Section - Preprocessing -->
+        <div class="slide section-slide" data-slide="5">
+            <div class="section-number">01</div>
+            <h2>Preprocessing</h2>
+            <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
+        </div>
+
+        <!-- Slide 6: model_config_template.py -->
         <div class="slide" data-slide="6">
             <div class="slide-header">
-                <h2>JSON Configuration</h2>
+                <h2>1_Model_Config/model_config_template.py</h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.1rem; margin-bottom: 15px;">
-                    The master config file controls all simulation parameters:
-                </p>
-                <div class="two-column" style="gap: 30px;">
+                <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <pre style="font-size: 0.78rem; padding: 18px;">
-{
-  <span class="string">"DEM_FILE"</span>: <span class="string">"Working_example/Rosa_2m.asc"</span>,
-  <span class="string">"SIM_DATETIME_START"</span>: <span class="string">"2009-01-01 00:00:00"</span>,
-  <span class="string">"RESTART"</span>: <span class="keyword">false</span>,
+                        <pre style="font-size: 0.72rem; padding: 18px;">
+<span class="comment"># Edit the _config dict in the template:</span>
 
-  <span class="string">"INFLOW_FILE"</span>: {
-    <span class="string">"FILENAME"</span>: <span class="string">"Working_example/Flow.fluxos"</span>,
-    <span class="string">"DISCHARGE_LOCATION"</span>: {
-      <span class="string">"X_COORDINATE"</span>: 426107,
-      <span class="string">"Y_COORDINATE"</span>: 5785362
-    }
-  },
+_config = dict(
+    <span class="comment"># 1. Project metadata</span>
+    project_name   = <span class="string">"Rosa Creek"</span>,
+    authors        = [<span class="string">"Diogo Costa"</span>],
 
-  <span class="string">"OUTPUT"</span>: {
-    <span class="string">"OUTPUT_FOLDER"</span>: <span class="string">"Results/"</span>,
-    <span class="string">"PRINT_STEP"</span>: 50,
-    <span class="string">"H_MIN_TO_PRINT"</span>: 0.001
-  },
+    <span class="comment"># 2. DEM source ("file" | "download")</span>
+    dem_source_mode         = <span class="string">"file"</span>,
+    dem_source_geotiff      = <span class="string">"Working_example/Rosa_2m.tif"</span>,
+    dem_target_resolution_m = 2.0,
 
-  <span class="string">"ROUGNESS_HEIGHT"</span>: 0.005
-}</pre>
+    <span class="comment"># 3. Mesh ("regular" | "triangular")</span>
+    mesh_type        = <span class="string">"triangular"</span>,
+    trimesh_min_size = 2.0,
+    trimesh_max_size = 30.0,
+
+    <span class="comment"># 4. Modset output</span>
+    output_bin_dir = <span class="string">"Working_example"</span>,
+    modset_name    = <span class="string">"modset_rosa.json"</span>,
+
+    <span class="comment"># 5. Modules, forcing, simulation settings ...</span>
+    ade_transport     = dict(enabled=True, ...),
+    soil_infiltration = dict(enabled=False, ...),
+)
+
+<span class="comment"># Then run it:</span>
+cd supporting_scripts/1_Model_Config
+python model_config_template.py</pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Key Parameters</h3>
-                            <table style="font-size: 0.85rem; margin-top: 10px;">
-                                <tr><td><strong>DEM_FILE</strong></td><td>Path to ESRI ASCII DEM</td></tr>
-                                <tr><td><strong>INFLOW_FILE</strong></td><td>Discharge timeseries &amp; location</td></tr>
-                                <tr><td><strong>PRINT_STEP</strong></td><td>Output every N timesteps</td></tr>
-                                <tr><td><strong>ROUGNESS_HEIGHT</strong></td><td>Manning's roughness (m)</td></tr>
-                                <tr><td><strong>RESTART</strong></td><td>Resume from previous run</td></tr>
-                            </table>
+                            <h3 style="font-size: 1.2rem;">What it produces</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;dem&gt;.asc</code> &mdash; ESRI-ASCII DEM</li>
+                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;mesh&gt;.msh</code> &mdash; Gmsh triangular mesh</li>
+                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;modset&gt;.json</code> &mdash; solver config</li>
+                                <li style="font-size: 0.95rem;">HTML report under <code>1_Model_Config/reports/</code></li>
+                            </ul>
                         </div>
-                        <div class="highlight-box success">
-                            <strong>Minimal config:</strong> Only DEM_FILE, INFLOW_FILE, and OUTPUT are required. All modules are optional.
+                        <div class="card secondary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">DEM sources</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;"><strong>"file"</strong> &mdash; your own GeoTIFF (must be projected, not lat/lon)</li>
+                                <li style="font-size: 0.95rem;"><strong>"download"</strong> &mdash; auto-fetch for a lon/lat bbox:
+                                    <br>OpenTopography (COP30, SRTM, AW3D30, ...)
+                                    <br>USGS 3DEP (1&nbsp;m / 3&nbsp;m / 10&nbsp;m, CONUS)</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box warning">
+                            <strong>Projected CRS required!</strong> DEMs in degrees give wrong slopes.
+                            The <code>"download"</code> mode reprojects to UTM automatically.
                         </div>
                     </div>
                 </div>
@@ -298,47 +339,46 @@ python model_config_template.py</pre>
             </div>
         </div>
 
-        <!-- Slide 7: Boundary Conditions -->
+        <!-- Slide 7: HTML Configuration Report -->
         <div class="slide" data-slide="7">
             <div class="slide-header">
-                <h2>Boundary Conditions</h2>
+                <h2>The HTML Configuration Report</h2>
             </div>
             <div class="slide-content">
-                <div class="two-column" style="gap: 50px;">
+                <p style="font-size: 1.1rem; margin-bottom: 15px;">
+                    Each run of <code>model_config_template.py</code> opens a self-contained
+                    HTML report in your browser. One page, no further navigation needed to
+                    build and run the model.
+                </p>
+                <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <div class="card primary">
-                            <h3>Inflow Timeseries (.fluxos)</h3>
-                            <pre style="font-size: 0.9rem; padding: 15px;">
-<span class="comment"># Time(s)  Discharge(m3/s)  Conc(mg/L)</span>
-0        0.0      0.0
-600      0.5      0.0
-1200     1.5      0.0
-1800     2.0    100.0    <span class="comment"># injection starts</span>
-2400     2.0    100.0
-3000     2.0    100.0
-3600     2.0      0.0    <span class="comment"># injection ends</span>
-7200     1.5      0.0
-14400    0.5      0.0
-18000    0.0      0.0</pre>
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">Sections</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;"><strong>Summary</strong> &mdash; KPI tiles (mesh type, cell count, DEM resolution, active modules)</li>
+                                <li style="font-size: 0.95rem;"><strong>Domain</strong> &mdash; DEM bounds, CRS, rows&times;cols, interactive 2D/3D terrain map (Plotly)</li>
+                                <li style="font-size: 0.95rem;"><strong>Mesh</strong> &mdash; vertex/cell/edge counts, overlaid on the DEM map</li>
+                                <li style="font-size: 0.95rem;"><strong>Configuration</strong> &mdash; table of non-default modset values + full JSON</li>
+                                <li style="font-size: 0.95rem;"><strong>Modules</strong> &mdash; ADE transport / soil infiltration / OpenWQ status pills</li>
+                                <li style="font-size: 0.95rem;"><strong>Next Steps</strong> &mdash; copy-paste shell snippets</li>
+                            </ul>
                         </div>
                     </div>
                     <div class="column">
-                        <div class="card secondary">
-                            <h3>Discharge Location</h3>
-                            <p style="font-size: 1rem; margin-bottom: 15px;">
-                                Specified in JSON config using the same projected coordinate system as the DEM:
-                            </p>
-                            <pre style="font-size: 0.85rem; padding: 15px;">
-<span class="string">"DISCHARGE_LOCATION"</span>: {
-  <span class="string">"X_COORDINATE"</span>: 426107,
-  <span class="string">"Y_COORDINATE"</span>: 5785362
-}</pre>
-                            <p style="font-size: 0.95rem; margin-top: 15px; color: var(--text-light);">
-                                Coordinates must fall within the DEM domain. The closest grid cell to these coordinates receives the inflow.
-                            </p>
+                        <div class="card accent" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">&quot;Next Steps&quot; snippets</h3>
+                            <ol style="margin-left: 20px;">
+                                <li style="font-size: 0.95rem;"><code>cd &lt;repo&gt;</code></li>
+                                <li style="font-size: 0.95rem;"><code>docker compose ... build</code> (or Apptainer equivalent)</li>
+                                <li style="font-size: 0.95rem;">Open a shell in the container</li>
+                                <li style="font-size: 0.95rem;">Compile FLUXOS into <code>/work/bin</code> and run the modset</li>
+                                <li style="font-size: 0.95rem;">List &amp; open the <code>Results/</code> directory</li>
+                                <li style="font-size: 0.95rem;">Visualise: WebGL viewer &amp; the statistics template</li>
+                            </ol>
                         </div>
-                        <div class="highlight-box warning">
-                            <strong>Third column (concentration)</strong> is optional. If omitted, no solute is injected with the inflow.
+                        <div class="highlight-box success">
+                            <strong>One editable template drives everything.</strong> No separate CLI commands
+                            &mdash; <code>python model_config_template.py</code> and follow the links in the report.
                         </div>
                     </div>
                 </div>
@@ -349,54 +389,62 @@ python model_config_template.py</pre>
             </div>
         </div>
 
-        <!-- Slide 8: Section - Modules & Output -->
+        <!-- Slide 8: Section - Post-Processing -->
         <div class="slide section-slide purple" data-slide="8">
             <div class="section-number">02</div>
-            <h2>Modules &amp; Output</h2>
+            <h2>Post-Processing</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 9: ADE Configuration -->
+        <!-- Slide 9: read_output_template.py -->
         <div class="slide" data-slide="9">
             <div class="slide-header">
-                <h2>ADE Solute Transport</h2>
+                <h2>2_Read_Outputs/read_output_template.py</h2>
             </div>
             <div class="slide-content">
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <p style="font-size: 1.1rem; margin-bottom: 15px;">
-                            Enable the Advection-Diffusion Equation solver in the JSON config:
-                        </p>
-                        <pre style="font-size: 0.9rem; padding: 20px;">
-<span class="string">"EXTERNAL_MODULES"</span>: {
-  <span class="string">"ADE_TRANSPORT"</span>: {
-    <span class="string">"STATUS"</span>: <span class="keyword">true</span>,
-    <span class="string">"D_COEF"</span>: 0.5
-  }
-}</pre>
-                        <div class="card primary" style="margin-top: 20px; padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Parameters</h3>
-                            <table style="font-size: 0.9rem; margin-top: 10px;">
-                                <tr><td><strong>STATUS</strong></td><td><code>true</code> to enable ADE</td></tr>
-                                <tr><td><strong>D_COEF</strong></td><td>Diffusion coefficient (m&sup2;/s)</td></tr>
-                            </table>
-                        </div>
+                        <pre style="font-size: 0.78rem; padding: 20px;">
+<span class="comment"># Edit the _config dict:</span>
+
+_config = dict(
+    project_name = <span class="string">"Rosa Creek"</span>,
+
+    <span class="comment"># Folder FLUXOS wrote to</span>
+    results_dir = <span class="string">"Results_river_30h"</span>,
+
+    <span class="comment"># The modset that drove the run</span>
+    modset_file = <span class="string">"Working_example/modset_river_30h.json"</span>,
+
+    <span class="comment"># Flooded = cells with h &gt; this (metres)</span>
+    h_threshold_flooded_m = 0.01,
+
+    <span class="comment"># Analyse every Nth timestep</span>
+    stride = 1,
+
+    generate_report       = <span class="keyword">True</span>,
+    export_csv_timeseries = <span class="keyword">True</span>,
+)
+
+<span class="comment"># Then run it:</span>
+cd supporting_scripts/2_Read_Outputs
+python read_output_template.py</pre>
                     </div>
                     <div class="column">
-                        <div class="card secondary">
-                            <h3>How Injection Works</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 1rem;">Solute concentration is set in the 3rd column of the .fluxos inflow file</li>
-                                <li style="font-size: 1rem;">Units: mg/L (or any consistent mass/volume)</li>
-                                <li style="font-size: 1rem;">Injection can be time-varying</li>
-                                <li style="font-size: 1rem;">Transport begins immediately when water reaches the cell</li>
-                            </ul>
+                        <div class="card purple" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">What the report contains</h3>
+                            <ol style="margin-left: 20px;">
+                                <li style="font-size: 0.92rem;"><strong>Time-series panel</strong> &mdash; volume, flooded area, max depth, max velocity vs. time</li>
+                                <li style="font-size: 0.92rem;"><strong>Max-inundation map</strong> &mdash; per-cell peak depth over the entire run</li>
+                                <li style="font-size: 0.92rem;"><strong>ARR-2019 hazard map</strong> &mdash; <em>D&nbsp;=&nbsp;h&middot;(v+0.5)</em> with standard thresholds</li>
+                                <li style="font-size: 0.92rem;"><strong>Depth histogram</strong> &mdash; area distribution across depth bins</li>
+                                <li style="font-size: 0.92rem;"><strong>First-inundation map</strong> &mdash; time at which each cell first became wet</li>
+                                <li style="font-size: 0.92rem;"><strong>Chemical transport panel</strong> &mdash; if ADE was on, <code>max / mean conc_SW</code> vs. time</li>
+                            </ol>
                         </div>
                         <div class="highlight-box info">
-                            <strong>Solver:</strong> Two-pass mass-conservative, fully parallel. First-order upwind advection + Fickian diffusion with monotonicity clamp.
-                        </div>
-                        <div class="highlight-box success">
-                            <strong>Typical D_COEF values:</strong> 0.1&ndash;1.0 m&sup2;/s for river channels, 0.01&ndash;0.1 for overland flow.
+                            <strong>Streaming:</strong> snapshots are read one at a time &mdash;
+                            a 30&nbsp;h run with &sim;10&nbsp;GB of <code>.txt</code> files analyses fine on a laptop.
                         </div>
                     </div>
                 </div>
@@ -407,50 +455,54 @@ python model_config_template.py</pre>
             </div>
         </div>
 
-        <!-- Slide 10: Soil Infiltration -->
+        <!-- Slide 10: fluxos_viewer.py -->
         <div class="slide" data-slide="10">
             <div class="slide-header">
-                <h2>Soil Infiltration Setup</h2>
+                <h2>fluxos_viewer.py &mdash; KML / WebGL / MP4</h2>
             </div>
             <div class="slide-content">
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <p style="font-size: 1.1rem; margin-bottom: 15px;">
-                            Enable the Horton infiltration module:
-                        </p>
-                        <pre style="font-size: 0.85rem; padding: 20px;">
-<span class="string">"SOIL_INFILTRATION"</span>: {
-  <span class="string">"STATUS"</span>: <span class="keyword">true</span>,
-  <span class="string">"SOIL_MAP"</span>: <span class="string">"bin/soil_types.asc"</span>,
-  <span class="string">"SOIL_TYPES"</span>: {
-    <span class="string">"1"</span>: {
-      <span class="string">"NAME"</span>: <span class="string">"Sandy Loam"</span>,
-      <span class="string">"USDA_CLASS"</span>: <span class="string">"sandy_loam"</span>
-    },
-    <span class="string">"2"</span>: {
-      <span class="string">"NAME"</span>: <span class="string">"Clay Loam"</span>,
-      <span class="string">"USDA_CLASS"</span>: <span class="string">"clay_loam"</span>
-    }
-  }
-}</pre>
+                        <pre style="font-size: 0.82rem; padding: 20px;">
+<span class="comment"># Located under 2_Read_Outputs/output_supporting_lib/</span>
+
+<span class="comment"># Animated KML for Google Earth</span>
+python supporting_scripts/2_Read_Outputs/\
+output_supporting_lib/fluxos_viewer.py \
+    --results-dir Results_river_30h \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --output flood.kmz
+
+<span class="comment"># Interactive 3D WebGL page</span>
+python fluxos_viewer.py \
+    --results-dir Results_river_30h \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --webgl --output-dir web_viewer
+
+<span class="comment"># MP4 animation (requires ffmpeg)</span>
+python fluxos_viewer.py \
+    --results-dir Results_river_30h \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --mp4 flood.mp4</pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Configuration Options</h3>
-                            <table style="font-size: 0.9rem; margin-top: 10px;">
-                                <tr><td><strong>STATUS</strong></td><td><code>true</code> to enable</td></tr>
-                                <tr><td><strong>SOIL_MAP</strong></td><td>ASCII grid of soil type IDs (optional &mdash; empty string = uniform soil)</td></tr>
-                                <tr><td><strong>SOIL_TYPES</strong></td><td>Map of ID &rarr; USDA class name</td></tr>
-                            </table>
-                        </div>
-                        <div class="card secondary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">USDA Class Names</h3>
-                            <p style="font-size: 0.9rem; margin-top: 8px;">
-                                <code>sand</code>, <code>loamy_sand</code>, <code>sandy_loam</code>, <code>loam</code>, <code>silt_loam</code>, <code>sandy_clay_loam</code>, <code>clay_loam</code>, <code>silty_clay_loam</code>, <code>sandy_clay</code>, <code>silty_clay</code>, <code>clay</code>
-                            </p>
+                            <h3 style="font-size: 1.2rem;">Features</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.95rem;">Reads both <strong>regular</strong> (<code>.txt</code>) and <strong>triangular</strong> (<code>.vtu</code>) output</li>
+                                <li style="font-size: 0.95rem;">UTM &rarr; WGS84 on the fly; UTM zone auto-detected from DEM</li>
+                                <li style="font-size: 0.95rem;">Time-aware KML with built-in playback slider in Google Earth</li>
+                                <li style="font-size: 0.95rem;">Variables: <code>h</code>, <code>velocity</code>, <code>conc_SW</code></li>
+                                <li style="font-size: 0.95rem;">WebGL output ships as a self-contained folder (<code>index.html</code> + data)</li>
+                            </ul>
                         </div>
                         <div class="highlight-box success">
-                            <strong>Backward compatible:</strong> If the <code>SOIL_INFILTRATION</code> section is missing, the module is simply disabled.
+                            <strong>Called automatically</strong> &mdash; the Next-Steps section of the
+                            configuration report already writes these commands for you, pre-filled with
+                            the correct DEM, UTM zone and results path.
                         </div>
                     </div>
                 </div>
@@ -461,34 +513,47 @@ python model_config_template.py</pre>
             </div>
         </div>
 
-        <!-- Slide 11: Running the Model -->
+        <!-- Slide 11: Summary -->
         <div class="slide" data-slide="11">
             <div class="slide-header">
-                <h2>Running the Model</h2>
+                <h2>Summary</h2>
             </div>
             <div class="slide-content">
-                <pre style="font-size: 1.05rem; padding: 30px; margin-bottom: 25px;">
-<span class="comment"># Standard run (OpenMP)</span>
-./fluxos modset.json
-
-<span class="comment"># With MPI (16 processes)</span>
-mpirun -np 16 ./fluxos modset.json
-
-<span class="comment"># Hybrid MPI+OpenMP</span>
-export OMP_NUM_THREADS=4
-mpirun -np 4 ./fluxos modset.json</pre>
-                <div class="three-column" style="gap: 30px;">
-                    <div class="card primary" style="padding: 20px;">
-                        <h3 style="font-size: 1.1rem;">&#128196; Console Output</h3>
-                        <p style="font-size: 0.95rem;">Shows timestep progress, CFL number, max water depth, and print notifications.</p>
-                    </div>
-                    <div class="card secondary" style="padding: 20px;">
-                        <h3 style="font-size: 1.1rem;">&#128337; Typical Runtime</h3>
-                        <p style="font-size: 0.95rem;">Rosa_2m (859&times;618): ~16 min (regular), ~3 sec (trimesh), &lt;1 sec (CUDA trimesh).</p>
-                    </div>
-                    <div class="card accent" style="padding: 20px;">
-                        <h3 style="font-size: 1.1rem;">&#128680; Stability</h3>
-                        <p style="font-size: 0.95rem;">CFL-adaptive time stepping ensures numerical stability. No manual &Delta;t tuning needed.</p>
+                <div class="center-content">
+                    <div style="max-width: 1100px;">
+                        <table style="margin-bottom: 30px;">
+                            <tr>
+                                <th>Template / Tool</th>
+                                <th>Role</th>
+                                <th>User edits</th>
+                                <th>Output</th>
+                            </tr>
+                            <tr>
+                                <td><strong>1_Model_Config/<br>model_config_template.py</strong></td>
+                                <td>Preprocessing</td>
+                                <td><code>_config</code> dict</td>
+                                <td>DEM <code>.asc</code>, mesh <code>.msh</code>, <code>modset.json</code>, HTML config report</td>
+                            </tr>
+                            <tr>
+                                <td><strong>2_Read_Outputs/<br>read_output_template.py</strong></td>
+                                <td>Post-processing</td>
+                                <td><code>_config</code> dict</td>
+                                <td>HTML flood-statistics report (time-series, maps, histogram)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>fluxos_viewer.py</strong></td>
+                                <td>Visualisation CLI</td>
+                                <td>flags only</td>
+                                <td>KMZ / WebGL folder / MP4</td>
+                            </tr>
+                        </table>
+                        <div class="highlight-box success" style="text-align: center; font-size: 1.2rem;">
+                            <strong>End-to-end:</strong>
+                            <code>pip install -r requirements.txt</code> &rarr;
+                            edit <code>model_config_template.py</code> &rarr; run &rarr;
+                            Docker build &amp; run &rarr;
+                            edit <code>read_output_template.py</code> &rarr; run
+                        </div>
                     </div>
                 </div>
             </div>
@@ -498,144 +563,8 @@ mpirun -np 4 ./fluxos modset.json</pre>
             </div>
         </div>
 
-        <!-- Slide 12: Output Files -->
-        <div class="slide" data-slide="12">
-            <div class="slide-header">
-                <h2>Output Files &amp; Formats</h2>
-            </div>
-            <div class="slide-content">
-                <table style="margin-bottom: 25px;">
-                    <tr>
-                        <th>Mesh Type</th>
-                        <th>Format</th>
-                        <th>Files</th>
-                        <th>Viewer</th>
-                    </tr>
-                    <tr>
-                        <td><strong>Regular</strong></td>
-                        <td>ASCII text grids</td>
-                        <td>h_NNNN.txt, vx_NNNN.txt, vy_NNNN.txt, conc_NNNN.txt</td>
-                        <td>Python, QGIS, MATLAB</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Triangular</strong></td>
-                        <td>VTK XML Unstructured</td>
-                        <td>output_NNNN.vtu + output.pvd</td>
-                        <td>ParaView</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Both</strong></td>
-                        <td>KML/KMZ</td>
-                        <td>Generated by fluxos_viewer.py</td>
-                        <td>Google Earth</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Both</strong></td>
-                        <td>WebGL data</td>
-                        <td>Heightmap, velocity, concentration PNGs + metadata.json</td>
-                        <td>Web browser</td>
-                    </tr>
-                </table>
-                <div class="two-column" style="gap: 40px;">
-                    <div class="highlight-box info">
-                        <strong>PRINT_STEP</strong> controls how often output is written. Lower values = more output files but higher disk usage.
-                    </div>
-                    <div class="highlight-box success">
-                        <strong>H_MIN_TO_PRINT</strong> filters cells with water depth below this threshold from output, reducing file sizes.
-                    </div>
-                </div>
-            </div>
-            <div class="slide-footer">
-                <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">12</div>
-            </div>
-        </div>
-
-        <!-- Slide 13: WebGL Export -->
-        <div class="slide" data-slide="13">
-            <div class="slide-header">
-                <h2>WebGL Visualization Export</h2>
-            </div>
-            <div class="slide-content">
-                <p style="font-size: 1.1rem; margin-bottom: 15px;">
-                    Export simulation results to a self-contained WebGL viewer:
-                </p>
-                <div class="two-column" style="gap: 40px;">
-                    <div class="column">
-                        <pre style="font-size: 0.85rem; padding: 20px;">
-<span class="comment"># Generate WebGL data from results (writes index.html + data/ into --webgl-output)</span>
-python supporting_scripts/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
-    --results-dir Results/ \
-    --dem Working_example/Rosa_2m.asc \
-    --utm-zone 10 \
-    --webgl-output fluxos_web
-
-<span class="comment"># Serve locally</span>
-cd fluxos_web
-python -m http.server 8080
-
-<span class="comment"># Open: http://localhost:8080</span></pre>
-                        <div class="highlight-box success" style="margin-top: 15px;">
-                            <strong>Output:</strong> Static files only. Upload to any web server or GitHub Pages.
-                        </div>
-                    </div>
-                    <div class="column">
-                        <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Generated Files</h3>
-                            <table style="font-size: 0.9rem; margin-top: 10px;">
-                                <tr><td><strong>metadata.json</strong></td><td>Grid info, timesteps, bounds</td></tr>
-                                <tr><td><strong>heightmap.png</strong></td><td>Terrain elevation</td></tr>
-                                <tr><td><strong>hillshade.png</strong></td><td>Shaded relief</td></tr>
-                                <tr><td><strong>satellite.jpg</strong></td><td>Satellite imagery (if available)</td></tr>
-                                <tr><td><strong>velocity/*.png</strong></td><td>Velocity fields per frame</td></tr>
-                                <tr><td><strong>conc/*.png</strong></td><td>Concentration fields per frame</td></tr>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="slide-footer">
-                <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">13</div>
-            </div>
-        </div>
-
-        <!-- Slide 14: Summary -->
-        <div class="slide" data-slide="14">
-            <div class="slide-header">
-                <h2>Setup Summary</h2>
-            </div>
-            <div class="slide-content">
-                <div class="center-content">
-                    <div style="max-width: 1000px;">
-                        <div class="three-column" style="gap: 25px; margin-bottom: 30px;">
-                            <div class="card primary" style="text-align: center; padding: 20px;">
-                                <h3 style="justify-content: center; font-size: 1.2rem;">&#128506;&#65039; Prepare</h3>
-                                <p style="font-size: 0.95rem;">DEM + JSON config + inflow timeseries. Optional: soil map, mesh files.</p>
-                            </div>
-                            <div class="card secondary" style="text-align: center; padding: 20px;">
-                                <h3 style="justify-content: center; font-size: 1.2rem;">&#9654;&#65039; Run</h3>
-                                <p style="font-size: 0.95rem;"><code>./fluxos modset.json</code><br>CFL-adaptive, no manual tuning needed.</p>
-                            </div>
-                            <div class="card accent" style="text-align: center; padding: 20px;">
-                                <h3 style="justify-content: center; font-size: 1.2rem;">&#127912; Visualize</h3>
-                                <p style="font-size: 0.95rem;">ASCII/VTK/KML output + WebGL 3D viewer for web hosting.</p>
-                            </div>
-                        </div>
-                        <div class="highlight-box info" style="text-align: center; font-size: 1.2rem;">
-                            <strong>JSON-driven configuration</strong> makes it easy to toggle modules, change parameters, and switch between regular and triangular meshes &mdash; all without recompiling.
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="slide-footer">
-                <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">14</div>
-            </div>
-        </div>
-
-        <!-- Slide 15: Thank You -->
-        <div class="slide title-slide" data-slide="15">
+        <!-- Slide 12: Thank You -->
+        <div class="slide title-slide" data-slide="12">
             <h1 style="font-size: 3.5rem;">Thank You</h1>
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
@@ -760,10 +689,8 @@ python -m http.server 8080
                     }
                 }
                 pre.innerHTML = parts.join('');
-                // Mark the first command so CSS can shift its button clear of the block-level Copy
                 const firstCmd = pre.querySelector('.code-cmd');
                 if (firstCmd) firstCmd.classList.add('first-cmd');
-                // Rebind the enclosing block-level copy button so it uses the clean original text
                 const container = pre.closest('.code-container');
                 if (container) {
                     const blockBtn = container.querySelector('.copy-btn');
