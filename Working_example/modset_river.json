@@ -30,10 +30,6 @@
         "ADE_TRANSPORT": {
             "STATUS": true,
             "D_COEF": 0.5
-        },
-        "OPENWQ": {
-            "STATUS": false,
-            "MASTERFILE_DIR": ""
         }
     }
 }

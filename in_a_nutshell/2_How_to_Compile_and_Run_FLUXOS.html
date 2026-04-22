@@ -239,7 +239,6 @@
                                 <tr><td><strong>OpenMPI / MPICH</strong></td><td>distributed computing &mdash; enables <code>USE_MPI=ON</code></td></tr>
                                 <tr><td><strong>CUDA Toolkit</strong></td><td>&ge; 11.0 &mdash; enables <code>USE_CUDA=ON</code></td></tr>
                                 <tr><td><strong>Gmsh</strong></td><td>mesh generation (triangular domain preprocessing)</td></tr>
-                                <tr><td><strong>OpenWQ</strong></td><td>water-quality coupling &mdash; enables <code>USE_OPENWQ=ON</code></td></tr>
                             </table>
                         </div>
                         <div class="highlight-box info" style="margin-top: 14px; font-size: 0.9rem; padding: 10px 14px;">
@@ -721,11 +720,6 @@ mpirun -np 4 ./build/bin/fluxos_mpi Working_example/modset.json
                         <td><code>cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON ..</code></td>
                         <td>Multi-GPU HPC cluster</td>
                     </tr>
-                    <tr>
-                        <td><strong>With OpenWQ</strong></td>
-                        <td><code>cmake -DMODE_release=ON -DUSE_OPENWQ=ON ..</code></td>
-                        <td>Water quality coupling</td>
-                    </tr>
                 </table>
                 <div class="highlight-box info">
                     <strong>Tip:</strong> Always start with the simplest configuration that meets your needs. Add complexity only when required for your domain size or performance targets.
@@ -868,11 +862,11 @@ docker compose -f containers/docker-compose.yml run --rm fluxos \
                             </div>
                             <div class="card secondary" style="text-align: center; padding: 20px;">
                                 <h3 style="justify-content: center; font-size: 1.2rem;">&#128268; Optional</h3>
-                                <p style="font-size: 0.95rem;">CUDA 11+, OpenMPI, Gmsh, OpenWQ</p>
+                                <p style="font-size: 0.95rem;">CUDA 11+, OpenMPI, Gmsh</p>
                             </div>
                             <div class="card accent" style="text-align: center; padding: 20px;">
                                 <h3 style="justify-content: center; font-size: 1.2rem;">&#9881;&#65039; Flags</h3>
-                                <p style="font-size: 0.95rem;">USE_TRIMESH, USE_CUDA, USE_MPI, USE_OPENWQ</p>
+                                <p style="font-size: 0.95rem;">USE_TRIMESH, USE_CUDA, USE_MPI</p>
                             </div>
                         </div>
                     </div>

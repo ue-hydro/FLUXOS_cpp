@@ -159,7 +159,7 @@ unsigned int initiation(
             (*ds.qx).at(irow,icol) = filedata(a,8);
             (*ds.qy).at(irow,icol) = filedata(a,9);
             (*ds.us).at(irow,icol) = filedata(a,10);
-            if(ds.ade_solver == true && ds.openwq == false){
+            if(ds.ade_solver == true){
                 (*ds.conc_SW)[0].at(irow,icol) = std::fmax(filedata(a,11), 0.0f);
             }else{
                 (*ds.conc_SW)[0].at(irow,icol) = -1.0f;

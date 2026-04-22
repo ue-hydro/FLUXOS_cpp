@@ -124,9 +124,6 @@ CMake Options
    * - USE_TRIMESH
      - OFF
      - Enable unstructured triangular mesh support (Gmsh/Triangle mesh formats)
-   * - USE_OPENWQ
-     - OFF
-     - Enable OpenWQ water quality coupling
 
 .. note::
 

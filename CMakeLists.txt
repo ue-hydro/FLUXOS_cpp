@@ -11,7 +11,6 @@ cmake_minimum_required(VERSION 3.18)
 #   -DUSE_MPI=ON          Enable MPI for distributed computing (default: OFF)
 #   -DUSE_CUDA=ON         Enable CUDA GPU acceleration (default: OFF)
 #   -DUSE_TRIMESH=ON      Enable triangular mesh support (default: OFF)
-#   -DUSE_OPENWQ=ON       Enable OpenWQ water quality coupling (default: OFF)
 #
 # Build Examples:
 #   cmake -DMODE_release=ON ..                              # OpenMP only (single node)
@@ -48,9 +47,6 @@ option(USE_CUDA "ON: Enable CUDA GPU acceleration; OFF: CPU only" OFF)
 # Define triangular mesh option
 option(USE_TRIMESH "ON: Enable unstructured triangular mesh support; OFF: Regular mesh only" OFF)
 
-# Define OpenWQ water quality coupling option
-option(USE_OPENWQ "ON: Enable OpenWQ water quality coupling; OFF: Standalone hydro" OFF)
-
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
         MESSAGE(STATUS "compilation model : release")
@@ -78,18 +74,6 @@ IF (UNIX)
 	project(fluxos)
 
 	file(GLOB SOURCES "src/fluxos/*.cpp")
-
-	# OpenWQ water quality coupling
-	# Always compile the OpenWQ hydrolink bridge file.
-	# When USE_OPENWQ=OFF, stub implementations are used.
-	# When USE_OPENWQ=ON, the full OpenWQ library must be available.
-	file(GLOB OPENWQ_SOURCES "src/openwq/*.cpp")
-	IF(USE_OPENWQ MATCHES ON)
-		MESSAGE(STATUS "OpenWQ support: ENABLED")
-		add_definitions(-DUSE_OPENWQ)
-	ELSE()
-		MESSAGE(STATUS "OpenWQ support: DISABLED (use -DUSE_OPENWQ=ON to enable)")
-	ENDIF()
 
 	set(CMAKE_CXX_STANDARD 17)
 
@@ -185,14 +169,17 @@ IF (UNIX)
 
 	include_directories(${AMRADILLO_INCLUDE_DIR} ${PROJECT_SOURCE_DIR})
 
-	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+	# Default output directory (respects -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/path/to/bin
+	# from the command line — e.g. the Docker/Apptainer bind-mount workflow).
+	if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+		set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+	endif()
 
 	# Create Results folder if non-existant
 	file(MAKE_DIRECTORY Results)
 
 	add_executable(${FLUXOS_EXEC_name}
 			${SOURCES}
-			${OPENWQ_SOURCES}
 			${CUDA_SOURCES}
 			${TRIMESH_SOURCES}
 			${TRIMESH_CUDA_SOURCES})

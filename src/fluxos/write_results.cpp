@@ -83,7 +83,6 @@ bool write_results(
                 filedataR(a,9) = (*ds.qy).at(irow,icol)*ds.dxy;
                 filedataR(a,10) = (*ds.us).at(irow,icol);
                 // Only prints conc_SW[0]
-                // if using openwq, then all the other concentrations will be in openwq
                 filedataR(a,11) = (*ds.conc_SW)[0].at(irow,icol); // adesolver
                 filedataR(a,12) = (*ds.fe_1).at(irow,icol);
                 filedataR(a,13) = (*ds.fn_1).at(irow,icol);

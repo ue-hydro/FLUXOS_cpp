@@ -5,8 +5,8 @@ One-stop template that turns a raw GeoTIFF DEM into the inputs FLUXOS needs
 and produces an HTML summary with copy-paste container-run commands for
 building and running the simulation.
 
-The pattern mirrors OpenWQ's `1_Model_Config/` template: **you edit one file**
-(`model_config_template.py`), everything else is library code.
+**You edit one file** (`model_config_template.py`); everything else is
+library code under `config_support_lib/`.
 
 ## Layout
 
@@ -102,7 +102,7 @@ DEMs, you must provide LiDAR-derived data yourself via `"file"` mode.
 | Domain | DEM source / CRS / bbox / elevation range |
 | Mesh   | Vertex / cell / edge counts (triangular only) |
 | Configuration | All non-default modset values, plus the full JSON in a collapsible |
-| Modules | Status of ADE Transport, Soil Infiltration, OpenWQ |
+| Modules | Status of ADE Transport, Soil Infiltration |
 | Errors | (if any step failed) — the rest of the report still generates |
 | Next Steps | Copy-paste shell snippets: `cd`, build, run, check outputs, visualise |
 

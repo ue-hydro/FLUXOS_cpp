@@ -33,7 +33,7 @@ The template handles all three stages internally:
 
 * **DEM preparation:** reads the GeoTIFF via ``rasterio``, optionally downscales via bilinear interpolation (``scipy.ndimage.zoom``), writes an ESRI ASCII ``.asc`` into ``<repo>/bin/``. For triangular meshes it writes a 10×10 placeholder ``.asc`` (elevations actually live in the ``.msh``), which keeps the ``DEM_FILE`` entry valid for the C++ side without duplicating the DEM on disk.
 * **Adaptive triangular mesh (triangular path only):** computes slope from the DEM, builds a size field with finer triangles in steep terrain, extracts the valid-data polygon, invokes ``pygmsh`` / ``gmsh`` to generate the mesh, and interpolates DEM elevations onto the vertices so the C++ solver can read elevations directly from the mesh file.
-* **modset.json:** writes the configuration with ``DEM_FILE``, ``MESH_FILE`` / ``MESH_FORMAT`` / ``BOUNDARY_CONDITIONS`` (for trimesh), forcing files, sim start, roughness, output options, and any enabled modules (ADE transport, soil infiltration, OpenWQ).
+* **modset.json:** writes the configuration with ``DEM_FILE``, ``MESH_FILE`` / ``MESH_FORMAT`` / ``BOUNDARY_CONDITIONS`` (for trimesh), forcing files, sim start, roughness, output options, and any enabled modules (ADE transport, soil infiltration).
 
 .. note::
 

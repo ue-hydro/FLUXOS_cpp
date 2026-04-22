@@ -21,9 +21,8 @@ Produces a single self-contained HTML file summarising what the driver built
 (DEM, mesh, modset.json) and giving the user copy-paste Docker commands to
 build the image, run the simulation, check outputs, and visualise results.
 
-Style is adapted from OpenWQ's Gen_Report.py: Inter + JetBrains Mono,
-#0066cc primary / #00a86b secondary / #ff6b35 accent, dark/light theme toggle,
-KPI grid, sidebar navigation.
+Style: Inter + JetBrains Mono, #0066cc primary / #00a86b secondary /
+#ff6b35 accent, dark/light theme toggle, KPI grid, sidebar navigation.
 """
 
 from __future__ import annotations
@@ -36,7 +35,7 @@ from datetime import datetime
 
 
 # ---------------------------------------------------------------------------
-#  CSS (adapted and trimmed from openwq Gen_Report.py)
+#  CSS
 # ---------------------------------------------------------------------------
 
 _CSS = r"""
@@ -536,7 +535,6 @@ def _summary_section(data: dict) -> str:
     modules_on = sum([
         bool(config["ade_transport"]["enabled"]),
         bool(config["soil_infiltration"]["enabled"]),
-        bool(config["openwq"]["enabled"]),
     ])
 
     kpis = [
@@ -985,16 +983,12 @@ def _modules_section(data: dict) -> str:
 
     ade = config["ade_transport"]
     soil = config["soil_infiltration"]
-    wq = config["openwq"]
     items = [
         row("ADE Transport (advection–dispersion)", ade["enabled"],
             {"D_COEF": ade.get("d_coef")} if ade["enabled"] else None),
         row("Soil Infiltration", soil["enabled"],
             {"DEFAULT_KS_MM_HR": soil.get("default_ks_mm_hr")}
             if soil["enabled"] else None),
-        row("OpenWQ", wq["enabled"],
-            {"MASTERFILE_DIR": wq.get("masterfile_dir")}
-            if wq["enabled"] else None),
     ]
     return f"""
     <section class="section" id="modules">

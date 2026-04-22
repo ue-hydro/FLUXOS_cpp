@@ -26,10 +26,16 @@ __pycache__/
 *.pyc
 
 # Generated reports from the preprocessing templates
-fluxos_preprocessing/**/reports/
+supporting_scripts/**/reports/
 
 # Cached DEM tiles downloaded by dem_download.py
 bin/dem_cache/
 
 # Local Claude Code / IDE state
 .claude/settings.local.json
+
+# JetBrains / IntelliJ / PyCharm project metadata
+.idea/
+
+# Sphinx build output — regenerate locally with `sphinx-build wikipage/source wikipage/build/html`
+wikipage/build/

@@ -54,7 +54,7 @@ FLUXOS includes an editable Python template (``supporting_scripts/1_Model_Config
 * **Slope-based adaptive mesh generation**: Automatically create triangular meshes from DEM topography using Gmsh, where steeper slopes produce finer mesh elements and flat areas produce coarser elements
 * **DEM-in-mesh embedding**: DEM elevations are embedded as vertex z-coordinates in the Gmsh ``.msh`` file, eliminating the need for separate DEM interpolation during initialization
 * **JSON config generation**: Automatically produce ``modset.json`` configuration files matching the C++ solver's expected format
-* **HTML run report**: Self-contained report with KPI summary, domain / mesh statistics, full modset view, and copy-paste Docker commands for the build–run–inspect cycle (matches the OpenWQ ``1_Model_Config`` pattern)
+* **HTML run report**: Self-contained report with KPI summary, domain / mesh statistics, full modset view, and copy-paste Docker commands for the build–run–inspect cycle
 
 This Python-only approach avoids adding GDAL as a C++ dependency. The C++ solver continues reading the same file formats (``.asc`` and ``.msh``), with backward-compatible support for mesh files with or without embedded vertex elevations.
 

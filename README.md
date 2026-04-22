@@ -107,7 +107,7 @@ and MT3DMS.
 * Uses [Armadillo](https://arma.sourceforge.net/) for linear algebra and [nlohmann/json](https://github.com/nlohmann/json) for configuration
 * Removed MODFLOW and MT3DMS (no baseflow component at present)
 * Integrates the WINTRA algorithm for runoff–soil interactions and nutrient release ([paper](https://onlinelibrary.wiley.com/doi/full/10.1002/hyp.11346))
-* Adds OpenMP + MPI + CUDA parallelism, triangular-mesh support via Gmsh, and optional coupling to OpenWQ water-quality reactions
+* Adds OpenMP + MPI + CUDA parallelism and triangular-mesh support via Gmsh
 
 ## Branches
 
