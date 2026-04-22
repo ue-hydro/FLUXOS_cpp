@@ -38,7 +38,7 @@ everything else is library code under `output_supporting_lib/`.
 ## How to use
 
 ```bash
-cd fluxos_preprocessing/2_Read_Outputs
+cd supporting_scripts/2_Read_Outputs
 # open read_output_template.py, point it at your results_dir + modset
 python read_output_template.py
 ```

@@ -56,7 +56,7 @@ _config = dict(
     # ------------------------------------------------------------------
     # repo_root: absolute path to the FLUXOS checkout. `None` means
     #   "auto-detect" (assumed to be two directories above this file, i.e.
-    #   the parent of `fluxos_preprocessing/`).
+    #   the parent of `supporting_scripts/`).
     repo_root       = None,
 
     # Directory (relative to repo_root) where generated .asc / .msh /

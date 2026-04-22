@@ -198,7 +198,7 @@ First generate the mesh and ``modset.json`` from the DEM by editing the ``_confi
 
 .. code-block:: bash
 
-   cd fluxos_preprocessing/1_Model_Config
+   cd supporting_scripts/1_Model_Config
    python model_config_template.py
 
 Then run FLUXOS with the triangular mesh config produced by the template:
@@ -217,11 +217,11 @@ Export simulation results as KMZ files for animated visualization:
 .. code-block:: bash
 
    # Regular mesh results
-   python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
+   python supporting_scripts/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
        --results-dir Results --dem Working_example/Rosa_2m.asc --utm-zone 10
 
    # Triangular mesh results
-   python fluxos_preprocessing/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
+   python supporting_scripts/2_Read_Outputs/output_supporting_lib/fluxos_viewer.py \
        --results-dir Results --dem Working_example/Rosa_2m.asc \
        --mesh-type triangular --utm-zone 10
 

@@ -38,6 +38,6 @@ A typical calibration workflow for FLUXOS involves:
 2. **Select observation data**: Identify available field measurements (water levels, discharge at cross-sections, inundation extent)
 3. **Parameter sampling**: Define parameter ranges and sampling strategy (manual, grid search, or automated optimization)
 4. **Batch simulation**: Run FLUXOS with different parameter sets
-5. **Post-processing**: Extract simulated values at observation locations from the ``.vtu`` / ``.txt`` output (see ``fluxos_preprocessing/2_Read_Outputs/`` for the template-driven flood-statistics report; supporting readers in ``output_supporting_lib/``)
+5. **Post-processing**: Extract simulated values at observation locations from the ``.vtu`` / ``.txt`` output (see ``supporting_scripts/2_Read_Outputs/`` for the template-driven flood-statistics report; supporting readers in ``output_supporting_lib/``)
 6. **Evaluation**: Compare simulated vs. observed data using the objective function
 7. **Iteration**: Refine parameter ranges and repeat

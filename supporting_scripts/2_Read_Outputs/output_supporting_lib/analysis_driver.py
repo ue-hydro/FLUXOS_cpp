@@ -43,7 +43,7 @@ from gen_results_report import generate_results_report
 def _resolve_repo_root(config: dict, template_file: str) -> str:
     if config.get("repo_root"):
         return os.path.abspath(config["repo_root"])
-    # <repo>/fluxos_preprocessing/2_Read_Outputs/read_output_template.py
+    # <repo>/supporting_scripts/2_Read_Outputs/read_output_template.py
     return os.path.abspath(os.path.join(os.path.dirname(template_file), "..", ".."))
 
 

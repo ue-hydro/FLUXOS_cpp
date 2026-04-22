@@ -47,7 +47,7 @@ The GPU acceleration is complementary to the existing MPI+OpenMP parallelization
 GeoTIFF DEM Support and Python Preprocessing
 ----------------------------------------------
 
-FLUXOS includes an editable Python template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``) that streamlines the workflow from raw GeoTIFF DEM data to simulation-ready inputs. The user fills in a single ``_config`` dict and runs the file:
+FLUXOS includes an editable Python template (``supporting_scripts/1_Model_Config/model_config_template.py``) that streamlines the workflow from raw GeoTIFF DEM data to simulation-ready inputs. The user fills in a single ``_config`` dict and runs the file:
 
 * **GeoTIFF DEM import**: Read GeoTIFF files directly using ``rasterio``, with automatic CRS validation and metadata inspection
 * **DEM downscaling**: Resample DEMs to lower resolutions using bilinear interpolation for use with the regular Cartesian mesh

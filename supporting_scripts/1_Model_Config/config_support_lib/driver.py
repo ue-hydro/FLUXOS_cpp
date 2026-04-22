@@ -40,11 +40,11 @@ def _resolve_repo_root(config: dict, template_file: str) -> str:
     """
     Resolve the FLUXOS repo root, with `repo_root=None` meaning
     "two directories above the template file" (i.e. the parent of
-    `fluxos_preprocessing/`).
+    `supporting_scripts/`).
     """
     if config.get("repo_root"):
         return os.path.abspath(config["repo_root"])
-    # template_file lives at <repo>/fluxos_preprocessing/1_Model_Config/model_config_template.py
+    # template_file lives at <repo>/supporting_scripts/1_Model_Config/model_config_template.py
     return os.path.abspath(os.path.join(os.path.dirname(template_file),
                                         "..", ".."))
 

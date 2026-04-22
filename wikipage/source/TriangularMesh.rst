@@ -143,7 +143,7 @@ To use a triangular mesh, add these settings to your master JSON file:
 Adaptive Mesh Generation from GeoTIFF
 ---------------------------------------
 
-The Python configuration template (``fluxos_preprocessing/1_Model_Config/model_config_template.py``) can automatically generate adaptive triangular meshes from GeoTIFF DEM data. The mesh generator creates finer elements in steep terrain and coarser elements in flat areas, optimizing computational resources.
+The Python configuration template (``supporting_scripts/1_Model_Config/model_config_template.py``) can automatically generate adaptive triangular meshes from GeoTIFF DEM data. The mesh generator creates finer elements in steep terrain and coarser elements in flat areas, optimizing computational resources.
 
 Edit the mesh block of the template's ``_config`` dict:
 
