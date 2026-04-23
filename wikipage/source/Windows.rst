@@ -27,7 +27,7 @@ Open the Ubuntu shell, then follow the native Linux quick-start:
    git clone https://github.com/ue-hydro/FLUXOS_cpp.git
    cd FLUXOS_cpp
    mkdir build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
    make -j$(nproc)
    cd ..
    ./build/bin/fluxos Working_example/modset_trimesh.json

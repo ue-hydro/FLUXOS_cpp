@@ -55,7 +55,7 @@ Build Commands
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON ..
    make -j8
 
 For module-based HPC systems:

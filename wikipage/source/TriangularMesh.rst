@@ -28,14 +28,14 @@ Triangular mesh support requires the ``USE_TRIMESH`` CMake option:
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
    make -j$(nproc)
 
 For GPU acceleration of the triangular mesh solver:
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..
+   cmake -DMODE_release=ON -DUSE_CUDA=ON ..
    make -j$(nproc)
 
 Mesh Formats
@@ -269,7 +269,7 @@ Build with MPI:
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON ..
+   cmake -DMODE_release=ON -DUSE_MPI=ON ..
    make -j$(nproc)
    mpirun -np 4 ./bin/fluxos_mpi ./input/modset_triangular.json
 

@@ -82,14 +82,14 @@ FLUXOS supports several build configurations:
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
    make
 
 **Full-Feature Build (Triangular Mesh + GPU + MPI)**
 
 .. code-block:: bash
 
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON -DUSE_MPI=ON ..
+   cmake -DMODE_release=ON -DUSE_CUDA=ON -DUSE_MPI=ON ..
    make
 
 **Debug Build**

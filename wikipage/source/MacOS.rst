@@ -28,7 +28,7 @@ Quick Start (Apple Silicon / Intel, via Homebrew)
    git clone https://github.com/ue-hydro/FLUXOS_cpp.git
    cd FLUXOS_cpp
    mkdir build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
    make -j$(sysctl -n hw.ncpu)
 
    # 4. Run the bundled Rosa Creek example
@@ -50,7 +50,7 @@ NOT FOUND", prepend the Homebrew OpenMP path explicitly:
 .. code-block:: bash
 
    export OpenMP_ROOT=$(brew --prefix)/opt/libomp
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
 
 **Armadillo:** Homebrew's ``armadillo`` formula is current (12.x). If you
 installed an older one, ``brew upgrade armadillo``.
@@ -70,7 +70,7 @@ full list. The most common combinations on macOS:
    * - OpenMP only, regular mesh
      - ``-DMODE_release=ON``
    * - OpenMP + triangular mesh
-     - ``-DMODE_release=ON -DUSE_TRIMESH=ON``
+     - ``-DMODE_release=ON``
    * - MPI + OpenMP
      - ``-DMODE_release=ON -DUSE_MPI=ON``
 
