@@ -53,9 +53,11 @@ IF(MODE_release MATCHES ON)
         # Aggressive optimization flags for maximum performance
         # Note: Using -fno-finite-math-only to maintain IEEE compliance for JSON library
         set(CMAKE_CXX_FLAGS "-O3 -march=native -mtune=native -funroll-loops -ftree-vectorize -fno-math-errno")
-        # Enable link-time optimization for cross-file inlining
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+        # Enable link-time optimization for cross-file inlining.
+        # -flto=auto lets GCC parallelize the LTRANS phase across all cores
+        # (a bare -flto would serialize it and print a warning).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=auto")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto=auto")
         set(FLUXOS_EXEC_name "fluxos")
 ELSE(MODE_release MATCHES OFF)
         MESSAGE(STATUS "compilation model : debug")
