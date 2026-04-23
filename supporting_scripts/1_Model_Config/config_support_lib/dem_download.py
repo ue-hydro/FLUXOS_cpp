@@ -80,7 +80,19 @@ USGS_PROVIDERS: dict[str, dict] = {
                  "vertical_rmse_m": 0.15, "coverage": "US LiDAR-covered only"},
 }
 
-ALL_PROVIDERS: dict[str, dict] = {**OPENTOPO_PROVIDERS, **USGS_PROVIDERS}
+# Public AWS S3 mirrors — no API key required.
+# Copernicus DSM 30 m is hosted as Cloud Optimized GeoTIFFs on the open
+# bucket `copernicus-dem-30m`; individual 1° × 1° tiles are fetched and
+# merged in-process. No registration, no tokens, works for any bbox
+# globally.
+AWS_PROVIDERS: dict[str, dict] = {
+    "COP30_AWS": {"label": "Copernicus GLO-30 (ESA, AWS mirror, NO KEY)",
+                  "native_res_m": 30, "vertical_rmse_m": 4,
+                  "coverage": "global"},
+}
+
+ALL_PROVIDERS: dict[str, dict] = {**OPENTOPO_PROVIDERS, **USGS_PROVIDERS,
+                                  **AWS_PROVIDERS}
 
 
 def provider_info(name: str) -> dict:
@@ -138,6 +150,88 @@ def _fetch_opentopography(provider: str, bbox_wgs84: Tuple[float, float, float, 
             body = f.read(500)
         os.remove(out_path)
         raise RuntimeError(f"OpenTopography returned a non-raster response: {body}")
+    return out_path
+
+
+def _cop30_aws_tile_name(lat: int, lon: int) -> str:
+    """Build the Copernicus DSM 30 m tile identifier for the SW corner
+    (lat, lon). Tiles are 1° × 1°, named by their southwest corner, e.g.
+    ``Copernicus_DSM_COG_10_N39_00_W010_00_DEM`` covers lat ∈ [39, 40),
+    lon ∈ [-10, -9).
+    """
+    ns = "N" if lat >= 0 else "S"
+    ew = "E" if lon >= 0 else "W"
+    return f"Copernicus_DSM_COG_10_{ns}{abs(lat):02d}_00_{ew}{abs(lon):03d}_00_DEM"
+
+
+def _fetch_cop30_aws(bbox_wgs84: Tuple[float, float, float, float],
+                     out_path: str, cache_dir: str) -> str:
+    """Fetch Copernicus GLO-30 tiles from the public AWS S3 bucket and
+    crop/mosaic them to the requested bbox. No API key required.
+
+    The data is the same Copernicus DSM 30 m that OpenTopography's COP30
+    endpoint serves, just pulled directly from
+    ``https://copernicus-dem-30m.s3.amazonaws.com/`` as individual
+    Cloud-Optimized GeoTIFFs.
+    """
+    import rasterio
+    from rasterio.merge import merge as rio_merge
+    from rasterio.windows import from_bounds
+
+    lon_min, lat_min, lon_max, lat_max = bbox_wgs84
+    # Tile indexes (SW corner of each 1° tile) covering the bbox
+    lat_tiles = range(int(lat_min) if lat_min >= 0 else int(lat_min) - 1,
+                      int(lat_max) + 1)
+    lon_tiles = range(int(lon_min) if lon_min >= 0 else int(lon_min) - 1,
+                      int(lon_max) + 1)
+
+    tile_paths = []
+    base_url = "https://copernicus-dem-30m.s3.amazonaws.com"
+    for lat in lat_tiles:
+        for lon in lon_tiles:
+            name = _cop30_aws_tile_name(lat, lon)
+            url = f"{base_url}/{name}/{name}.tif"
+            tile_path = os.path.join(cache_dir, "cop30_aws_tiles", f"{name}.tif")
+            os.makedirs(os.path.dirname(tile_path), exist_ok=True)
+            if not os.path.exists(tile_path):
+                print(f"      fetching COP30 tile {name} …")
+                try:
+                    urllib.request.urlretrieve(url, tile_path)
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        # Ocean / no-data tile — skip gracefully
+                        print(f"      (tile {name} not published — ocean? skipping)")
+                        continue
+                    raise RuntimeError(
+                        f"AWS COP30 HTTP {e.code} for tile {name}: {url}") from None
+            tile_paths.append(tile_path)
+
+    if not tile_paths:
+        raise RuntimeError(
+            "No COP30 tiles could be fetched for the given bbox "
+            f"{bbox_wgs84}. The bbox may be entirely over the ocean.")
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+
+    # Open all tiles, merge, crop to bbox, write GeoTIFF
+    sources = [rasterio.open(p) for p in tile_paths]
+    try:
+        # `merge` with `bounds` clips to the bbox in the source CRS (WGS84)
+        mosaic, transform = rio_merge(
+            sources, bounds=(lon_min, lat_min, lon_max, lat_max))
+        meta = sources[0].meta.copy()
+        meta.update({
+            "driver":    "GTiff",
+            "height":    mosaic.shape[1],
+            "width":     mosaic.shape[2],
+            "transform": transform,
+            "count":     mosaic.shape[0],
+        })
+        with rasterio.open(out_path, "w", **meta) as dst:
+            dst.write(mosaic)
+    finally:
+        for s in sources:
+            s.close()
     return out_path
 
 
@@ -261,6 +355,8 @@ def fetch_dem(provider: str,
             _fetch_opentopography(provider, bbox_wgs84, raw_path, api_key or "")
         elif provider in USGS_PROVIDERS:
             _fetch_usgs_3dep(provider, bbox_wgs84, raw_path)
+        elif provider in AWS_PROVIDERS:
+            _fetch_cop30_aws(bbox_wgs84, raw_path, cache_dir)
         else:
             raise ValueError(f"Unknown provider: {provider}")
     else:

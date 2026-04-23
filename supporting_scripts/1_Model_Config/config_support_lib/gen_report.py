@@ -171,6 +171,18 @@ td code{font-family:'JetBrains Mono',monospace;font-size:.82rem;
 .code-block pre .line-copy-btn:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.35)}
 .code-block pre .line-copy-btn.copied{background:var(--secondary);border-color:var(--secondary);color:#fff}
 
+/* Block-level copy — used only in "Next Steps". The per-line JS ignores these. */
+.code-block-full{position:relative;margin:.6rem 0 1rem}
+.code-block-full pre{background:var(--code-bg);color:var(--code-text);padding:1rem 1rem 1rem 1rem;
+  padding-top:2.3rem;border-radius:10px;overflow-x:auto;font-family:'JetBrains Mono',monospace;
+  font-size:.82rem;line-height:1.6;white-space:pre}
+.code-block-full .block-copy-btn{position:absolute;top:.45rem;right:.55rem;padding:.25rem .65rem;
+  font-size:.72rem;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+  border-radius:5px;color:#e2e8f0;cursor:pointer;display:inline-flex;align-items:center;gap:.3rem;
+  transition:background .15s,border-color .15s;font-family:inherit;font-weight:500;line-height:1.3}
+.code-block-full .block-copy-btn:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.35)}
+.code-block-full .block-copy-btn.copied{background:var(--secondary);border-color:var(--secondary);color:#fff}
+
 /* Visualisation toggle (checkbox for --variable conc_SW) */
 .viz-toggle-card{margin-top:.4rem}
 .viz-toggle-label{display:inline-flex;align-items:center;gap:.45rem;cursor:pointer;
@@ -314,6 +326,32 @@ _JS = r"""
       btn.textContent = '\u2713';
       btn.classList.add('copied');
       setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
+    });
+  });
+
+  // Block-level Copy (used ONLY inside the Next Steps card — copies the
+  // entire snippet's <pre> text). Does not interact with per-line buttons.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.block-copy-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const wrap = btn.closest('.code-block-full');
+    const pre = wrap ? wrap.querySelector('pre') : null;
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.textContent).then(() => {
+      const label = btn.querySelector('.label');
+      const icon  = btn.querySelector('.icon');
+      const origLabel = label ? label.textContent : '';
+      const origIcon  = icon  ? icon.textContent  : '';
+      if (label) label.textContent = 'Copied';
+      if (icon)  icon.textContent  = '\u2713';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        if (label) label.textContent = origLabel;
+        if (icon)  icon.textContent  = origIcon;
+        btn.classList.remove('copied');
+      }, 1500);
     });
   });
 })();
@@ -471,6 +509,24 @@ def _code_block(cmd: str) -> str:
     """Render a code block. Per-line copy buttons are injected at render time by JS."""
     return (
         '<div class="code-block">'
+        f'<pre>{_esc(cmd)}</pre>'
+        '</div>'
+    )
+
+
+def _code_block_full(cmd: str) -> str:
+    """Render a code block with a single block-level Copy button.
+
+    Used exclusively inside the "Next Steps" section, where each snippet is
+    one logical unit (shell session, compile invocation, run invocation) that
+    the user wants to paste as a whole. The per-line-button JS ignores this
+    wrapper because it queries ``.code-block pre`` specifically.
+    """
+    return (
+        '<div class="code-block-full">'
+        '<button class="block-copy-btn" type="button" title="Copy this snippet">'
+        '<span class="icon">\U0001F4CB</span><span class="label">Copy</span>'
+        '</button>'
         f'<pre>{_esc(cmd)}</pre>'
         '</div>'
     )
@@ -1037,7 +1093,16 @@ def _next_steps_section(data: dict) -> str:
         """
 
     modset_rel = os.path.relpath(modset_out["output_path"], repo_root).replace(os.sep, "/")
-    results_dir = os.path.join(repo_root, "Results")
+
+    # The results directory comes from the modset's OUTPUT.OUTPUT_FOLDER
+    # (e.g. "Results_TorresVedras/") so the generated "ls" / viewer / stats
+    # snippets actually point at the folder the simulation will write to.
+    # Falls back to "Results/" only if the modset omits the field.
+    output_folder_rel = (modset_out["modset"].get("OUTPUT", {})
+                         .get("OUTPUT_FOLDER") or "Results/").rstrip("/\\ ")
+    results_dir = (output_folder_rel
+                   if os.path.isabs(output_folder_rel)
+                   else os.path.join(repo_root, output_folder_rel))
 
     cd_repo = f'cd "{repo_root}"'
 
@@ -1050,10 +1115,10 @@ def _next_steps_section(data: dict) -> str:
     # Step 3: open a shell inside the container
     shell_cmd = 'docker compose -f containers/docker-compose.yml run --rm fluxos'
 
-    # Step 4: inside the shell, compile FLUXOS and run the simulation.
+    # Step 4: compile FLUXOS (one-time, inside the container shell).
     # The whole repo is bind-mounted at /work, so compiling from there means
-    # every file the build writes (binary, build/ tree, and every Results*/
-    # folder the simulation produces) lands on the host automatically.
+    # the binary lands on the host at ./bin/fluxos and stays there across
+    # container restarts — no need to recompile every run.
     cmake_flags = ["-DMODE_release=ON"]
     if config.get("use_trimesh_build"):
         cmake_flags.append("-DUSE_TRIMESH=ON")
@@ -1066,16 +1131,23 @@ def _next_steps_section(data: dict) -> str:
         if config.get("use_mpi")
         else f'./bin/{binary_name} {modset_rel}'
     )
+
     compile_cmd = (
-        "# You are now inside the container; /work is the bind-mounted repo\n"
+        "# You are now inside the container; /work is the bind-mounted repo.\n"
+        "# Do this ONCE — the compiled binary at /work/bin/fluxos stays on the\n"
+        "# host and is reusable for every subsequent run.\n"
         "cd /work\n"
         "mkdir -p build && cd build\n"
         f"cmake {' '.join(cmake_flags)} /work\n"
-        "make -j$(nproc)\n"
-        "\n"
-        "# Run the model — from /work so the modset's relative paths resolve.\n"
-        "# Simulation output lands at whatever folder the modset's\n"
-        "# OUTPUT_FOLDER names, on the host filesystem.\n"
+        "make -j$(nproc)"
+    )
+
+    # Step 5: run the simulation — repeat this for each new modset without
+    # recompiling. Simulation output lands at whatever folder the modset's
+    # OUTPUT_FOLDER names, on the host filesystem.
+    run_cmd = (
+        "# From /work so the modset's relative paths resolve against the\n"
+        "# bind-mounted Working_example/ and inputs at /work/.\n"
         "cd /work\n"
         f"{run_line}"
     )
@@ -1097,10 +1169,15 @@ def _next_steps_section(data: dict) -> str:
     transport_display = "block" if ade_enabled else "none"
 
     # Statistics report snippet — runs the 2_Read_Outputs template.
+    # Pre-fills the two lines the user has to edit at the top of the
+    # stats template so they can paste them in directly.
     stats_template = os.path.join(repo_root, "supporting_scripts",
                                   "2_Read_Outputs", "read_output_template.py")
     stats_cmd = (
-        f'# Edit results_dir / modset_file at the top of the file, then:\n'
+        f'# 1. Edit these two lines at the top of read_output_template.py:\n'
+        f'#      results_dir = "{output_folder_rel}"\n'
+        f'#      modset_file = "{modset_rel}"\n'
+        f'# 2. Then run it:\n'
         f'python "{stats_template}"'
     )
 
@@ -1110,48 +1187,52 @@ def _next_steps_section(data: dict) -> str:
       <div class="card primary">
         <p style="margin-bottom:.4rem">
           <span class="os-badge" style="background:{os_color}">💻 {_esc(os_label)}</span>
-          Copy-paste these snippets into your terminal. The container ships the
-          build dependencies and the source tree &mdash; FLUXOS is compiled
-          inside the container shell in step 4.
+          Copy-paste these snippets into your terminal. The container ships
+          the build dependencies and the source tree &mdash; FLUXOS is
+          compiled once (step 4), then the simulation is run as many times
+          as you like (step 5) without recompiling.
         </p>
 
         <h3>1. Move into the FLUXOS repo</h3>
-        {_code_block(cd_repo)}
+        {_code_block_full(cd_repo)}
 
         <h3>2. Build the container image <span style="font-weight:400;color:var(--text2)">(deps only)</span></h3>
-        {_code_block(build_cmd)}
+        {_code_block_full(build_cmd)}
 
         <h3>3. Open a shell inside the container</h3>
-        {_code_block(shell_cmd)}
+        {_code_block_full(shell_cmd)}
 
-        <h3>4. Compile FLUXOS and run the simulation <span style="font-weight:400;color:var(--text2)">(inside the shell)</span></h3>
-        {_code_block(compile_cmd)}
+        <h3>4. Compile FLUXOS <span style="font-weight:400;color:var(--text2)">(inside the shell &mdash; one-time)</span></h3>
+        {_code_block_full(compile_cmd)}
 
-        <h3>5. Check outputs <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
-        {_code_block(check_cmd)}
+        <h3>5. Run the simulation <span style="font-weight:400;color:var(--text2)">(inside the shell &mdash; repeat per modset)</span></h3>
+        {_code_block_full(run_cmd)}
 
-        <h3>6. Visualise results</h3>
+        <h3>6. Check outputs <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
+        {_code_block_full(check_cmd)}
+
+        <h3>7. Visualise results</h3>
         <p>Two complementary post-processing tools are provided in
         <code>2_Read_Outputs/</code>.</p>
 
-        <h4 style="margin-top:1rem;font-size:.95rem">6a. Interactive WebGL animation (KML / MP4 / WebGL)</h4>
+        <h4 style="margin-top:1rem;font-size:.95rem">7a. Interactive WebGL animation (KML / MP4 / WebGL)</h4>
         <div class="viz-toggle-card">
           <label class="viz-toggle-label">
             <input type="checkbox" id="viz-conc-toggle"{checked_attr}>
             Include chemical transport in the animation
             (adds <code>--variable conc_SW</code>)
           </label>
-          <div class="viz-cmd-base" style="display:{base_display}">{_code_block(viz_base)}</div>
-          <div class="viz-cmd-transport" style="display:{transport_display}">{_code_block(viz_with_transport)}</div>
+          <div class="viz-cmd-base" style="display:{base_display}">{_code_block_full(viz_base)}</div>
+          <div class="viz-cmd-transport" style="display:{transport_display}">{_code_block_full(viz_with_transport)}</div>
         </div>
 
-        <h4 style="margin-top:1.5rem;font-size:.95rem">6b. Statistics report
+        <h4 style="margin-top:1.5rem;font-size:.95rem">7b. Statistics report
           <span style="font-weight:400;color:var(--text2)">
             — flood volume / flooded-area time series, max-inundation map,
             hazard classification (ARR-2019 H·V), depth histogram, and first-inundation map
           </span>
         </h4>
-        {_code_block(stats_cmd)}
+        {_code_block_full(stats_cmd)}
       </div>
     </section>
     """

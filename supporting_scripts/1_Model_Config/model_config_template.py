@@ -97,20 +97,22 @@ _config = dict(
     download_bbox_wgs84 = (-124.10, 52.20, -124.05, 52.23),
 
     # Which DEM product to fetch.
-    # -- OpenTopography (global, free API key required): -----------------
+    # -- AWS open-data mirrors (NO KEY required, recommended starting point) ---
+    #    "COP30_AWS" — Copernicus GLO-30 (ESA)      vertical RMSE ≈ 4 m   ★ global no-key default
+    # -- OpenTopography (free API key required, richer catalogue): -------------
     #    "SRTMGL1"   — SRTM 30 m (NASA, lat ±60°)   vertical RMSE ≈ 16 m
     #    "SRTMGL3"   — SRTM 90 m (NASA, lat ±60°)   vertical RMSE ≈ 16 m
-    #    "COP30"     — Copernicus GLO-30 (ESA)      vertical RMSE ≈ 4 m   ★ recommended global default
+    #    "COP30"     — Copernicus GLO-30 (ESA)      vertical RMSE ≈ 4 m
     #    "COP90"     — Copernicus GLO-90 (ESA)      vertical RMSE ≈ 4 m
     #    "AW3D30"    — ALOS AW3D30 (JAXA)           vertical RMSE ≈ 5 m
     #    "NASADEM"   — NASADEM (reprocessed SRTM)   vertical RMSE ≈ 10 m
     #    "EU_DTM"    — EU-DTM 10 m (Copernicus)     vertical RMSE ≈ 3 m   — Europe (EEA39) only
     #    "GEBCOIceTopo" — GEBCO ice surface         — bathymetry/land combo
-    # -- USGS 3DEP (US only, no key, needs `pip install py3dep`): --------
+    # -- USGS 3DEP (US only, no key, needs `pip install py3dep`): --------------
     #    "USGS_10M"  — USGS 3DEP 10 m               vertical RMSE ≈ 1 m   — CONUS
     #    "USGS_3M"   — USGS 3DEP 3 m                vertical RMSE ≈ 0.5 m — partial CONUS
     #    "USGS_1M"   — USGS 3DEP 1 m LiDAR          vertical RMSE ≈ 0.15 m — LiDAR-covered only
-    download_provider     = "COP30",
+    download_provider     = "COP30_AWS",
 
     # OpenTopography requires a free API key:
     #   1. Register at https://portal.opentopography.org/ (free)

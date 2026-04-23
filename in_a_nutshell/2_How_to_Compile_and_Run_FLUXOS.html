@@ -385,7 +385,7 @@ cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
 make -j$(nproc)
 
 <span class="comment"># Run from /work so the relative paths inside the modset resolve against</span>
-<span class="comment"># the bind-mounted inputs at /work/Working_example/ . Simulation outputs</span>
+<span class="comment"># Example for the bind-mounted inputs at /work/Working_example/ . Simulation outputs</span>
 <span class="comment"># land at whichever folder the modset's OUTPUT_FOLDER names.</span>
 cd /work
 ./bin/fluxos Working_example/modset_river_30h.json</pre>
