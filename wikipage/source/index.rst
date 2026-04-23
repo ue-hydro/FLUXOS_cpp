@@ -43,7 +43,7 @@ All paths below assume you have cloned the repository:
 
    # inside the container shell — /work is the bind-mounted repo root:
    cd /work && mkdir -p build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+   cmake -DMODE_release=ON \
          -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
    make -j$(nproc)
 

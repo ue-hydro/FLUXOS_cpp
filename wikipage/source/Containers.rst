@@ -98,7 +98,7 @@ from ``/work`` directly so host edits are picked up automatically.
 .. code-block:: bash
 
    cd /work && mkdir -p build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+   cmake -DMODE_release=ON \
          -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
    make -j$(nproc)
 
@@ -176,7 +176,7 @@ filesystem:
 .. code-block:: bash
 
    cd /src && mkdir -p build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+   cmake -DMODE_release=ON \
          -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
    make -j$(nproc)
 
@@ -201,13 +201,13 @@ apply here. Common combinations:
    * - OpenMP only, regular mesh
      - ``-DMODE_release=ON``
    * - OpenMP + triangular mesh
-     - ``-DMODE_release=ON -DUSE_TRIMESH=ON``
+     - ``-DMODE_release=ON``
    * - MPI + OpenMP (HPC)
      - ``-DMODE_release=ON -DUSE_MPI=ON``
    * - CUDA GPU
      - ``-DMODE_release=ON -DUSE_CUDA=ON``
    * - Full hybrid (GPU + MPI + triangular)
-     - ``-DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON -DUSE_MPI=ON``
+     - ``-DMODE_release=ON -DUSE_CUDA=ON -DUSE_MPI=ON``
 
 Always include
 ``-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin`` (Docker) or ``/src/bin``

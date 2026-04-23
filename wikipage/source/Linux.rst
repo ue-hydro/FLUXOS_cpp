@@ -21,7 +21,7 @@ For users familiar with Linux development:
    git clone https://github.com/ue-hydro/FLUXOS_cpp.git
    cd FLUXOS_cpp
    mkdir build && cd build
-   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON ..
    make -j$(nproc)
 
    # Run (binary is at build/bin/fluxos)

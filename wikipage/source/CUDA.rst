@@ -61,11 +61,11 @@ Building with CUDA
    make -j$(nproc)
 
    # CUDA with triangular mesh
-   cmake -DMODE_release=ON -DUSE_CUDA=ON -DUSE_TRIMESH=ON ..
+   cmake -DMODE_release=ON -DUSE_CUDA=ON ..
    make -j$(nproc)
 
    # Full-feature build
-   cmake -DMODE_release=ON -DUSE_CUDA=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON ..
+   cmake -DMODE_release=ON -DUSE_CUDA=ON -DUSE_MPI=ON ..
    make -j$(nproc)
 
 Running with GPU

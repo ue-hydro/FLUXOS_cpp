@@ -380,7 +380,7 @@ cd /work
 mkdir -p build &amp;&amp; cd build
 
 <span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin drops the binary onto the host's ./bin/</span>
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+cmake -DMODE_release=ON \
       -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 make -j$(nproc)
 
@@ -482,7 +482,7 @@ cd /src
 mkdir -p build &amp;&amp; cd build
 
 <span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin → binary appears on the host at ./bin/</span>
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+cmake -DMODE_release=ON -DUSE_MPI=ON \
       -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 make -j$(nproc)
 
@@ -715,7 +715,7 @@ mpirun -np 4 ./build/bin/fluxos_mpi Working_example/modset.json
                     </tr>
                     <tr>
                         <td><strong>Trimesh + CUDA</strong></td>
-                        <td><code>cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..</code></td>
+                        <td><code>cmake -DMODE_release=ON -DUSE_CUDA=ON ..</code></td>
                         <td>Single GPU workstation</td>
                     </tr>
                     <tr>
@@ -854,7 +854,7 @@ cd FLUXOS_cpp
 docker compose -f containers/docker-compose.yml build
 docker compose -f containers/docker-compose.yml run --rm fluxos \
     bash -c "cd /work && mkdir -p build && cd build && \
-             cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+             cmake -DMODE_release=ON \
                    -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work && \
              make -j\$(nproc) && \
              cd /work && ./bin/fluxos Working_example/modset.json"</pre>
