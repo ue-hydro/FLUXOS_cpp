@@ -64,6 +64,7 @@ int getIntNumberFromString(
       }
       temp_str = ""; //clear temp string
    }
+   return 0; // no number found in the string
 }
 
 double getFloatNumberFromString(
@@ -74,11 +75,12 @@ double getFloatNumberFromString(
    double temp_double;
    while(!str_strm.eof()) {
       str_strm >> temp_str; //take words into temp_str one by one
-      if(std::stringstream(temp_str) >> temp_double) { //try to convert string to int
+      if(std::stringstream(temp_str) >> temp_double) { //try to convert string to double
          return temp_double;
       }
       temp_str = ""; //clear temp string
    }
+   return 0.0; // no number found in the string
 }
 
 // read file names in Results directory
