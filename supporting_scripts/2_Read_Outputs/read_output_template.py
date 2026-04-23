@@ -21,22 +21,29 @@ FLUXOS results analysis template
 
 HOW TO USE
 ----------
-1. Edit the `_config` dict below:
-    - point `results_dir` at a folder that FLUXOS wrote (e.g. `Results_river_30h`)
-    - point `modset_file` at the `.json` that generated those results
-    - tweak thresholds / flags if needed
+Two equivalent paths — both run the same analysis pipeline:
 
-2. Run it from any working directory:
+A) EDIT THIS FILE — point `results_dir` / `modset_file` at your run,
+   then just run it:
 
        python read_output_template.py
 
-3. The script will:
-    - stream the per-timestep snapshots from `results_dir` (no need to load
-      everything into memory at once)
-    - compute flood statistics (volume, flooded area, peak depth, hazard, ...)
-    - generate an interactive HTML report under `2_Read_Outputs/reports/`
-    - open the report in your default browser (disable with `open_report=False`)
-    - optionally export the time-series as CSV for external post-processing
+B) RUN-TIME OVERRIDES — leave the `_config` dict alone and pass the
+   per-project paths as command-line flags (useful for batch / scripted
+   runs, and what the HTML configuration report emits):
+
+       python read_output_template.py \
+           --results-dir Results_TorresVedras \
+           --modset-file Working_example/modset_torres_vedras.json \
+           --project-name "Torres Vedras"
+
+Whichever you choose, the script will:
+  - stream the per-timestep snapshots from `results_dir` (no need to load
+    everything into memory at once)
+  - compute flood statistics (volume, flooded area, peak depth, hazard, ...)
+  - generate an interactive HTML report under `2_Read_Outputs/reports/`
+  - open the report in your default browser (disable with `open_report=False`)
+  - optionally export the time-series as CSV for external post-processing
 
 All the computation / plotting code lives in
 `2_Read_Outputs/output_supporting_lib/`. You should not need to touch it.
@@ -90,7 +97,46 @@ _config = dict(
 # ============================================================================
 
 if __name__ == "__main__":
-    import os, sys
+    import argparse
+    import os
+    import sys
+
+    # Overlay CLI flags on top of the `_config` dict above. Flags are all
+    # optional — if you have edited the file, just run with no args.
+    ap = argparse.ArgumentParser(
+        description="FLUXOS results analysis (edit _config or pass flags)",
+    )
+    ap.add_argument(
+        "--results-dir", dest="results_dir", default=None,
+        help="Folder containing FLUXOS output (.txt for regular mesh, "
+             ".vtu for triangular). Overrides _config['results_dir'].",
+    )
+    ap.add_argument(
+        "--modset-file", dest="modset_file", default=None,
+        help="Path to the modset .json that produced the results. "
+             "Overrides _config['modset_file'].",
+    )
+    ap.add_argument(
+        "--project-name", dest="project_name", default=None,
+        help="Human-readable project name used in the HTML report header.",
+    )
+    ap.add_argument(
+        "--stride", type=int, default=None,
+        help="Analyse every Nth timestep. Overrides _config['stride'].",
+    )
+    ap.add_argument(
+        "--no-open", dest="no_open", action="store_true",
+        help="Do NOT open the HTML report in a browser after generation.",
+    )
+    args = ap.parse_args()
+
+    # Apply overrides (only when provided)
+    if args.results_dir  is not None: _config["results_dir"]  = args.results_dir
+    if args.modset_file  is not None: _config["modset_file"]  = args.modset_file
+    if args.project_name is not None: _config["project_name"] = args.project_name
+    if args.stride       is not None: _config["stride"]       = args.stride
+    if args.no_open:                  _config["open_report"]  = False
+
     _here = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, os.path.join(_here, "output_supporting_lib"))
     from analysis_driver import run      # noqa: E402
