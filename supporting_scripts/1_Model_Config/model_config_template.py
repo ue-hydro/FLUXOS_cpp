@@ -45,6 +45,24 @@ HOW TO USE
 Everything below is read as a plain Python dict — no YAML, no env vars.
 Only this file should need editing for a new project.
 
+COORDINATES: WGS84 IN, UTM INVISIBLE
+------------------------------------
+Every location you specify in this config is in WGS84 (decimal degrees):
+
+  • ``download_bbox_wgs84``                       — (lon_min, lat_min, lon_max, lat_max)
+  • ``inflow_file = dict(..., lon=..., lat=...)`` — point inflow location
+  • the HTML report shows lon/lat on hover in every map
+
+Internally FLUXOS is a physics solver: the shallow-water equations need
+distances in METRES (a 1° step at lat 0° is 111 km but only ~2 km at lat 89°,
+so a solver working in degrees would be dimensionally wrong). So the DEM
+you provide — or download — is reprojected to a metric CRS (auto-UTM by
+default) before the solver ever sees it. You do not need to know your UTM
+zone; the pipeline derives it from the DEM bbox.
+
+To sum up: **users speak WGS84; the solver speaks UTM; the pipeline
+handles the conversion**.
+
 EXTERNAL RESOURCES
 ------------------
   • OpenTopography (free API keys, required for most OpenTopography providers):
@@ -236,51 +254,69 @@ _config = dict(
     #   ``<project>_<res>m.asc``  (e.g. "Rosa_2m.asc", "TorresVedras_30m.asc")
     dem_output_asc          = "Rosa_2m.asc",
 
-    # UTM zone number of the DEM (not the EPSG). Used by the HTML report
-    # KPI tiles and by ``fluxos_viewer.py`` for the KML / WebGL export.
-    # FLUXOS itself does NOT read this value.
-    # Portugal mainland = 29N, Azores = 26N, NW US / BC = 10N, UK = 30N.
-    dem_utm_zone            = 10,
+    # You DO NOT need a ``dem_utm_zone`` field here any more. UTM is used
+    # only internally by the FLUXOS solver (which needs metric distances
+    # for physics) and the pipeline auto-derives the zone from the DEM's
+    # CRS. Your config can stay fully in WGS84 lon/lat — the bbox, the
+    # inflow location, and the report's coordinate tooltips are all in
+    # decimal degrees.
+    #
+    # Only set this to override the auto-derived value — e.g. if you
+    # deliberately want a non-UTM metric CRS (ETRS89 / BNG / Lambert-93).
+    # Accept an int zone number or leave it out entirely.
 
     # ==================================================================
     # 4. Mesh — regular Cartesian grid vs. unstructured triangles.
     # ==================================================================
-
-    # Two choices:
-    #   "regular"    — FLUXOS consumes the .asc directly as a Cartesian grid.
-    #                  Simplest, works best when DEM resolution is already
-    #                  appropriate everywhere and the domain is roughly
-    #                  rectangular. Cells: ncols × nrows of the .asc.
+    # Two options:
     #
-    #   "triangular" — FLUXOS reads a Gmsh .msh with DEM elevations embedded
-    #                  in the vertex z-coordinates. Generated from the DEM by
-    #                  this template (slope-adaptive size field). Best when:
+    #   "regular"    — FLUXOS consumes the .asc directly as a Cartesian
+    #                  grid. Cells = ncols × nrows of the .asc. Simplest
+    #                  path; works best when the DEM resolution is
+    #                  appropriate over the whole domain and the boundary
+    #                  is roughly rectangular. No Gmsh step required.
+    #
+    #   "triangular" — FLUXOS reads a Gmsh .msh with DEM elevations baked
+    #                  into vertex z-coordinates. Generated from the DEM
+    #                  by this template (slope-adaptive size field).
+    #                  Best when:
     #                    • the domain has an irregular boundary
-    #                    • terrain varies a lot (fewer elements in flat areas,
-    #                      more in steep ones)
-    #                    • cell count with a regular grid would be wasteful
-    #                  Produces ~5-10× fewer cells than an equivalent regular
-    #                  grid with similar accuracy near channels.
+    #                    • terrain mixes steep and flat regions (the
+    #                      adaptive grader puts more triangles where
+    #                      gradients matter)
+    #                    • cell count with a regular grid would be
+    #                      wasteful (millions of cells, most of them
+    #                      identical in flat floodplains)
+    #                  Produces ~5-10× fewer cells than an equivalent
+    #                  regular grid with similar accuracy near channels.
+    #
+    # Same binary handles both — FLUXOS dispatches at runtime based on
+    # this field. No recompile needed to switch.
     mesh_type               = "triangular",
 
-    # The three trimesh-* parameters are ONLY used when
-    # ``mesh_type == "triangular"``.
+    # --- Only read when mesh_type == "triangular" ---------------------
+    # (These fields are harmless for regular-mesh runs — driver.py
+    #  skips the Gmsh step and the modset omits MESH_FILE.)
     #
     # Minimum triangle edge length (metres). Controls the finest detail.
-    # Good rule: do NOT go below the DEM cell size (that would be fake
-    # resolution). Typical: 1-5 m for urban, 10-30 m for basin-scale.
+    # Rule: do NOT set below the DEM cell size — that would pretend the
+    # mesh has more information than the DEM actually carries. Typical:
+    #   1-5 m   — urban / street-level (LiDAR input)
+    #   10-30 m — basin-scale flood studies
+    #   30 m+   — regional / continental screening
     trimesh_min_size        = 2.0,
 
     # Maximum triangle edge length (metres). Controls the coarsest element
-    # in flat areas. Typical: 3-10× ``trimesh_min_size``. Bigger → fewer
-    # elements, faster simulation, less accuracy far from channels.
+    # in flat areas. Typical ratio ``max:min`` is 3-10× :
+    #   larger  → fewer cells, faster simulation, coarser far from channels
+    #   smaller → more uniform grading, cell count closer to regular-mesh
     trimesh_max_size        = 30.0,
 
-    # Refinement multiplier vs. terrain slope. Higher → more triangles in
-    # steep terrain (where water moves fast and gradients matter).
-    #   1.0 → no slope-based refinement; uniform grading between min/max.
-    #   2.0 → moderate refinement in steep areas (recommended default).
-    #   4.0 → aggressive refinement; use for mountainous / stepped terrain.
+    # Slope-based refinement multiplier — more triangles where terrain is
+    # steep (where water moves fast and gradients matter).
+    #   1.0 — no slope sensitivity; uniform grading between min/max
+    #   2.0 — moderate refinement in steep areas  (recommended default)
+    #   4.0 — aggressive refinement; for mountainous / stepped terrain
     trimesh_slope_factor    = 2.0,
 
     # Output Gmsh .msh filename inside ``output_bin_dir``.
@@ -294,21 +330,77 @@ _config = dict(
     # them relative to its CWD (for the container workflow that is /work,
     # which maps to the repo root — so relative paths starting with
     # ``Working_example/…`` work unchanged in Docker / Apptainer / native).
+    #
+    # --- .fluxos forcing file format (both meteo and inflow) --------------
+    # Plain CSV, no header, one row per time point. Columns in order:
+    #
+    #   column 1   time           [s]           seconds from sim start
+    #   column 2   rate / flow    [see below]   value at that time
+    #   column 3+  concentration  [mg/L]        one column per chemical
+    #                                           species (only read when
+    #                                           ADE_TRANSPORT is enabled)
+    #
+    # Units of column 2 depend on the file role:
+    #
+    #   METEO  (whole-domain precipitation / snowmelt, applied uniformly)
+    #       → column 2 in **mm / day**
+    #         (solver converts via  rate / 86400000  [m/s])
+    #
+    #   INFLOW (point source at the X/Y coordinates set in this config)
+    #       → column 2 in **m³ / s**
+    #         (solver converts via  rate × dt / cellarea  [m of water])
+    #
+    # The first row is conventionally ``0,0,0`` (t=0, no flow/rate, no
+    # concentration) followed by a duplicate ``0,0,0`` — FLUXOS does a
+    # linear interpolation between rows, so the duplicate guarantees a
+    # flat baseline before the first real value.
+    #
+    # Example meteo file (``Qmelt_synthetic.fluxos``):
+    #     0,0,0            ← t=0 s, rate=0 mm/day, conc=0 mg/L
+    #     900,500,0        ← t=900 s (15 min), rate=500 mm/day
+    #     3600,0,0         ← rainfall off at t=1 h
+    #
+    # Example inflow file (``Flow_river.fluxos``):
+    #     0,0,0            ← dry start
+    #     600,15.0,0       ← 15 m³/s point inflow by t=10 min
+    #     21600,15.0,0     ← still 15 m³/s at t=6 h
 
-    # Meteo (precipitation / snowmelt) time series in the FLUXOS .fluxos
-    # format. See ``Working_example/Qmelt_synthetic.fluxos`` for the
-    # reference example. Columns: time [s], rate [mm/h or mm/day per the
-    # solver's unit convention], then per-chemical concentrations if ADE
-    # is enabled. Applied uniformly over the whole domain.
-    # Set to "" or None to disable meteo forcing.
+    # Meteo forcing — whole-domain precipitation / snowmelt time series.
+    # Path is resolved relative to FLUXOS's CWD. See the column-format
+    # notes above; column 2 must be in mm/day.
+    # Set to "" or None to disable (no atmospheric forcing).
     meteo_file   = "Working_example/Qmelt_synthetic.fluxos",
 
-    # OPTIONAL point inflow time series (e.g. a stream entering the domain).
-    # Same file format as meteo but applied at a single cell — the
-    # (X,Y) coordinates are specified inside the .fluxos file header.
-    # Typical use: river entering the domain from outside.
+    # OPTIONAL point inflow — e.g. a river or culvert entering the domain.
+    # Three accepted forms (pick one):
+    #
+    #   (1) Dict with WGS84 lon/lat — ★ RECOMMENDED. Same CRS as
+    #       `download_bbox_wgs84`, no need to know your UTM zone. The
+    #       driver reprojects these to the DEM's projected CRS
+    #       automatically using pyproj.
+    #           inflow_file = dict(
+    #               path = "Working_example/Flow_river.fluxos",
+    #               lon  =  -9.25176,   # degrees E (WGS84)
+    #               lat  =  39.09674,   # degrees N (WGS84)
+    #           )
+    #
+    #   (2) Dict with projected UTM coords — use when you already know
+    #       the easting/northing in the DEM's CRS (e.g. from a QGIS
+    #       click-and-query):
+    #           inflow_file = dict(
+    #               path  = "Working_example/Flow_river.fluxos",
+    #               x_utm = 478229.0,   # Easting  [m]  (UTM zone of DEM)
+    #               y_utm = 4327542.0,  # Northing [m]  (UTM zone of DEM)
+    #           )
+    #
+    #   (3) Plain string form — legacy. Discharge is applied at (0, 0)
+    #       which is almost never what you want. Prefer (1) or (2).
+    #           inflow_file = "Working_example/Flow_river.fluxos"
+    #
+    # The .fluxos file's column 2 must be in **m³/s**. See the format
+    # notes above for the full column schema.
     # Set to None to disable.
-    inflow_file  = None,   # e.g. "Working_example/Flow_river.fluxos"
+    inflow_file  = None,   # e.g. dict(path="...", lon=..., lat=...)
 
     # ==================================================================
     # 6. Simulation settings.
@@ -416,11 +508,50 @@ _config = dict(
     # ``wikipage/source/HPC.rst`` for domain-decomposition guidance.
     mpi_np              = 4,
 
-    # Whether the report's build snippet should enable triangular mesh
-    # support (``-DUSE_TRIMESH=ON``). Keep this TRUE if
-    # ``mesh_type == "triangular"`` — the triangular mesh solver is a
-    # separate binary path that is only compiled in when this flag is on.
+    # Legacy / compat field. Triangular-mesh support is now ALWAYS
+    # compiled in — a single binary handles both regular and triangular
+    # meshes, dispatching at runtime based on ``mesh_type`` above. This
+    # field is ignored by the report generator; keep it or delete it,
+    # your choice.
     use_trimesh_build   = True,
+
+    # Path to the compiled FLUXOS binary — used by the "Run the
+    # simulation" snippet in the generated HTML report.
+    #
+    # Accepts:
+    #   • path RELATIVE to ``repo_root`` (default ``"bin/fluxos"``) —
+    #     matches the container-compile convention where
+    #     ``-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin`` drops the
+    #     binary at ``<repo>/bin/fluxos`` on the host via the compose
+    #     bind mount.
+    #   • ABSOLUTE path — for a system-installed binary or an HPC
+    #     module path, e.g. ``"/opt/fluxos/bin/fluxos_mpi"``.
+    #
+    # Typical alternatives:
+    #   "bin/fluxos_mpi"       — hybrid MPI + OpenMP build
+    #   "bin/fluxos_cuda"      — CUDA GPU build
+    #   "build/bin/fluxos"     — native (non-container) debug build tree
+    fluxos_executable   = "bin/fluxos",
+
+    # Visualisation time-stride for the interactive WebGL viewer (the
+    # "6a. Interactive WebGL viewer" snippet in the report). The viewer
+    # keeps every Nth FLUXOS output snapshot as an animation frame:
+    #
+    #   1  — keep every snapshot (smoothest animation; largest bundle).
+    #   2  — every other snapshot (½ bundle, ½ playback duration).
+    #   5  — every 5th snapshot (default in ``fluxos_viewer.py``; good
+    #        when ``print_step_s`` is short and there are hundreds of
+    #        outputs).
+    #   N  — every Nth snapshot.
+    #
+    # Rule of thumb: pick so that
+    #   (number_of_outputs / webgl_time_stride) ≈ 30-100 frames.
+    # Fewer than ~5 frames yields a jerky animation; more than ~300 makes
+    # the bundle unnecessarily large with no perceptual gain.
+    #
+    # For a short debug run with only 8 snapshots the default of 5 would
+    # keep just 2 frames — drop this to 1.
+    webgl_time_stride   = 1,
 
     # ==================================================================
     # 10. Report options — what happens after the template finishes.

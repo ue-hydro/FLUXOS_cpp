@@ -444,11 +444,51 @@ def _step_config(config: dict, repo_root: str, bin_dir: str,
     if config.get("meteo_file"):
         modset["METEO_FILE"] = config["meteo_file"]
 
-    if config.get("inflow_file"):
-        modset["INFLOW_FILE"] = {
-            "FILENAME": config["inflow_file"],
-            "DISCHARGE_LOCATION": {"X_COORDINATE": 0, "Y_COORDINATE": 0},
-        }
+    # Inflow: accepts either
+    #   (1) a plain string path (legacy — DISCHARGE_LOCATION defaults to (0, 0))
+    #   (2) a dict with {path, lon, lat}           ★ recommended — WGS84, like download_bbox_wgs84
+    #   (3) a dict with {path, x_utm, y_utm}       escape hatch for users who
+    #                                              already have projected coords
+    #
+    # Internally the modset always stores UTM eastings/northings (what the
+    # C++ solver expects), because FLUXOS reads the DEM in projected CRS
+    # and compares cell coordinates against DISCHARGE_LOCATION on a metric
+    # grid. When lon/lat are given, they are reprojected to the DEM's CRS
+    # (the same projected CRS the rest of the pipeline already produced).
+    inflow = config.get("inflow_file")
+    if inflow:
+        inflow_path = None
+        x_utm = y_utm = 0.0
+        if isinstance(inflow, dict):
+            inflow_path = inflow.get("path") or inflow.get("filename")
+            if "lon" in inflow and "lat" in inflow:
+                lon = float(inflow["lon"])
+                lat = float(inflow["lat"])
+                target_crs = dem_meta.get("crs")
+                if not target_crs or target_crs == "unknown":
+                    raise RuntimeError(
+                        "inflow_file: lon/lat given but the DEM has no "
+                        "usable CRS to project into. Either provide "
+                        "x_utm/y_utm directly or check the DEM source.")
+                from pyproj import Transformer
+                tf = Transformer.from_crs("EPSG:4326", target_crs,
+                                          always_xy=True)
+                x_utm, y_utm = tf.transform(lon, lat)
+            else:
+                x_utm = float(inflow.get("x_utm", 0))
+                y_utm = float(inflow.get("y_utm", 0))
+        else:  # str
+            inflow_path = inflow
+            x_utm = float(config.get("inflow_x_utm", 0))
+            y_utm = float(config.get("inflow_y_utm", 0))
+        if inflow_path:
+            modset["INFLOW_FILE"] = {
+                "FILENAME": inflow_path,
+                "DISCHARGE_LOCATION": {
+                    "X_COORDINATE": float(x_utm),
+                    "Y_COORDINATE": float(y_utm),
+                },
+            }
 
     # Soil infiltration (optional — only written if user enables it)
     soil = config.get("soil_infiltration") or {}
@@ -478,6 +518,101 @@ def _rel(path: str, root: str) -> str:
 
 # --- Main entry -------------------------------------------------------------
 
+def _preflight_check_environment() -> None:
+    """Fail fast with a clear, actionable message if the current Python
+    environment cannot do basic raster + CRS operations.
+
+    The most common symptom we catch here is an Anaconda / Homebrew
+    PROJ-database mismatch: ``pyproj`` loads, but any call into
+    ``rasterio.CRS.from_epsg`` or ``Transformer.from_crs`` raises
+    ``CRSError: The EPSG code is unknown. PROJ: ... lacks DATABASE.LAYOUT.
+    VERSION.MAJOR``. In that case the user has almost certainly run the
+    template with their system / base Anaconda Python instead of the
+    repo's venv (``.venv/``) — so surface that immediately, with the
+    exact command to fix it, instead of letting the error sink into a
+    buried traceback in the HTML report.
+    """
+    import os
+    import sys
+
+    # ---- Clear inherited PROJ_LIB / PROJ_DATA env vars -------------------
+    # A very common trap: the user activates the venv but still has
+    # Conda's (base) environment active "under" it. Conda exports
+    # ``PROJ_LIB`` / ``PROJ_DATA`` pointing at its own share/proj/ dir
+    # — often a different major version than what rasterio's bundled
+    # GDAL expects (``DATABASE.LAYOUT.VERSION.MAJOR`` mismatch). The
+    # right fix is NOT to redirect those to pyproj's datadir (which has
+    # yet another MAJOR/MINOR version), but to UNSET them so rasterio
+    # and pyproj each find their own bundled PROJ data.
+    # Must happen BEFORE rasterio is imported anywhere in this process.
+    for _var in ("PROJ_LIB", "PROJ_DATA"):
+        os.environ.pop(_var, None)
+
+    try:
+        from pyproj import Transformer
+        import rasterio  # noqa: F401
+        from rasterio.crs import CRS as _RasterioCRS
+        # Smoke-test the PROJ database. Both calls are taken in the real
+        # pipeline, and each can fail independently when Anaconda /
+        # Homebrew PROJ installations collide on a machine:
+        #   - `Transformer.from_crs(...)` exercises pyproj's PROJ layer.
+        #   - `rasterio.crs.CRS.from_epsg(...)` exercises the GDAL-side
+        #     PROJ wrapping that our download-mode reprojection uses —
+        #     this is the call that produces the
+        #     "DATABASE.LAYOUT.VERSION.MAJOR metadata" error in broken
+        #     Conda environments.
+        _ = Transformer.from_crs("EPSG:4326", "EPSG:32629", always_xy=True)
+        _ = _RasterioCRS.from_epsg(32629)
+    except Exception as e:
+        # Detect the Conda-PROJ-database case specifically so the
+        # remediation text is precise.
+        conda_proj = (
+            "anaconda" in str(e).lower() or
+            "miniconda" in str(e).lower() or
+            "conda" in str(e).lower() or
+            "anaconda" in os.environ.get("PROJ_LIB", "").lower() or
+            "conda" in os.environ.get("PROJ_LIB", "").lower()
+        )
+        msg = ["",
+               "ENVIRONMENT CHECK FAILED",
+               "========================",
+               f"  Python:   {sys.executable}",
+               f"  PROJ_LIB: {os.environ.get('PROJ_LIB',  '(unset)')}",
+               f"  PROJ_DATA:{os.environ.get('PROJ_DATA', '(unset)')}",
+               f"  Error:    {type(e).__name__}: {e}",
+               ""]
+        if conda_proj:
+            msg += [
+                "Conda's PROJ data files are being picked up by rasterio,",
+                "even though you are running the .venv Python. The venv is",
+                "activated 'on top of' Conda's (base) env, and Conda's",
+                "PROJ_LIB env var overrides the venv's own PROJ data.",
+                "",
+                "Fix — run this once in your shell, then rerun the template:",
+                "",
+                "    conda deactivate               # leave (base)",
+                "    unset PROJ_LIB PROJ_DATA       # clear Conda overrides",
+                "    source .venv/bin/activate      # re-enter the venv",
+                "",
+                "(The 7.0 snippet in the config report's Next Steps now",
+                " does this automatically — re-run it to refresh the shell.)",
+            ]
+        else:
+            msg += [
+                "Usually this means the template is being run with the system",
+                "or Anaconda Python, whose pyproj / rasterio / PROJ database",
+                "are mismatched. Run it with the project venv instead:",
+                "",
+                "    cd \"$(git rev-parse --show-toplevel)\"",
+                "    python3 -m venv .venv                # one-time",
+                "    source .venv/bin/activate            # every new shell",
+                "    pip install -r supporting_scripts/requirements.txt   # one-time",
+                "    python supporting_scripts/1_Model_Config/<your_config>.py",
+            ]
+        print("\n".join(msg), file=sys.stderr)
+        raise SystemExit(2)
+
+
 def run(config: dict, template_file: str) -> dict:
     """
     Execute DEM → mesh → modset → report for the given template config.
@@ -495,6 +630,7 @@ def run(config: dict, template_file: str) -> dict:
     dict
         Collected metadata (the same dict passed to gen_report).
     """
+    _preflight_check_environment()
     repo_root = _resolve_repo_root(config, template_file)
     bin_dir = _abs_in_repo(repo_root, config.get("output_bin_dir", "bin"))
     os.makedirs(bin_dir, exist_ok=True)

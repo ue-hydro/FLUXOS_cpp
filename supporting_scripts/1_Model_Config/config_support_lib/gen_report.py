@@ -191,6 +191,18 @@ td code{font-family:'JetBrains Mono',monospace;font-size:.82rem;
 .viz-toggle-label code{font-family:'JetBrains Mono',monospace;font-size:.78rem;
   background:rgba(0,102,204,.08);padding:.05rem .35rem;border-radius:3px;color:var(--primary)}
 
+/* Viewer time-stride slider (controls --webgl-step in the snippet) */
+.stride-slider-wrap{display:flex;align-items:center;gap:.8rem;margin:.5rem 0 .6rem;
+  padding:.55rem .85rem;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;flex-wrap:wrap}
+.stride-slider-wrap label{font-size:.82rem;color:var(--text2);display:flex;
+  align-items:center;gap:.6rem;flex-wrap:wrap;margin:0}
+.stride-slider-wrap .stride-label{font-family:'JetBrains Mono',monospace;font-size:.9rem;
+  color:var(--primary);font-weight:700;min-width:2.2em;text-align:right}
+.stride-slider-wrap .stride-note{font-size:.72rem;color:var(--text3);font-weight:400}
+.stride-slider-wrap input[type="range"]{flex:1 1 200px;min-width:140px;
+  accent-color:var(--primary);cursor:pointer}
+
 /* 2D / 3D map view toggle */
 .map-view-toggle{display:inline-flex;border:1px solid var(--border);border-radius:8px;
   overflow:hidden;background:var(--surface);flex-shrink:0}
@@ -478,6 +490,31 @@ _JS = r"""
   apply();
 })();
 
+// Viewer time-stride slider: rewrite the --webgl-step value in both viz snippets
+(function(){
+  const slider = document.getElementById('viz-stride-slider');
+  if (!slider) return;
+  const label = document.querySelector('.stride-slider-wrap .stride-label');
+  // Both <pre> blocks (base + with-transport variants).
+  const preBlocks = document.querySelectorAll(
+    '.viz-cmd-base pre, .viz-cmd-transport pre');
+  if (!preBlocks.length) return;
+  // Capture each <pre>'s original textContent so we always rewrite from a
+  // known-good baseline (instead of chaining regex replaces that could
+  // drift after many slider moves).
+  preBlocks.forEach(pre => { pre.dataset.tpl = pre.textContent; });
+  const apply = () => {
+    const n = parseInt(slider.value, 10) || 1;
+    if (label) label.textContent = n;
+    preBlocks.forEach(pre => {
+      pre.textContent = pre.dataset.tpl.replace(
+        /--webgl-step\s+\d+/, '--webgl-step ' + n);
+    });
+  };
+  slider.addEventListener('input', apply);
+  apply();
+})();
+
 // Scrollspy: highlight the sidebar link for the section currently in view
 (function(){
   const links = document.querySelectorAll('.sidebar nav a');
@@ -503,6 +540,34 @@ _JS = r"""
 
 def _esc(s) -> str:
     return html.escape(str(s), quote=True)
+
+
+def _derive_utm_zone(config: dict, dem_meta: dict | None) -> int | None:
+    """Determine the UTM zone, in order of preference:
+
+      1. ``config["dem_utm_zone"]`` if the user set it explicitly
+      2. Parse EPSG 32601-32660 (north) / 32701-32760 (south) out of the
+         DEM's CRS string (what the download pipeline writes)
+      3. Re-derive from the bbox centre via the same logic as
+         ``dem_download._auto_utm_epsg`` when a download bbox is set.
+
+    Returns ``None`` if nothing is derivable.
+    """
+    z = config.get("dem_utm_zone")
+    if z:
+        return int(z)
+
+    crs = (dem_meta or {}).get("crs") or ""
+    m = __import__("re").search(r"326(\d{2})|327(\d{2})", str(crs))
+    if m:
+        return int(m.group(1) or m.group(2))
+
+    bbox = config.get("download_bbox_wgs84")
+    if bbox and len(bbox) == 4:
+        cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
+        return int((cx + 180) // 6) + 1
+
+    return None
 
 
 def _code_block(cmd: str) -> str:
@@ -568,8 +633,31 @@ def _open_outputs_cmd(os_key: str, results_dir_abs: str) -> str:
 #  Report sections
 # ---------------------------------------------------------------------------
 
-def _header(config: dict, generated_at: str) -> str:
+def _header(config: dict, dem_meta: dict | None, generated_at: str) -> str:
     authors = ", ".join(config.get("authors", [])) or "—"
+    # Geographic chip — WGS84 lon/lat of the domain centre (user-facing
+    # CRS). UTM is used only internally by the solver and never appears
+    # in the header any more.
+    bbox = None
+    if dem_meta and dem_meta.get("bbox"):
+        # dem_meta bbox is in the projected CRS; compute centre in lon/lat
+        try:
+            from pyproj import Transformer
+            crs = dem_meta.get("crs")
+            xmin, ymin, xmax, ymax = dem_meta["bbox"]
+            cx, cy = 0.5 * (xmin + xmax), 0.5 * (ymin + ymax)
+            if crs and crs != "unknown":
+                tf = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+                lon, lat = tf.transform(cx, cy)
+                bbox = (lon, lat)
+        except Exception:
+            bbox = None
+    if bbox is None and config.get("download_bbox_wgs84"):
+        b = config["download_bbox_wgs84"]
+        if len(b) == 4:
+            bbox = (0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3]))
+    coord_chip = (f"<span>🌐 {bbox[1]:.4f}°N, {bbox[0]:.4f}°E</span>"
+                  if bbox else "")
     return f"""
     <header class="header">
       <h1>FLUX<span>OS</span> — {_esc(config['project_name'])}</h1>
@@ -577,7 +665,7 @@ def _header(config: dict, generated_at: str) -> str:
       <div class="meta">
         <span>📅 {_esc(config.get('date') or generated_at[:10])}</span>
         <span>👤 {_esc(authors)}</span>
-        <span>🧭 UTM zone {_esc(config.get('dem_utm_zone'))}</span>
+        {coord_chip}
         <span>🧪 {_esc(config['mesh_type'])} mesh</span>
       </div>
     </header>
@@ -608,7 +696,8 @@ def _summary_section(data: dict) -> str:
         kpis.append(_kpi("🟦", f'{dem.get("output_cols", "—")} × {dem.get("output_rows", "—")}',
                          "Grid size"))
     kpis.append(_kpi("⏱️", f'{config["print_step_s"]} s', "Print step"))
-    kpis.append(_kpi("🧩", f'{modules_on}/3', "Modules active"))
+    # Only two toggleable modules remain (ADE transport + soil infiltration).
+    kpis.append(_kpi("🧩", f'{modules_on}/2', "Modules active"))
 
     return f"""
     <section class="section" id="summary">
@@ -635,18 +724,49 @@ def _fig_dem_mesh_map(dem: dict, mesh: dict | None,
     if not preview:
         return None
 
+    # Precompute a WGS84 lon/lat grid matching the DEM preview grid, so the
+    # hover tooltip can show both projected (UTM) and geographic coordinates.
+    # Skip silently if the DEM has no usable CRS — tooltip falls back to
+    # UTM-only.
+    lonlat_grid = None
+    crs = (dem or {}).get("crs")
+    if crs and crs != "unknown":
+        try:
+            from pyproj import Transformer
+            _tf = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+            x_vals = preview["x_vals"]
+            y_vals = preview["y_vals"]
+            lonlat_grid = [
+                [list(_tf.transform(x, y)) for x in x_vals]
+                for y in y_vals
+            ]
+        except Exception:
+            lonlat_grid = None
+
+    _hover_xy_full = (
+        "x: %{x:.0f} m  |  y: %{y:.0f} m"
+        "<br>lon: %{customdata[0]:.5f}°  |  lat: %{customdata[1]:.5f}°"
+        "<br>z: %{z:.2f} m<extra></extra>"
+    )
+    _hover_xy_only = (
+        "x: %{x:.0f} m<br>y: %{y:.0f} m<br>z: %{z:.2f} m<extra></extra>"
+    )
+
     # -- 2D heatmap + mesh overlay ----------------------------------------
-    data2d = [{
+    dem_trace_2d = {
         "type": "heatmap",
         "z": preview["z"],
         "x": preview["x_vals"],
         "y": preview["y_vals"],
         "colorscale": "earth",
         "colorbar": {"title": "Elevation (m)", "thickness": 14, "xpad": 0},
-        "hovertemplate": "x: %{x:.0f}<br>y: %{y:.0f}<br>z: %{z:.2f} m<extra></extra>",
+        "hovertemplate": _hover_xy_full if lonlat_grid else _hover_xy_only,
         "zsmooth": False,
         "name": "DEM",
-    }]
+    }
+    if lonlat_grid:
+        dem_trace_2d["customdata"] = lonlat_grid
+    data2d = [dem_trace_2d]
 
     mesh_preview = (mesh or {}).get("preview") if mesh_type == "triangular" else None
     if mesh_preview and mesh_preview.get("tris"):
@@ -679,21 +799,24 @@ def _fig_dem_mesh_map(dem: dict, mesh: dict | None,
     fig2d = {"data": data2d, "layout": layout2d}
 
     # -- 3D surface + mesh-edge overlay -----------------------------------
-    data3d = [{
+    dem_trace_3d = {
         "type": "surface",
         "x": preview["x_vals"],
         "y": preview["y_vals"],
         "z": preview["z"],
         "colorscale": "earth",
         "colorbar": {"title": "Elevation (m)", "thickness": 14, "xpad": 0},
-        "hovertemplate": "x: %{x:.0f}<br>y: %{y:.0f}<br>z: %{z:.2f} m<extra></extra>",
+        "hovertemplate": _hover_xy_full if lonlat_grid else _hover_xy_only,
         "contours": {
             "z": {"show": False},
         },
         "lighting": {"ambient": 0.7, "diffuse": 0.6,
                      "specular": 0.15, "roughness": 0.6},
         "name": "DEM",
-    }]
+    }
+    if lonlat_grid:
+        dem_trace_3d["customdata"] = lonlat_grid
+    data3d = [dem_trace_3d]
 
     if mesh_preview and mesh_preview.get("tris") and mesh_preview.get("z"):
         xs = mesh_preview["x"]
@@ -1106,59 +1229,88 @@ def _next_steps_section(data: dict) -> str:
 
     cd_repo = f'cd "{repo_root}"'
 
-    # Step 2: build the container image (installs deps, ships source).
-    # The Dockerfile no longer compiles FLUXOS — that's step 4, in the shell.
+    # All docker-compose snippets reference the compose file by ABSOLUTE
+    # path (not the relative ``containers/docker-compose.yml``). That way
+    # the user can paste any step from any CWD — e.g. directly from
+    # ``supporting_scripts/1_Model_Config/`` where ``python model_config_*.py``
+    # was just run — without first having to ``cd`` to the repo root.
+    compose_file = os.path.join(repo_root, "containers", "docker-compose.yml")
+
+    # Step 2: build the container image (installs deps). Only needs to be
+    # done once per machine (or after a Dockerfile change).
     build_prefix = "USE_MPI=ON " if config.get("use_mpi") else ""
     build_cmd = (f'{build_prefix}'
-                 f'docker compose -f containers/docker-compose.yml build')
+                 f'docker compose -f "{compose_file}" build')
 
-    # Step 3: open a shell inside the container
-    shell_cmd = 'docker compose -f containers/docker-compose.yml run --rm fluxos'
-
-    # Step 4: compile FLUXOS (one-time, inside the container shell).
-    # The whole repo is bind-mounted at /work, so compiling from there means
-    # the binary lands on the host at ./bin/fluxos and stays there across
-    # container restarts — no need to recompile every run.
+    # Step 3: COMPILE — host-side one-liner via `docker compose run`. No
+    # need to enter the container shell manually: we pass the compile
+    # pipeline as the command, Docker runs it and the container exits.
+    # The binary lands on the host at `<repo>/bin/fluxos` via the /work
+    # bind mount. Only needed once per source change.
     cmake_flags = ["-DMODE_release=ON"]
-    if config.get("use_trimesh_build"):
-        cmake_flags.append("-DUSE_TRIMESH=ON")
     if config.get("use_mpi"):
         cmake_flags.append("-DUSE_MPI=ON")
     cmake_flags.append("-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin")
-    binary_name = "fluxos_mpi" if config.get("use_mpi") else "fluxos"
-    run_line = (
-        f'mpirun -n {int(config["mpi_np"])} ./bin/{binary_name} {modset_rel}'
-        if config.get("use_mpi")
-        else f'./bin/{binary_name} {modset_rel}'
-    )
 
     compile_cmd = (
-        "# You are now inside the container; /work is the bind-mounted repo.\n"
-        "# Do this ONCE — the compiled binary at /work/bin/fluxos stays on the\n"
-        "# host and is reusable for every subsequent run.\n"
-        "cd /work\n"
-        "mkdir -p build && cd build\n"
-        f"cmake {' '.join(cmake_flags)} /work\n"
-        "make -j$(nproc)"
+        f'docker compose -f "{compose_file}" run --rm fluxos \\\n'
+        '    bash -lc "cd /work && mkdir -p build && cd build && \\\n'
+        f'             cmake {" ".join(cmake_flags)} /work && \\\n'
+        '             make -j$(nproc)"'
     )
 
-    # Step 5: run the simulation — repeat this for each new modset without
-    # recompiling. Simulation output lands at whatever folder the modset
-    # names in OUTPUT.OUTPUT_FOLDER, on the host filesystem.
-    #
-    # NOTE: snippet comments intentionally avoid apostrophes (possessives,
-    # contractions). Default zsh does not treat '#' as a comment in
-    # interactive mode (no `interactive_comments`), so an apostrophe inside
-    # a '#'-line would be parsed as an unterminated string, dropping the
-    # user at a `quote>` prompt after a paste.
+    # Step 4: RUN — also a host-side one-liner. The config field
+    # ``fluxos_executable`` names the compiled binary (default
+    # ``bin/fluxos``). On MPI builds the report wraps it in ``mpirun``.
+    # The container starts, runs the simulation, and exits when done;
+    # all output lands on the host through the /work bind mount.
+    exe_rel = (config.get("fluxos_executable") or "bin/fluxos").lstrip("./")
+    if config.get("use_mpi"):
+        run_core = f'mpirun -n {int(config["mpi_np"])} ./{exe_rel} {modset_rel}'
+    else:
+        run_core = f'./{exe_rel} {modset_rel}'
     run_cmd = (
-        "# Run from /work so relative paths inside the modset resolve\n"
-        "# against the bind-mounted Working_example/ and repo at /work/.\n"
-        "cd /work\n"
-        f"{run_line}"
+        f'docker compose -f "{compose_file}" run --rm fluxos \\\n'
+        f'    bash -lc "cd /work && {run_core}"'
     )
 
     check_cmd = f'ls -la "{results_dir}"\n{_open_outputs_cmd(os_key, results_dir)}'
+
+    # Venv-activation snippet for step 7 — the visualisation scripts are
+    # Python, so the repo-root virtual-env needs to be active before
+    # calling them. Snippet is IDEMPOTENT: it creates the venv on first
+    # run and installs requirements, then just activates on subsequent
+    # runs. Avoids '#'-comments so it pastes cleanly into default zsh
+    # (which does not treat '#' as a comment without interactive_comments).
+    #
+    # Also defensively clears Conda's (base) environment and its PROJ_LIB
+    # / PROJ_DATA env vars — otherwise Conda's PROJ data files can shadow
+    # the venv's pyproj/rasterio, producing a confusing
+    # "PROJ: ... proj.db lacks DATABASE.LAYOUT.VERSION.MAJOR metadata"
+    # error on macOS setups that have both Homebrew and Anaconda.
+    # Absolute paths everywhere — so the snippet is pastable from any CWD.
+    venv_dir_abs     = os.path.join(repo_root, ".venv")
+    requirements_abs = os.path.join(repo_root, "supporting_scripts",
+                                    "requirements.txt")
+    if os_key == "windows":
+        activate_ps1 = os.path.join(venv_dir_abs, "Scripts", "Activate.ps1")
+        venv_activate_cmd = (
+            f'if ($env:CONDA_DEFAULT_ENV) {{ conda deactivate }}\n'
+            f'$env:PROJ_LIB = $null; $env:PROJ_DATA = $null\n'
+            f'if (-Not (Test-Path "{venv_dir_abs}")) '
+            f'{{ python -m venv "{venv_dir_abs}" }}\n'
+            f'& "{activate_ps1}"\n'
+            f'pip install -q -r "{requirements_abs}"'
+        )
+    else:  # macOS / Linux — bash / zsh
+        activate_sh = os.path.join(venv_dir_abs, "bin", "activate")
+        venv_activate_cmd = (
+            f'conda deactivate 2>/dev/null || true\n'
+            f'unset PROJ_LIB PROJ_DATA\n'
+            f'[ -d "{venv_dir_abs}" ] || python3 -m venv "{venv_dir_abs}"\n'
+            f'source "{activate_sh}"\n'
+            f'pip install -q -r "{requirements_abs}"'
+        )
 
     viewer_script = os.path.join(repo_root, "supporting_scripts",
                                  "2_Read_Outputs", "output_supporting_lib",
@@ -1193,13 +1345,31 @@ def _next_steps_section(data: dict) -> str:
                       or os.path.join(repo_root,
                                       modset_out["modset"]["DEM_FILE"]))
 
+    # UTM zone for the viewer — auto-derived from the DEM's CRS, so the
+    # user never has to hand-set it in the config. Falls back to the
+    # viewer's own "auto" default if nothing can be derived.
+    utm_zone_val = _derive_utm_zone(config, dem_meta)
+    utm_flag = (f' \\\n    --utm-zone {int(utm_zone_val)}'
+                if utm_zone_val is not None else '')
+
+    # Animation time-stride: keep every Nth FLUXOS output as a viewer
+    # frame. Source of truth is the config field ``webgl_time_stride``;
+    # fall back to the viewer's own default (5) if the user omitted it.
+    try:
+        webgl_stride = int(config.get("webgl_time_stride") or 5)
+        if webgl_stride < 1:
+            webgl_stride = 1
+    except (TypeError, ValueError):
+        webgl_stride = 5
+
     viz_base = (f'python "{viewer_script}" \\\n'
                 f'    --results-dir "{results_dir}" \\\n'
-                f'    --dem "{dem_for_viewer}" \\\n'
-                f'    --utm-zone {int(config.get("dem_utm_zone", 10))}'
+                f'    --dem "{dem_for_viewer}"'
+                f'{utm_flag}'
                 f'{mesh_flag} \\\n'
                 f'    --export-webgl \\\n'
                 f'    --webgl-output "{webgl_dir}" \\\n'
+                f'    --webgl-step {webgl_stride} \\\n'
                 f'    --webgl-port 8080')
     viz_with_transport = viz_base + ' \\\n    --variable conc_SW'
 
@@ -1214,10 +1384,16 @@ def _next_steps_section(data: dict) -> str:
     # treat `#` as an interactive-comment).
     stats_template = os.path.join(repo_root, "supporting_scripts",
                                   "2_Read_Outputs", "read_output_template.py")
+    # Absolute paths so the snippet is CWD-independent (matches the rest
+    # of the report). ``results_dir`` was already absolutised up above;
+    # ``modset_rel`` needs to be rebased onto repo_root.
+    modset_abs = (modset_out["output_path"]
+                  if os.path.isabs(modset_out["output_path"])
+                  else os.path.join(repo_root, modset_rel))
     stats_cmd = (
         f'python "{stats_template}" \\\n'
-        f'    --results-dir "{output_folder_rel}" \\\n'
-        f'    --modset-file "{modset_rel}" \\\n'
+        f'    --results-dir "{results_dir}" \\\n'
+        f'    --modset-file "{modset_abs}" \\\n'
         f'    --project-name "{config["project_name"]}"'
     )
 
@@ -1227,49 +1403,61 @@ def _next_steps_section(data: dict) -> str:
       <div class="card primary">
         <p style="margin-bottom:.4rem">
           <span class="os-badge" style="background:{os_color}">💻 {_esc(os_label)}</span>
-          Copy-paste these snippets into your terminal. FLUXOS is compiled
-          once (step 4), then the simulation is run as many times as you
-          like (step 5) without recompiling.
-          <br><br>
-          <strong>Where each step runs:</strong>
-          &nbsp;steps <strong>1&ndash;3</strong> and
-          <strong>6&ndash;7</strong> on the <em>host</em>
-          (your Mac / Linux / Windows terminal);
-          steps <strong>4 &amp; 5</strong> inside the <em>container</em>
-          shell you opened in step 3.
+          Copy-paste these snippets into your host terminal.
+          Every step runs from the host — no manual container shell to
+          enter or exit. The container starts, runs the command, and
+          exits (via <code>docker compose run --rm fluxos</code>).
+          FLUXOS is compiled once (step 3), then the simulation is run
+          as many times as you like (step 4) without recompiling.
         </p>
 
         <h3>1. Move into the FLUXOS repo</h3>
         {_code_block_full(cd_repo)}
 
-        <h3>2. Build the container image <span style="font-weight:400;color:var(--text2)">(deps only)</span></h3>
+        <h3>2. Build the container image <span style="font-weight:400;color:var(--text2)">(deps only &mdash; once per machine)</span></h3>
         {_code_block_full(build_cmd)}
 
-        <h3>3. Open a shell inside the container</h3>
-        {_code_block_full(shell_cmd)}
-
-        <h3>4. Compile FLUXOS <span style="font-weight:400;color:var(--text2)">(inside the shell &mdash; one-time)</span></h3>
+        <h3>3. Compile FLUXOS <span style="font-weight:400;color:var(--text2)">(one-time, one-liner via <code>docker compose run</code>)</span></h3>
+        <p style="font-size:.9rem;color:var(--text2);margin:.2rem 0 .4rem">
+          Skip this step if <code>{_esc(config.get('fluxos_executable','bin/fluxos'))}</code>
+          already exists — a compiled binary carries over across
+          container restarts through the <code>bin/</code> bind mount.
+        </p>
         {_code_block_full(compile_cmd)}
 
-        <h3>5. Run the simulation <span style="font-weight:400;color:var(--text2)">(inside the shell &mdash; repeat per modset)</span></h3>
+        <h3>4. Run the simulation <span style="font-weight:400;color:var(--text2)">(one-liner via <code>docker compose run</code>)</span></h3>
+        <p style="font-size:.9rem;color:var(--text2);margin:.2rem 0 .4rem">
+          Uses the binary named in <code>fluxos_executable</code>
+          (here: <code>{_esc(config.get('fluxos_executable','bin/fluxos'))}</code>).
+          The container exits automatically when the simulation finishes;
+          outputs land in the folder named by the modset's
+          <code>OUTPUT.OUTPUT_FOLDER</code>, on the host.
+        </p>
         {_code_block_full(run_cmd)}
 
-        <div class="highlight-box warning" style="margin:1.2rem 0 .8rem;font-size:.9rem">
-          <strong>&#x21AA;&nbsp; Leave the container shell before step 6.</strong>
-          Type <code>exit</code> (or press <kbd>Ctrl-D</kbd>) to drop back
-          onto your host terminal. Steps 6 &amp; 7 below use Python +
-          host-absolute paths and will not work inside the container
-          (there is no Python there).
-        </div>
-
-        <h3>6. Check outputs <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
+        <h3>5. Check outputs</h3>
         {_code_block_full(check_cmd)}
 
-        <h3>7. Visualise results <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
+        <h3>6. Visualise results</h3>
         <p>Two complementary post-processing tools are provided in
-        <code>2_Read_Outputs/</code>.</p>
+        <code>2_Read_Outputs/</code>. Both are Python scripts that need the
+        project's virtual environment active (so <code>rasterio</code>,
+        <code>pyproj</code>, <code>matplotlib</code>, etc. resolve).</p>
 
-        <h4 style="margin-top:1rem;font-size:.95rem">7a. Interactive WebGL viewer
+        <h4 style="margin-top:1rem;font-size:.95rem">6.0 Activate the Python venv
+          <span style="font-weight:400;color:var(--text2)">
+            — prerequisite for 6a / 6b below
+          </span>
+        </h4>
+        <p style="font-size:.9rem;color:var(--text2);margin-top:.2rem">
+          The snippet below is <strong>idempotent</strong> — first run
+          creates the venv and installs requirements; subsequent runs
+          just activate it and no-op on <code>pip install</code>.
+          Paste-and-forget.
+        </p>
+        {_code_block_full(venv_activate_cmd)}
+
+        <h4 style="margin-top:1rem;font-size:.95rem">6a. Interactive WebGL viewer
           <span style="font-weight:400;color:var(--text2)">
             &mdash; earth.nullschool-style particle animation in your browser
           </span>
@@ -1286,11 +1474,23 @@ def _next_steps_section(data: dict) -> str:
             Include chemical transport in the animation
             (adds <code>--variable conc_SW</code>)
           </label>
+          <div class="stride-slider-wrap">
+            <label for="viz-stride-slider">
+              Animation time-stride
+              <span class="stride-label">{webgl_stride}</span>
+              <span class="stride-note">
+                (keep every Nth FLUXOS snapshot as a frame —
+                lower = smoother animation &amp; larger bundle)
+              </span>
+            </label>
+            <input id="viz-stride-slider" type="range" min="1" max="20"
+                   step="1" value="{webgl_stride}">
+          </div>
           <div class="viz-cmd-base" style="display:{base_display}">{_code_block_full(viz_base)}</div>
           <div class="viz-cmd-transport" style="display:{transport_display}">{_code_block_full(viz_with_transport)}</div>
         </div>
 
-        <h4 style="margin-top:1.5rem;font-size:.95rem">7b. Statistics report
+        <h4 style="margin-top:1.5rem;font-size:.95rem">6b. Statistics report
           <span style="font-weight:400;color:var(--text2)">
             — flood volume / flooded-area time series, max-inundation map,
             hazard classification (ARR-2019 H·V), depth histogram, and first-inundation map
@@ -1365,7 +1565,7 @@ def generate_report(report_data: dict, output_path: str) -> str:
       </div>
     </aside>
     <main class="main">
-      {_header(config, generated_at)}
+      {_header(config, report_data.get("dem"), generated_at)}
       <div class="container">
         <section class="section" id="project">
           <h2>Project</h2>
