@@ -244,11 +244,15 @@ void tri_hydrodynamics_calc(
         // Recompute depth
         double hp = std::fmax(0.0, sol.z[ci] - sol.zb[ci]);
 
-        // Depth cap: prevent unbounded accumulation in topographic sinks.
-        // Small triangular cells near sharp terrain features can act as
-        // numerical sinks that don't exist on the regular mesh. Cap depth
-        // to prevent extreme values that slow down the CFL timestep globally.
-        const double h_max_cap = 2.0;  // Maximum allowable depth (m)
+        // Depth cap: safety net against unbounded accumulation in pathological
+        // numerical sinks (tiny triangular cells near sharp terrain features
+        // can act as numerical sinks that don't exist on the regular mesh).
+        // The cap must be HIGH ENOUGH to pass realistic flood depths — rivers
+        // routinely reach 3-5 m, and floodplain ponds can exceed that. A too-
+        // low cap silently deletes water and breaks mass conservation. 10 m
+        // is a reasonable default: still catches pathological pileups that
+        // would freeze the CFL timestep, but lets normal floods through.
+        const double h_max_cap = 10.0;  // Maximum allowable depth (m)
         if (hp > h_max_cap) {
             hp = h_max_cap;
             sol.z[ci] = sol.zb[ci] + hp;
