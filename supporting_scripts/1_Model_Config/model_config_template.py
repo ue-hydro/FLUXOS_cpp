@@ -21,193 +21,424 @@ FLUXOS model configuration template
 
 HOW TO USE
 ----------
-1. Copy this file (or edit in place for a one-off) and fill in the sections
-   below.
-2. Run it from any working directory:
+1. Copy this file to a project-specific name (recommended) or edit in place
+   for a one-off:
 
-       python model_config_template.py
+       cp model_config_template.py model_config_<project>.py
 
-3. The script will:
-     - downscale your GeoTIFF DEM to an ESRI-ASCII .asc file in `<repo>/bin/`
-     - generate a Gmsh .msh file in `<repo>/bin/` (if `mesh_type = "triangular"`)
-     - write a `modset_*.json` config file in `<repo>/bin/`
-     - generate an HTML report under `1_Model_Config/reports/` with the
-       summary of what was built and copy-paste Docker commands to run
-       the simulation.
+2. Fill in the ``_config = dict(...)`` block below. Every field has inline
+   documentation describing the valid values and how to pick one.
+
+3. Run it from any working directory:
+
+       python model_config_<project>.py
+
+4. The script will:
+     - fetch or read the DEM (GeoTIFF) and downscale to an ESRI-ASCII ``.asc``
+     - generate a Gmsh ``.msh`` (if ``mesh_type = "triangular"``) with DEM
+       elevations baked into the vertex z-coordinates
+     - write a ``modset_*.json`` FLUXOS configuration file
+     - generate an HTML report under ``1_Model_Config/reports/`` summarising
+       the build and offering copy-paste Docker / Apptainer commands to
+       run the simulation and visualise the results
 
 Everything below is read as a plain Python dict — no YAML, no env vars.
 Only this file should need editing for a new project.
+
+EXTERNAL RESOURCES
+------------------
+  • OpenTopography (free API keys, required for most OpenTopography providers):
+      https://portal.opentopography.org/
+  • Copernicus GLO-30 on AWS (no key, the default provider below):
+      https://registry.opendata.aws/copernicus-dem/
+  • USGS 3DEP (US only, no key):
+      https://www.usgs.gov/3d-elevation-program
+  • UTM-zone finder (plug in your lat/lon):
+      https://www.dmap.co.uk/utmworld.htm
+  • Manning's n / roughness-height typical values:
+      https://www.engineeringtoolbox.com/mannings-roughness-d_799.html
 """
 
 _config = dict(
 
-    # ------------------------------------------------------------------
-    # 1. Project metadata
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # 1. Project metadata — shown in the HTML report header.
+    # ==================================================================
+
+    # Short human-readable name for the project. Used in the report title,
+    # the generated filenames (slug-cased), and the simulation log.
+    # Examples: "Rosa Creek", "Torres Vedras", "Thames Estuary 2026".
     project_name = "Rosa Creek",
+
+    # List of authors / modellers responsible for the run. Free-form.
+    # Example: ["Alice Wong", "Bob Ng"]
     authors      = ["Diogo Costa"],
+
+    # ISO-8601 date the configuration was prepared (YYYY-MM-DD).
+    # Recorded in the report header as provenance.
     date         = "2026-04-21",
+
+    # One- or two-sentence description — what the simulation is trying to
+    # capture (event, purpose, key modelling assumptions). Shown at the top
+    # of the report.
     description  = (
         "Snowmelt-driven flood simulation over Rosa Creek DEM."
     ),
 
-    # ------------------------------------------------------------------
-    # 2. Paths
-    # ------------------------------------------------------------------
-    # repo_root: absolute path to the FLUXOS checkout. `None` means
-    #   "auto-detect" (assumed to be two directories above this file, i.e.
-    #   the parent of `supporting_scripts/`).
+    # ==================================================================
+    # 2. Paths — where generated files land relative to your checkout.
+    # ==================================================================
+
+    # Absolute path to the FLUXOS repository root. Two options:
+    #   None  — auto-detect (assumed to be two directories above this file,
+    #           i.e. the parent of ``supporting_scripts/``). Works for the
+    #           in-repo workflow.
+    #   str   — an absolute path, e.g. "/home/alice/models/FLUXOS_cpp".
+    #           Useful when running this script from a different checkout.
     repo_root       = None,
 
-    # Directory (relative to repo_root) where generated .asc / .msh /
-    # modset.json files will be written. This is the self-contained
-    # "working example" directory — the Docker container mounts it
-    # read-only at /work/Working_example, and modsets reference files
-    # in here with paths like "Working_example/Rosa_2m.asc".
+    # Directory (relative to repo_root) where generated files (.asc, .msh,
+    # modset.json) will be written. Common choices:
+    #   "Working_example" — the default "canonical inputs" folder shipped in
+    #                       the repo. Docker / Apptainer workflows bind-mount
+    #                       this at /work/Working_example, so modsets end up
+    #                       referencing files as "Working_example/<name>".
+    #   "my_project/"     — a separate subfolder if you want project-specific
+    #                       inputs alongside the repo.
     output_bin_dir  = "Working_example",
 
-    # Final name of the modset JSON inside output_bin_dir.
+    # Final name of the modset .json inside ``output_bin_dir``.
+    # Pattern suggestion: ``modset_<project>.json``.
     modset_name     = "modset_rosa.json",
 
-    # ------------------------------------------------------------------
-    # 3. DEM source
-    # ------------------------------------------------------------------
-    # Two modes are supported:
-    #
-    #   "file"      — point `dem_source_geotiff` at an existing GeoTIFF
-    #                 you already have on disk (default, traditional path).
-    #
-    #   "download"  — fetch a DEM automatically for a lat/lon bounding box
-    #                 from an external provider, reproject to UTM, then
-    #                 run it through the normal pipeline. No manual GIS
-    #                 work needed for a first-pass floodplain study.
+    # ==================================================================
+    # 3. DEM source — where the elevation model comes from.
+    # ==================================================================
+
+    # How to obtain the DEM:
+    #   "file"      → point ``dem_source_geotiff`` below at a GeoTIFF on disk.
+    #                 Recommended when you have local LiDAR / high-res data,
+    #                 or when you are iterating and want fully offline runs.
+    #   "download"  → fetch a tile automatically for ``download_bbox_wgs84``
+    #                 from one of the providers below (OpenTopography, USGS
+    #                 3DEP, or the AWS Copernicus mirror). Results are cached
+    #                 so re-runs skip the network. No GIS setup required.
     dem_source_mode = "file",
 
     # --- Only used when dem_source_mode == "file" ---------------------
-    # Path to your GeoTIFF DEM. Can be absolute or relative to repo_root.
-    # Must be in a projected CRS (UTM / equivalent) — geographic (degrees)
-    # DEMs will emit a warning and produce incorrect slopes.
+    # Absolute or repo-relative path to your GeoTIFF DEM.
+    #
+    # IMPORTANT: must be in a projected CRS (UTM / State Plane / equivalent)
+    # where pixel spacing is in METRES. Geographic (degrees) DEMs will emit
+    # a warning and produce wildly wrong slopes because FLUXOS computes
+    # gradients as Δz/Δx with Δx in metres.
+    #
+    # If your DEM is in degrees, reproject first with:
+    #   gdalwarp -t_srs EPSG:326XX source.tif utm_source.tif
+    # where 326XX is your UTM zone (e.g. 32629 for Portugal, 32610 for
+    # British Columbia).
     dem_source_geotiff      = "Working_example/Rosa_2m.tif",
 
     # --- Only used when dem_source_mode == "download" -----------------
-    # Bounding box in WGS84 lon/lat: (lon_min, lat_min, lon_max, lat_max).
-    # i.e. (upper-left longitude, lower-right latitude,
-    #       lower-right longitude, upper-left latitude)
-    # Pick a small bbox for a first run — 10×10 km is ≈ 0.1° × 0.1°.
+    # Bounding box in WGS84 lon/lat (decimal degrees), four numbers:
+    #     (lon_min, lat_min, lon_max, lat_max)
+    # i.e. (southwest lon, southwest lat, northeast lon, northeast lat).
+    #
+    # Tip on sizing: at mid-latitudes 0.01° ≈ 1.1 km (latitude) and
+    #                0.01° × cos(lat) km (longitude).
+    # A ~10 × 10 km first-pass domain is ≈ 0.1° × 0.1°.
+    # Pick a box large enough to contain the channel + floodplain + a buffer.
+    #
+    # Use Google Maps or the bounding-box picker at
+    #   http://bboxfinder.com/
+    # to dial in coordinates.
     download_bbox_wgs84 = (-124.10, 52.20, -124.05, 52.23),
 
-    # Which DEM product to fetch.
-    # -- AWS open-data mirrors (NO KEY required, recommended starting point) ---
-    #    "COP30_AWS" — Copernicus GLO-30 (ESA)      vertical RMSE ≈ 4 m   ★ global no-key default
-    # -- OpenTopography (free API key required, richer catalogue): -------------
-    #    "SRTMGL1"   — SRTM 30 m (NASA, lat ±60°)   vertical RMSE ≈ 16 m
-    #    "SRTMGL3"   — SRTM 90 m (NASA, lat ±60°)   vertical RMSE ≈ 16 m
-    #    "COP30"     — Copernicus GLO-30 (ESA)      vertical RMSE ≈ 4 m
-    #    "COP90"     — Copernicus GLO-90 (ESA)      vertical RMSE ≈ 4 m
-    #    "AW3D30"    — ALOS AW3D30 (JAXA)           vertical RMSE ≈ 5 m
-    #    "NASADEM"   — NASADEM (reprocessed SRTM)   vertical RMSE ≈ 10 m
-    #    "EU_DTM"    — EU-DTM 10 m (Copernicus)     vertical RMSE ≈ 3 m   — Europe (EEA39) only
-    #    "GEBCOIceTopo" — GEBCO ice surface         — bathymetry/land combo
-    # -- USGS 3DEP (US only, no key, needs `pip install py3dep`): --------------
-    #    "USGS_10M"  — USGS 3DEP 10 m               vertical RMSE ≈ 1 m   — CONUS
-    #    "USGS_3M"   — USGS 3DEP 3 m                vertical RMSE ≈ 0.5 m — partial CONUS
-    #    "USGS_1M"   — USGS 3DEP 1 m LiDAR          vertical RMSE ≈ 0.15 m — LiDAR-covered only
+    # Which DEM product to fetch. Grouped by whether an API key is required.
+    #
+    # === NO KEY REQUIRED (recommended starting point) ======================
+    # "COP30_AWS"  — Copernicus GLO-30 (ESA) from the public AWS S3 bucket.
+    #                30 m native, vertical RMSE ≈ 4 m, GLOBAL coverage.    ★
+    #                Identical data to OpenTopography's "COP30" but without
+    #                the key hassle.
+    #
+    # === OpenTopography (free API key required, richer catalogue) ==========
+    #                1. Register at https://portal.opentopography.org/ (free)
+    #                2. ``export OPENTOPOGRAPHY_API_KEY=xxxxxxxxxxxxx``
+    #                3. Set ``download_api_key_env`` below to the env-var name.
+    #
+    # "SRTMGL1"    — SRTM 30 m (NASA)         RMSE ≈ 16 m   global ±60° lat
+    # "SRTMGL3"    — SRTM 90 m (NASA)         RMSE ≈ 16 m   global ±60° lat
+    # "COP30"      — Copernicus GLO-30 (ESA)  RMSE ≈ 4 m    GLOBAL
+    # "COP90"      — Copernicus GLO-90 (ESA)  RMSE ≈ 4 m    GLOBAL
+    # "AW3D30"     — ALOS AW3D30 (JAXA)       RMSE ≈ 5 m    GLOBAL
+    # "NASADEM"    — NASADEM (SRTM re-processed)  RMSE ≈ 10 m  ±60° lat
+    # "EU_DTM"     — EU-DTM 10 m (Copernicus LS)  RMSE ≈ 3 m   ★ Europe only (EEA39)
+    # "GEBCOIceTopo" — GEBCO ice surface                      land + ocean
+    #
+    # === USGS 3DEP (US only, no key — needs ``pip install py3dep``) ========
+    # "USGS_10M"   — 3DEP 10 m             RMSE ≈ 1 m      CONUS
+    # "USGS_3M"    — 3DEP 3 m              RMSE ≈ 0.5 m    CONUS (partial)
+    # "USGS_1M"    — 3DEP 1 m LiDAR        RMSE ≈ 0.15 m   US LiDAR-covered only ★
+    #
+    # Rules of thumb — pick the highest-resolution product covering your site:
+    #   • USA  → USGS_1M  (if LiDAR),  else USGS_3M  / USGS_10M
+    #   • Europe → EU_DTM (10 m)
+    #   • elsewhere → COP30_AWS (no key) or COP30 (with key)
     download_provider     = "COP30_AWS",
 
-    # OpenTopography requires a free API key:
-    #   1. Register at https://portal.opentopography.org/ (free)
-    #   2. Put your key in an environment variable and reference its name here:
-    #        export OPENTOPOGRAPHY_API_KEY=xxxxxxxxxxxxx
+    # Name of the environment variable that holds your OpenTopography API key.
+    # Only consulted when ``download_provider`` is an OpenTopography product.
+    # The key itself is NEVER written to disk — only its variable name is.
+    # To set the key before running:
+    #   bash / zsh:   export OPENTOPOGRAPHY_API_KEY=xxxxxxxxxxxxx
+    #   fish:         set -x OPENTOPOGRAPHY_API_KEY xxxxxxxxxxxxx
+    #   Windows CMD:  set OPENTOPOGRAPHY_API_KEY=xxxxxxxxxxxxx
     download_api_key_env  = "OPENTOPOGRAPHY_API_KEY",
 
-    # Downloaded GeoTIFFs are cached in this directory (skips re-downloading
-    # on repeated runs). Relative to repo_root.
+    # Directory (relative to repo_root) where downloaded GeoTIFFs are cached.
+    # Re-runs with the same provider + bbox hit the cache and skip the
+    # network. Safe to delete any time to force re-downloads.
     download_cache_dir    = "bin/dem_cache",
 
-    # Target CRS for reprojection of the downloaded DEM.
-    #   "auto"  — UTM zone inferred from the bbox centre (recommended)
-    #   int     — explicit EPSG code, e.g. 32610 for UTM 10N
-    #   str     — any PROJ-parseable string, e.g. "EPSG:32629"
+    # Target CRS for the reprojection step. Three forms accepted:
+    #   "auto"  — pick UTM zone from the bbox centre (recommended; always
+    #             gives a local metric grid).
+    #   int     — an explicit EPSG code, e.g. 32610 for UTM 10N (BC, Canada),
+    #             32629 for UTM 29N (mainland Portugal), 25830 for ETRS89
+    #             UTM 30N (Iberian Peninsula).
+    #   str     — any PROJ-parseable string, e.g. "EPSG:32629" or a +proj=…
+    #             WKT. Useful for national grids (BNG, Lambert-93, …).
+    # Find your UTM zone by lat/lon at https://www.dmap.co.uk/utmworld.htm
     download_target_crs   = "auto",
-    download_force        = False,         # True → ignore cache, re-fetch
 
-    # --- Applied to BOTH modes ---------------------------------------
-    # Target cell size for the downscaled .asc (metres). Set equal to the
-    # GeoTIFF native resolution (or `None`) to skip resampling. Beware: if
-    # you set this below the native DEM resolution you are *interpolating*,
-    # not gaining information — a 2 m grid built from a 30 m SRTM tile
-    # looks smoother than it should.
+    # Force-refresh the DEM cache:
+    #   False — use cached file if present (fast, default).
+    #   True  — re-download even if the tile is already on disk.
+    download_force        = False,
+
+    # --- Applied to BOTH "file" and "download" modes ------------------
+    # Target cell size in METRES for the output .asc that FLUXOS reads.
+    #   None / 0      — keep native resolution, no resampling.
+    #   <native_res>  — BILINEAR downscaling (lowers resolution). Useful
+    #                   for speed when native is overkill.
+    #   >native_res   — bilinear up-sampling. WARNING: this is smoothing,
+    #                   not added information. Setting e.g. 2 m when your
+    #                   source is 30 m SRTM gives you a smooth 2 m grid
+    #                   carrying no new detail.
+    # Typical choices:
+    #   • 1-2 m for urban / street-level flood modelling (LiDAR input)
+    #   • 5-10 m for basin-scale floodplain studies
+    #   • 30 m for regional / continental screening studies
     dem_target_resolution_m = 2.0,
 
-    # Output .asc filename inside output_bin_dir.
+    # Output .asc filename inside ``output_bin_dir``. Convention:
+    #   ``<project>_<res>m.asc``  (e.g. "Rosa_2m.asc", "TorresVedras_30m.asc")
     dem_output_asc          = "Rosa_2m.asc",
 
-    # UTM zone of the DEM — surfaced in the HTML report and used by the
-    # post-processing viewer. Not read by the FLUXOS binary itself.
+    # UTM zone number of the DEM (not the EPSG). Used by the HTML report
+    # KPI tiles and by ``fluxos_viewer.py`` for the KML / WebGL export.
+    # FLUXOS itself does NOT read this value.
+    # Portugal mainland = 29N, Azores = 26N, NW US / BC = 10N, UK = 30N.
     dem_utm_zone            = 10,
 
-    # ------------------------------------------------------------------
-    # 4. Mesh
-    # ------------------------------------------------------------------
-    # "regular"    -> fluxos uses the .asc directly as a Cartesian grid.
-    # "triangular" -> fluxos uses a Gmsh .msh with DEM elevations baked
-    #                 into the vertex z-coordinates.
+    # ==================================================================
+    # 4. Mesh — regular Cartesian grid vs. unstructured triangles.
+    # ==================================================================
+
+    # Two choices:
+    #   "regular"    — FLUXOS consumes the .asc directly as a Cartesian grid.
+    #                  Simplest, works best when DEM resolution is already
+    #                  appropriate everywhere and the domain is roughly
+    #                  rectangular. Cells: ncols × nrows of the .asc.
+    #
+    #   "triangular" — FLUXOS reads a Gmsh .msh with DEM elevations embedded
+    #                  in the vertex z-coordinates. Generated from the DEM by
+    #                  this template (slope-adaptive size field). Best when:
+    #                    • the domain has an irregular boundary
+    #                    • terrain varies a lot (fewer elements in flat areas,
+    #                      more in steep ones)
+    #                    • cell count with a regular grid would be wasteful
+    #                  Produces ~5-10× fewer cells than an equivalent regular
+    #                  grid with similar accuracy near channels.
     mesh_type               = "triangular",
 
-    # Only used when mesh_type == "triangular":
-    trimesh_min_size        = 2.0,      # finest triangle edge (m)
-    trimesh_max_size        = 30.0,     # coarsest triangle edge (m)
-    trimesh_slope_factor    = 2.0,      # higher => more refinement in steep terrain
+    # The three trimesh-* parameters are ONLY used when
+    # ``mesh_type == "triangular"``.
+    #
+    # Minimum triangle edge length (metres). Controls the finest detail.
+    # Good rule: do NOT go below the DEM cell size (that would be fake
+    # resolution). Typical: 1-5 m for urban, 10-30 m for basin-scale.
+    trimesh_min_size        = 2.0,
+
+    # Maximum triangle edge length (metres). Controls the coarsest element
+    # in flat areas. Typical: 3-10× ``trimesh_min_size``. Bigger → fewer
+    # elements, faster simulation, less accuracy far from channels.
+    trimesh_max_size        = 30.0,
+
+    # Refinement multiplier vs. terrain slope. Higher → more triangles in
+    # steep terrain (where water moves fast and gradients matter).
+    #   1.0 → no slope-based refinement; uniform grading between min/max.
+    #   2.0 → moderate refinement in steep areas (recommended default).
+    #   4.0 → aggressive refinement; use for mountainous / stepped terrain.
+    trimesh_slope_factor    = 2.0,
+
+    # Output Gmsh .msh filename inside ``output_bin_dir``.
+    # Convention: ``<project>_trimesh.msh``.
     mesh_output_msh         = "Rosa_trimesh.msh",
 
-    # ------------------------------------------------------------------
-    # 5. Forcing files
-    #
-    # Paths are written into the modset as-is. FLUXOS interprets them
-    # relative to its working directory (for the container workflow
-    # that's /work, which maps to the repo root — so leave these as
-    # `bin/<filename>`).
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # 5. Forcing files — precipitation / snowmelt + optional point inflow.
+    # ==================================================================
+    # Paths are written into the modset exactly as given; FLUXOS resolves
+    # them relative to its CWD (for the container workflow that is /work,
+    # which maps to the repo root — so relative paths starting with
+    # ``Working_example/…`` work unchanged in Docker / Apptainer / native).
+
+    # Meteo (precipitation / snowmelt) time series in the FLUXOS .fluxos
+    # format. See ``Working_example/Qmelt_synthetic.fluxos`` for the
+    # reference example. Columns: time [s], rate [mm/h or mm/day per the
+    # solver's unit convention], then per-chemical concentrations if ADE
+    # is enabled. Applied uniformly over the whole domain.
+    # Set to "" or None to disable meteo forcing.
     meteo_file   = "Working_example/Qmelt_synthetic.fluxos",
-    inflow_file  = None,   # e.g. "Working_example/Flow_river.fluxos" — set to None to disable
 
-    # ------------------------------------------------------------------
-    # 6. Simulation settings
-    # ------------------------------------------------------------------
+    # OPTIONAL point inflow time series (e.g. a stream entering the domain).
+    # Same file format as meteo but applied at a single cell — the
+    # (X,Y) coordinates are specified inside the .fluxos file header.
+    # Typical use: river entering the domain from outside.
+    # Set to None to disable.
+    inflow_file  = None,   # e.g. "Working_example/Flow_river.fluxos"
+
+    # ==================================================================
+    # 6. Simulation settings.
+    # ==================================================================
+
+    # Start timestamp of the simulation, in ISO-8601 ("YYYY-MM-DD HH:MM:SS").
+    # Used (a) in the HTML report header; (b) by the KML / WebGL viewer
+    # to label frames with real-world time; (c) to align forcing file time
+    # offsets. The simulation advances in seconds from this moment.
     sim_datetime_start = "2009-01-01 00:00:00",
-    roughness_height   = 0.005,   # meters — uniform Manning-equivalent
 
-    # ------------------------------------------------------------------
-    # 7. Output settings
-    # ------------------------------------------------------------------
-    output_folder    = "Results/",   # relative to FLUXOS working dir
-    print_step_s     = 1800,          # seconds between .vtu snapshots
-    h_min_to_print_m = 0.001,         # cells with h < this are not written
+    # Uniform bed-roughness HEIGHT in metres (NOT Manning's n, NOT Chézy).
+    # FLUXOS converts this internally to a friction coefficient via a
+    # log-law closure. Typical values by land cover:
+    #   0.001 m — smooth surfaces (concrete, asphalt, open water)
+    #   0.005 m — bare soil, short grass, paved streets with debris
+    #   0.010 m — short vegetation, urban mixed surfaces
+    #   0.030 m — shrubs, dense grass, gravel
+    #   0.100 m — trees, tall vegetation, rough rubble
+    # If unsure, 0.005 is a reasonable urban-flood starting point.
+    # See the external link at the top of this file for a roughness
+    # reference table.
+    roughness_height   = 0.005,
 
-    # ------------------------------------------------------------------
-    # 8. Optional modules
-    # ------------------------------------------------------------------
-    # ADE_TRANSPORT solves an advection-dispersion-reaction equation alongside
-    # the shallow-water solver, tracking a scalar concentration field (e.g.
-    # dissolved solute) through the flow. Output variable is `conc_SW`.
-    # Set `enabled=False` to skip transport entirely.
+    # ==================================================================
+    # 7. Output settings — what FLUXOS writes to disk.
+    # ==================================================================
+
+    # Directory (relative to FLUXOS's working dir) where per-timestep output
+    # files land. Regular mesh → ``<t_sec>.txt`` per print step.
+    # Triangular → ``<t_sec>.vtu`` per print step (plus a .pvd time series
+    # index for ParaView / VisIt).
+    # Convention: ``Results_<project>/`` keeps each project isolated.
+    output_folder    = "Results/",
+
+    # Interval (in SECONDS) between snapshot writes. Trade-off:
+    #   • smaller → smoother animations, bigger disk footprint
+    #   • larger  → fewer files, coarser time resolution
+    # Practical values:
+    #   60     — 1 min,   fine-grained flash-flood capture
+    #   900    — 15 min,  normal urban flood runs
+    #   1800   — 30 min,  default
+    #   3600   — 1 hr,    long-duration storm runs
+    print_step_s     = 1800,
+
+    # Minimum water depth (in METRES) to write a cell to the output.
+    # Cells with h below this threshold are omitted (they are "dry").
+    # Saves huge amounts of disk on regular-mesh outputs for
+    # largely-dry domains. Typical:
+    #   0.0001 — keep everything ("debug" mode)
+    #   0.001  — default; filters numerical trace depths
+    #   0.01   — aggressive; only reports cells with visible water
+    h_min_to_print_m = 0.001,
+
+    # ==================================================================
+    # 8. Optional modules — swappable bolt-ons to the shallow-water solver.
+    # ==================================================================
+
+    # ADE transport — Advection-Dispersion-Reaction for a scalar tracer
+    # (dissolved solute concentration travelling with the flow). Output
+    # variable in the .vtu / .txt is ``conc_SW``.
+    #
+    #   enabled  — True to activate, False to skip entirely.
+    #   d_coef   — dispersion coefficient in m²/s. Controls numerical
+    #              smearing vs. sharpness of the front.
+    #                0.0   — pure advection, sharpest fronts, some
+    #                        numerical oscillations near gradients.
+    #                0.1-1 — typical urban-flood range (moderate smoothing).
+    #                1-10  — larger basin-scale or regional runs where
+    #                        sub-grid mixing is significant.
     ade_transport      = dict(enabled=True, d_coef=0.5),
+
+    # Soil infiltration — simplified constant-rate loss per cell per
+    # timestep ( infil = min(Ks·dt, h) ). Useful for urban / pervious
+    # mixed surfaces where infiltration is non-negligible on the
+    # simulation timescale.
+    #
+    #   enabled           — True to activate, False to skip (default).
+    #   default_ks_mm_hr  — saturated hydraulic conductivity in mm/h.
+    #                       Typical values (Rawls et al. 1983, USDA):
+    #                         sand       ~ 210  mm/h
+    #                         loamy sand ~  60  mm/h
+    #                         sandy loam ~  25  mm/h
+    #                         loam       ~  13  mm/h
+    #                         silt loam  ~   6  mm/h
+    #                         clay loam  ~   2  mm/h
+    #                         clay       ~   1  mm/h
+    #                         asphalt / concrete ≈ 0
     soil_infiltration  = dict(enabled=False, default_ks_mm_hr=10.0),
 
-    # ------------------------------------------------------------------
-    # 9. Docker / run settings
-    # (these affect the snippets shown in the report, not the files
-    # written to disk)
-    # ------------------------------------------------------------------
-    use_mpi             = False,   # True -> report suggests USE_MPI=ON build
-    mpi_np              = 4,       # only used if use_mpi=True
-    use_trimesh_build   = True,    # True -> USE_TRIMESH=ON build arg
+    # ==================================================================
+    # 9. Docker / run settings — only affect the snippets shown in the
+    #    HTML report. Do NOT change the files written to disk.
+    # ==================================================================
 
-    # ------------------------------------------------------------------
-    # 10. Report options
-    # ------------------------------------------------------------------
+    # Suggest a Hybrid MPI + OpenMP build / run in the report?
+    #   False — OpenMP-only (recommended for single machine, < 1000² cells).
+    #   True  — the report's build + run snippets include ``-DUSE_MPI=ON``
+    #           and ``mpirun -n N`` for HPC clusters / multi-node runs.
+    use_mpi             = False,
+
+    # Number of MPI ranks. Only used when ``use_mpi = True``. Practical
+    # choice depends on the HPC environment: 4-16 for workstations,
+    # 16-64 for cluster nodes, 64+ for large distributed runs. See
+    # ``wikipage/source/HPC.rst`` for domain-decomposition guidance.
+    mpi_np              = 4,
+
+    # Whether the report's build snippet should enable triangular mesh
+    # support (``-DUSE_TRIMESH=ON``). Keep this TRUE if
+    # ``mesh_type == "triangular"`` — the triangular mesh solver is a
+    # separate binary path that is only compiled in when this flag is on.
+    use_trimesh_build   = True,
+
+    # ==================================================================
+    # 10. Report options — what happens after the template finishes.
+    # ==================================================================
+
+    # Produce the HTML configuration report:
+    #   True  — write ``reports/<project>_report.html`` with KPI tiles,
+    #           DEM + mesh preview map, full modset JSON, module status,
+    #           and the copy-paste Next Steps for Docker / Apptainer / run
+    #           / visualise. Recommended.
+    #   False — skip (useful for CI / automation).
     generate_report = True,
-    open_report     = True,        # False to skip webbrowser.open()
+
+    # After generating the report, open it in the system's default browser
+    # (via ``webbrowser.open_new_tab``).
+    #   True  — auto-open. Great for interactive use.
+    #   False — only print the path (useful for headless runs).
+    open_report     = True,
 )
 
 

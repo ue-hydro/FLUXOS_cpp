@@ -1143,11 +1143,17 @@ def _next_steps_section(data: dict) -> str:
     )
 
     # Step 5: run the simulation — repeat this for each new modset without
-    # recompiling. Simulation output lands at whatever folder the modset's
-    # OUTPUT_FOLDER names, on the host filesystem.
+    # recompiling. Simulation output lands at whatever folder the modset
+    # names in OUTPUT.OUTPUT_FOLDER, on the host filesystem.
+    #
+    # NOTE: snippet comments intentionally avoid apostrophes (possessives,
+    # contractions). Default zsh does not treat '#' as a comment in
+    # interactive mode (no `interactive_comments`), so an apostrophe inside
+    # a '#'-line would be parsed as an unterminated string, dropping the
+    # user at a `quote>` prompt after a paste.
     run_cmd = (
-        "# From /work so the modset's relative paths resolve against the\n"
-        "# bind-mounted Working_example/ and inputs at /work/.\n"
+        "# Run from /work so relative paths inside the modset resolve\n"
+        "# against the bind-mounted Working_example/ and repo at /work/.\n"
         "cd /work\n"
         f"{run_line}"
     )
@@ -1157,10 +1163,44 @@ def _next_steps_section(data: dict) -> str:
     viewer_script = os.path.join(repo_root, "supporting_scripts",
                                  "2_Read_Outputs", "output_supporting_lib",
                                  "fluxos_viewer.py")
+
+    # Tell the viewer which mesh format to expect — FLUXOS writes .txt for
+    # regular grids and .vtu for triangular meshes; the viewer's default is
+    # regular, so mis-matching silently produces "No results found".
+    mesh_flag = (' \\\n    --mesh-type triangular'
+                 if config.get("mesh_type") == "triangular" else '')
+
+    # Project-specific WebGL export directory, e.g. fluxos_web_torres_vedras/
+    safe_name = "".join(c if c.isalnum() else "_"
+                        for c in config["project_name"]).strip("_").lower()
+    webgl_dir = os.path.join(repo_root, f"fluxos_web_{safe_name}")
+
+    # A single command that: (1) exports the WebGL bundle (heightmap,
+    # satellite, per-frame velocity PNGs, metadata), (2) starts a local
+    # HTTP server on port 8080, and (3) opens http://localhost:8080/ in
+    # the default browser. The server keeps running until Ctrl-C.
+    # Auto-serve is the default; pass --webgl-no-serve for batch / CI.
+    #
+    # IMPORTANT: for triangular meshes the modset's DEM_FILE is a 10×10
+    # dummy (the C++ solver reads elevations from the .msh vertices), so
+    # we point the viewer at the full-resolution "_preview.asc" written
+    # by the driver — otherwise the viewer's bbox / satellite tile / grid
+    # extent are derived from a tiny placeholder and the output is bogus.
+    # For regular meshes preview_asc_path == the main .asc, so this path
+    # works for both mesh types transparently.
+    dem_meta = data.get("dem") or {}
+    dem_for_viewer = (dem_meta.get("preview_asc_path")
+                      or os.path.join(repo_root,
+                                      modset_out["modset"]["DEM_FILE"]))
+
     viz_base = (f'python "{viewer_script}" \\\n'
                 f'    --results-dir "{results_dir}" \\\n'
-                f'    --dem "{os.path.join(repo_root, modset_out["modset"]["DEM_FILE"])}" \\\n'
-                f'    --utm-zone {int(config.get("dem_utm_zone", 10))}')
+                f'    --dem "{dem_for_viewer}" \\\n'
+                f'    --utm-zone {int(config.get("dem_utm_zone", 10))}'
+                f'{mesh_flag} \\\n'
+                f'    --export-webgl \\\n'
+                f'    --webgl-output "{webgl_dir}" \\\n'
+                f'    --webgl-port 8080')
     viz_with_transport = viz_base + ' \\\n    --variable conc_SW'
 
     ade_enabled = bool(config["ade_transport"].get("enabled"))
@@ -1168,17 +1208,17 @@ def _next_steps_section(data: dict) -> str:
     base_display = "none" if ade_enabled else "block"
     transport_display = "block" if ade_enabled else "none"
 
-    # Statistics report snippet — runs the 2_Read_Outputs template.
-    # Pre-fills the two lines the user has to edit at the top of the
-    # stats template so they can paste them in directly.
+    # Statistics report snippet — runs the 2_Read_Outputs template with
+    # per-project paths passed as CLI flags. No file edit required, no
+    # `#`-comment preamble (which breaks on default zsh that does not
+    # treat `#` as an interactive-comment).
     stats_template = os.path.join(repo_root, "supporting_scripts",
                                   "2_Read_Outputs", "read_output_template.py")
     stats_cmd = (
-        f'# 1. Edit these two lines at the top of read_output_template.py:\n'
-        f'#      results_dir = "{output_folder_rel}"\n'
-        f'#      modset_file = "{modset_rel}"\n'
-        f'# 2. Then run it:\n'
-        f'python "{stats_template}"'
+        f'python "{stats_template}" \\\n'
+        f'    --results-dir "{output_folder_rel}" \\\n'
+        f'    --modset-file "{modset_rel}" \\\n'
+        f'    --project-name "{config["project_name"]}"'
     )
 
     return f"""
@@ -1187,10 +1227,16 @@ def _next_steps_section(data: dict) -> str:
       <div class="card primary">
         <p style="margin-bottom:.4rem">
           <span class="os-badge" style="background:{os_color}">💻 {_esc(os_label)}</span>
-          Copy-paste these snippets into your terminal. The container ships
-          the build dependencies and the source tree &mdash; FLUXOS is
-          compiled once (step 4), then the simulation is run as many times
-          as you like (step 5) without recompiling.
+          Copy-paste these snippets into your terminal. FLUXOS is compiled
+          once (step 4), then the simulation is run as many times as you
+          like (step 5) without recompiling.
+          <br><br>
+          <strong>Where each step runs:</strong>
+          &nbsp;steps <strong>1&ndash;3</strong> and
+          <strong>6&ndash;7</strong> on the <em>host</em>
+          (your Mac / Linux / Windows terminal);
+          steps <strong>4 &amp; 5</strong> inside the <em>container</em>
+          shell you opened in step 3.
         </p>
 
         <h3>1. Move into the FLUXOS repo</h3>
@@ -1208,14 +1254,32 @@ def _next_steps_section(data: dict) -> str:
         <h3>5. Run the simulation <span style="font-weight:400;color:var(--text2)">(inside the shell &mdash; repeat per modset)</span></h3>
         {_code_block_full(run_cmd)}
 
+        <div class="highlight-box warning" style="margin:1.2rem 0 .8rem;font-size:.9rem">
+          <strong>&#x21AA;&nbsp; Leave the container shell before step 6.</strong>
+          Type <code>exit</code> (or press <kbd>Ctrl-D</kbd>) to drop back
+          onto your host terminal. Steps 6 &amp; 7 below use Python +
+          host-absolute paths and will not work inside the container
+          (there is no Python there).
+        </div>
+
         <h3>6. Check outputs <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
         {_code_block_full(check_cmd)}
 
-        <h3>7. Visualise results</h3>
+        <h3>7. Visualise results <span style="font-weight:400;color:var(--text2)">(back on the host)</span></h3>
         <p>Two complementary post-processing tools are provided in
         <code>2_Read_Outputs/</code>.</p>
 
-        <h4 style="margin-top:1rem;font-size:.95rem">7a. Interactive WebGL animation (KML / MP4 / WebGL)</h4>
+        <h4 style="margin-top:1rem;font-size:.95rem">7a. Interactive WebGL viewer
+          <span style="font-weight:400;color:var(--text2)">
+            &mdash; earth.nullschool-style particle animation in your browser
+          </span>
+        </h4>
+        <p style="font-size:.9rem;color:var(--text2);margin-top:.2rem">
+          One command: exports the bundle (heightmap, satellite, per-frame
+          velocity PNGs, metadata), starts a local HTTP server on port 8080,
+          and opens <code>http://localhost:8080</code> in your default
+          browser. Press <kbd>Ctrl-C</kbd> when done to stop the server.
+        </p>
         <div class="viz-toggle-card">
           <label class="viz-toggle-label">
             <input type="checkbox" id="viz-conc-toggle"{checked_attr}>
