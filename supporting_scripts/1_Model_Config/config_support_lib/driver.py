@@ -215,11 +215,22 @@ def _resolve_dem_source(config: dict, repo_root: str, bin_dir: str
     return meta["output_path"], meta
 
 
-def _step_mesh(config: dict, repo_root: str, bin_dir: str) -> dict | None:
-    """Run mesh generation (triangular only). Returns captured metadata or None."""
+def _step_mesh(config: dict, repo_root: str, bin_dir: str,
+               dem_meta: dict | None) -> dict | None:
+    """Run mesh generation (triangular only). Returns captured metadata or None.
+
+    Uses the DEM source path already resolved by ``_step_dem`` — important
+    for ``dem_source_mode = "download"``, where the real GeoTIFF lives in
+    the cache directory (not at ``config["dem_source_geotiff"]``).
+    """
     if config["mesh_type"] != "triangular":
         print("\n[2/3] Mesh — regular grid (skipping Gmsh step)")
         return None
+
+    if dem_meta is None or not dem_meta.get("source"):
+        raise RuntimeError(
+            "Mesh step cannot run because the DEM step did not produce a "
+            "source GeoTIFF. Check the DEM errors above.")
 
     from dem_operations import read_geotiff
     from mesh_generation import (
@@ -228,7 +239,7 @@ def _step_mesh(config: dict, repo_root: str, bin_dir: str) -> dict | None:
     )
     import numpy as np
 
-    src = _abs_in_repo(repo_root, config["dem_source_geotiff"])
+    src = dem_meta["source"]
     out_msh = os.path.join(bin_dir, config["mesh_output_msh"])
 
     print(f"\n[2/3] Mesh — {out_msh}")
@@ -500,7 +511,8 @@ def run(config: dict, template_file: str) -> dict:
         print(f"ERROR in DEM step: {e}", file=sys.stderr)
 
     try:
-        report_data["mesh"] = _step_mesh(config, repo_root, bin_dir)
+        report_data["mesh"] = _step_mesh(
+            config, repo_root, bin_dir, report_data.get("dem"))
     except Exception as e:
         report_data["mesh"] = None
         report_data["errors"].append(("Mesh", str(e), traceback.format_exc()))

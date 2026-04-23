@@ -276,36 +276,37 @@ python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</
             <div class="slide-content">
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <pre style="font-size: 0.72rem; padding: 18px;">
-<span class="comment"># Edit the _config dict in the template:</span>
+                        <pre style="font-size: 0.7rem; padding: 18px;">
+<span class="comment"># Copy the template and edit the _config dict:</span>
+cp supporting_scripts/1_Model_Config/model_config_template.py \
+   supporting_scripts/1_Model_Config/model_config_torres_vedras.py
 
 _config = dict(
-    <span class="comment"># 1. Project metadata</span>
-    project_name   = <span class="string">"Rosa Creek"</span>,
-    authors        = [<span class="string">"Diogo Costa"</span>],
+    project_name = <span class="string">"Torres Vedras"</span>,
 
-    <span class="comment"># 2. DEM source ("file" | "download")</span>
-    dem_source_mode         = <span class="string">"file"</span>,
-    dem_source_geotiff      = <span class="string">"Working_example/Rosa_2m.tif"</span>,
-    dem_target_resolution_m = 2.0,
+    <span class="comment"># --- DOWNLOAD mode — AWS mirror, NO KEY needed ---</span>
+    dem_source_mode       = <span class="string">"download"</span>,
+    download_provider     = <span class="string">"COP30_AWS"</span>,    <span class="comment"># 30 m, global</span>
+    download_bbox_wgs84   = (-9.280, 39.080,
+                             -9.240, 39.108),
+    download_target_crs   = <span class="string">"auto"</span>,          <span class="comment"># → UTM 29N</span>
 
-    <span class="comment"># 3. Mesh ("regular" | "triangular")</span>
+    dem_target_resolution_m = 30.0,          <span class="comment"># native</span>
+    dem_output_asc          = <span class="string">"TorresVedras_30m.asc"</span>,
+    dem_utm_zone            = 29,
+
+    <span class="comment"># --- Triangular mesh ---</span>
     mesh_type        = <span class="string">"triangular"</span>,
-    trimesh_min_size = 2.0,
-    trimesh_max_size = 30.0,
+    trimesh_min_size = 30.0,                 <span class="comment"># ≥ DEM cell</span>
+    trimesh_max_size = 120.0,
 
-    <span class="comment"># 4. Modset output</span>
     output_bin_dir = <span class="string">"Working_example"</span>,
-    modset_name    = <span class="string">"modset_rosa.json"</span>,
-
-    <span class="comment"># 5. Modules, forcing, simulation settings ...</span>
-    ade_transport     = dict(enabled=True, ...),
-    soil_infiltration = dict(enabled=False, ...),
+    modset_name    = <span class="string">"modset_torres_vedras.json"</span>,
 )
 
-<span class="comment"># Then run it:</span>
-cd supporting_scripts/1_Model_Config
-python model_config_template.py</pre>
+<span class="comment"># Just run it — no API key needed for COP30_AWS:</span>
+python supporting_scripts/1_Model_Config/\
+model_config_torres_vedras.py</pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
@@ -318,17 +319,18 @@ python model_config_template.py</pre>
                             </ul>
                         </div>
                         <div class="card secondary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">DEM sources</h3>
+                            <h3 style="font-size: 1.2rem;">DEM sources &amp; resolutions</h3>
                             <ul style="margin-left: 15px;">
-                                <li style="font-size: 0.95rem;"><strong>"file"</strong> &mdash; your own GeoTIFF (must be projected, not lat/lon)</li>
-                                <li style="font-size: 0.95rem;"><strong>"download"</strong> &mdash; auto-fetch for a lon/lat bbox:
-                                    <br>OpenTopography (COP30, SRTM, AW3D30, ...)
-                                    <br>USGS 3DEP (1&nbsp;m / 3&nbsp;m / 10&nbsp;m, CONUS)</li>
+                                <li style="font-size: 0.92rem;"><strong>"file"</strong> &mdash; your own GeoTIFF (must be projected)</li>
+                                <li style="font-size: 0.92rem;"><strong>"download"</strong> &mdash; auto-fetch by bbox:
+                                    <br>&nbsp;&nbsp;<em>No key:</em> <strong>COP30_AWS 30 m (global)</strong>&nbsp;★, USGS 3DEP 1-10 m (USA)
+                                    <br>&nbsp;&nbsp;<em>OpenTopography (free key):</em> COP30, SRTM, AW3D30, NASADEM (30 m), EU-DTM (10 m, Europe)</li>
                             </ul>
                         </div>
                         <div class="highlight-box warning">
                             <strong>Projected CRS required!</strong> DEMs in degrees give wrong slopes.
-                            The <code>"download"</code> mode reprojects to UTM automatically.
+                            The <code>"download"</code> mode reprojects to UTM automatically
+                            (e.g.&nbsp;<code>EPSG:32629</code> for Portugal).
                         </div>
                     </div>
                 </div>
