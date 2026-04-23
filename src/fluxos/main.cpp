@@ -713,8 +713,8 @@ int main(int argc, char* argv[])
                     print_next = print_next + ds.print_step;
                     start = std::chrono::system_clock::now();
                 } else {
-                    std::cout << "Problem when saving the results:" + print_next << std::endl;
-                    logFLUXOSfile << "Problem when saving the results:" + print_next;
+                    std::cout << "Problem when saving the results: " << print_next << std::endl;
+                    logFLUXOSfile << "Problem when saving the results: " << print_next;
                     return 0;
                 }
             } else {
@@ -739,8 +739,8 @@ int main(int argc, char* argv[])
 
             } else
             {
-                std::cout << "Problem when saving the results:" + print_next << std::endl;
-                logFLUXOSfile << "Problem when saving the results:" + print_next;
+                std::cout << "Problem when saving the results: " << print_next << std::endl;
+                logFLUXOSfile << "Problem when saving the results: " << print_next;
                 return 0;
             }
 

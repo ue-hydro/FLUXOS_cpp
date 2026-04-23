@@ -132,8 +132,8 @@ public:
 
     std::string output_folder, sim_start_time, dem_file,meteo_file,inflow_file,sim_purp;
 
-    // Discharge location info
-    unsigned long inflow_xcoord = NULL, inflow_ycoord = NULL, inflow_ncol, inflow_nrow;
+    // Discharge location info (0 = coord unset)
+    unsigned long inflow_xcoord = 0, inflow_ycoord = 0, inflow_ncol = 0, inflow_nrow = 0;
 
     unsigned long print_step, h_min_print; // output settings
 
