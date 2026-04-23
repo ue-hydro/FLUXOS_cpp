@@ -5,3 +5,6 @@ pygmsh>=7.1.0
 gmsh>=4.11.0
 pyvista>=0.42.0
 shapely>=2.0.0
+pyproj>=3.4.0
+matplotlib>=3.6.0
+pillow>=9.0.0
