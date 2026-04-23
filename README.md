@@ -30,7 +30,7 @@ docker compose -f containers/docker-compose.yml build
 docker compose -f containers/docker-compose.yml run --rm fluxos
 # Inside the shell — compile, then run
 cd /work && mkdir -p build && cd build
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON \
+cmake -DMODE_release=ON \
       -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work
 make -j$(nproc)
 cd /work && ./bin/fluxos Working_example/modset.json
@@ -43,7 +43,7 @@ apptainer build --fakeroot fluxos_cpu.sif containers/fluxos_apptainer.def
 apptainer shell --bind $PWD:/src fluxos_cpu.sif
 # Inside — compile + run:
 cd /src && mkdir -p build && cd build
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+cmake -DMODE_release=ON -DUSE_MPI=ON \
       -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 make -j$(nproc)
 cd /src && ./bin/fluxos_mpi Working_example/modset.json
@@ -53,7 +53,7 @@ cd /src && ./bin/fluxos_mpi Working_example/modset.json
 
 ```bash
 mkdir build && cd build
-cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..   # see the deck for all flags
+cmake -DMODE_release=ON ..   # see the deck for all flags
 make -j$(nproc)
 cd .. && ./build/bin/fluxos Working_example/modset.json
 ```

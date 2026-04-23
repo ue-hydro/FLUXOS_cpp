@@ -22,7 +22,7 @@ From: ubuntu:24.04
 #        apptainer shell --bind $PWD:/src fluxos_cpu.sif
 #        # inside the container:
 #        cd /src && mkdir -p build && cd build
-#        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+#        cmake -DMODE_release=ON -DUSE_MPI=ON \
 #              -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
 #        make -j$(nproc)
 #      Then run — still inside the shell, from /src:
@@ -80,7 +80,7 @@ From: ubuntu:24.04
         apptainer shell --bind $PWD:/src fluxos_cpu.sif
         # inside the container:
         cd /src && mkdir -p build && cd build
-        cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_MPI=ON \
+        cmake -DMODE_release=ON -DUSE_MPI=ON \
               -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
         make -j$(nproc)
         # run — from /src so modset paths resolve correctly

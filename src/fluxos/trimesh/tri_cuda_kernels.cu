@@ -467,8 +467,11 @@ __global__ void kernel_tri_update(
     z[ci] += dh[ci];
     double hp = fmax(0.0, z[ci] - zb[ci]);
 
-    // Depth cap: prevent unbounded accumulation in topographic sinks
-    const double h_max_cap = 2.0;
+    // Depth cap: safety net against pathological numerical sinks. Must be
+    // HIGH ENOUGH to permit realistic flood depths — too low a cap silently
+    // deletes water and breaks mass conservation. Kept in sync with
+    // tri_hydrodynamics.cpp.
+    const double h_max_cap = 10.0;
     if (hp > h_max_cap) {
         hp = h_max_cap;
         z[ci] = zb[ci] + hp;

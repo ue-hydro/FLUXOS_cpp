@@ -10,14 +10,17 @@ cmake_minimum_required(VERSION 3.18)
 #   -DMODE_release=ON     Enable release mode with optimizations (default: OFF)
 #   -DUSE_MPI=ON          Enable MPI for distributed computing (default: OFF)
 #   -DUSE_CUDA=ON         Enable CUDA GPU acceleration (default: OFF)
-#   -DUSE_TRIMESH=ON      Enable triangular mesh support (default: OFF)
+#
+# Triangular-mesh support is ALWAYS compiled in — the resulting binary
+# handles both regular and triangular meshes, dispatching at runtime based
+# on the modset's ``MESH_TYPE`` field. There is no longer a USE_TRIMESH
+# build flag.
 #
 # Build Examples:
-#   cmake -DMODE_release=ON ..                              # OpenMP only (single node)
-#   cmake -DMODE_release=ON -DUSE_MPI=ON ..                 # MPI+OpenMP (multi-node HPC)
-#   cmake -DMODE_release=ON -DUSE_CUDA=ON ..                # OpenMP+CUDA (single GPU)
-#   cmake -DMODE_release=ON -DUSE_TRIMESH=ON ..             # OpenMP + triangular mesh
-#   cmake -DMODE_release=ON -DUSE_TRIMESH=ON -DUSE_CUDA=ON ..  # Triangular + CUDA
+#   cmake -DMODE_release=ON ..                  # OpenMP (regular + triangular)
+#   cmake -DMODE_release=ON -DUSE_MPI=ON ..     # + MPI for HPC
+#   cmake -DMODE_release=ON -DUSE_CUDA=ON ..    # + CUDA GPU
+#   cmake -DMODE_release=ON -DUSE_MPI=ON -DUSE_CUDA=ON ..  # full hybrid
 #
 # ============================================================================
 # Scalability Guidelines
@@ -44,8 +47,14 @@ option(USE_MPI "ON: Enable MPI for distributed computing; OFF: Single node only"
 # Define CUDA option for GPU acceleration
 option(USE_CUDA "ON: Enable CUDA GPU acceleration; OFF: CPU only" OFF)
 
-# Define triangular mesh option
-option(USE_TRIMESH "ON: Enable unstructured triangular mesh support; OFF: Regular mesh only" OFF)
+# Triangular-mesh support is ALWAYS compiled in — there is no reason to
+# build a binary that only handles regular meshes. At runtime, FLUXOS
+# picks the mesh code path based on the modset's ``MESH_TYPE`` field
+# ("regular" or "triangular"). Users get a single binary that handles
+# both, no -DUSE_TRIMESH flag required.
+# (The C++ sources still use ``#ifdef USE_TRIMESH`` to guard trimesh
+#  includes; that symbol is defined unconditionally below.)
+set(USE_TRIMESH ON CACHE BOOL "Triangular-mesh support (always on)" FORCE)
 
 # Set compilation mode flags
 IF(MODE_release MATCHES ON)
@@ -147,23 +156,15 @@ IF (UNIX)
 		set(CUDA_SOURCES "")
 	ENDIF()
 
-	# Triangular mesh support
-	IF(USE_TRIMESH MATCHES ON)
-		MESSAGE(STATUS "TriMesh support: ENABLED")
-		add_definitions(-DUSE_TRIMESH)
-
-		# Collect triangular mesh C++ sources
-		file(GLOB TRIMESH_SOURCES "src/fluxos/trimesh/*.cpp")
-
-		# Collect triangular mesh CUDA sources if CUDA is enabled
-		IF(USE_CUDA MATCHES ON)
-			file(GLOB TRIMESH_CUDA_SOURCES "src/fluxos/trimesh/*.cu")
-		ELSE()
-			set(TRIMESH_CUDA_SOURCES "")
-		ENDIF()
+	# Triangular-mesh support — always compiled in. The resulting binary
+	# handles both regular and triangular meshes; the runtime dispatch
+	# is driven by the modset's ``MESH_TYPE`` field.
+	MESSAGE(STATUS "TriMesh support: ENABLED (always)")
+	add_definitions(-DUSE_TRIMESH)
+	file(GLOB TRIMESH_SOURCES "src/fluxos/trimesh/*.cpp")
+	IF(USE_CUDA MATCHES ON)
+		file(GLOB TRIMESH_CUDA_SOURCES "src/fluxos/trimesh/*.cu")
 	ELSE()
-		MESSAGE(STATUS "TriMesh support: DISABLED (use -DUSE_TRIMESH=ON to enable)")
-		set(TRIMESH_SOURCES "")
 		set(TRIMESH_CUDA_SOURCES "")
 	ENDIF()
 
