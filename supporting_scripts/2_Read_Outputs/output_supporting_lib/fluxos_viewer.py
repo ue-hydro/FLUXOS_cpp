@@ -2736,6 +2736,159 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
     print(f"  Then open:  http://localhost:8080")
 
 
+def _find_port_holders(port: int):
+    """Return a list of (pid, cmdline) tuples for every TCP process
+    currently listening on ``port``. Multiple entries are common (IPv4 +
+    IPv6 sockets, or stale previous runs). Uses ``lsof`` (macOS / Linux).
+    Returns ``[]`` if nothing is listening or ``lsof`` is unavailable.
+    """
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["lsof", "-tiTCP:" + str(port), "-sTCP:LISTEN"],
+            stderr=subprocess.DEVNULL, text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return []
+    pids = []
+    seen = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        if pid in seen:
+            continue
+        seen.add(pid)
+        try:
+            cmdline = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "command="],
+                stderr=subprocess.DEVNULL, text=True,
+            ).strip()
+        except Exception:
+            cmdline = ""
+        pids.append((pid, cmdline))
+    return pids
+
+
+def _serve_webgl_bundle(output_dir: str, port: int) -> None:
+    """Start an HTTP server on ``port`` rooted at ``output_dir`` and pop
+    the browser. If the port is already in use and the holder looks like a
+    previous FLUXOS viewer / http.server (same script name, or a plain
+    ``python -m http.server``), terminate it and retry. Foreign processes
+    are left alone and we exit with a clear instruction.
+
+    Runs until Ctrl-C.
+    """
+    import http.server
+    import socketserver
+    import functools
+    import webbrowser
+    import signal
+    import os as _os
+    import time
+
+    url = f"http://localhost:{port}/"
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=output_dir
+    )
+    socketserver.TCPServer.allow_reuse_address = True
+
+    # Safe-to-terminate fingerprints: match a previous run of this script,
+    # or a generic python http.server. Never kill anything else.
+    _OURS_FINGERPRINTS = ("fluxos_viewer.py", "http.server")
+
+    def _try_bind_and_serve() -> bool:
+        """Attempt to bind + serve. Returns True on normal exit (Ctrl-C),
+        False if the port was not bindable.
+        """
+        try:
+            with socketserver.TCPServer(("", port), handler) as httpd:
+                print(f"\n  Serving {output_dir} on {url}")
+                print("  Opening browser…   (press Ctrl-C to stop the server)")
+                webbrowser.open_new_tab(url)
+                httpd.serve_forever()
+            return True
+        except KeyboardInterrupt:
+            print("\n  Server stopped.")
+            return True
+        except OSError as e:
+            if getattr(e, "errno", None) not in (48, 98):  # EADDRINUSE
+                # Something else went wrong; do not retry
+                print(f"\n  Could not bind to port {port}: {e}")
+                return True
+            return False
+
+    # First attempt
+    if _try_bind_and_serve():
+        return
+
+    # Port is in use — find every holder, decide which are safe to reclaim.
+    holders = _find_port_holders(port)
+    if not holders:
+        print(f"\n  Port {port} is in use but no holders could be "
+              f"identified (is `lsof` installed?).")
+        print(f"  Open a terminal and run:  lsof -iTCP:{port} -sTCP:LISTEN")
+        print(f"  Then either kill the process manually or re-run this "
+              f"command with --webgl-port <other-port>.")
+        return
+
+    ours, foreign = [], []
+    for pid, cmdline in holders:
+        (ours if any(fp in cmdline for fp in _OURS_FINGERPRINTS)
+         else foreign).append((pid, cmdline))
+
+    if foreign:
+        print(f"\n  Port {port} is held by an unrelated process — will NOT "
+              f"kill it:")
+        for pid, cmdline in foreign:
+            print(f"    PID {pid}:  {cmdline[:120]}")
+        print(f"  Re-run this command with --webgl-port <other-port>, or "
+              f"terminate that process yourself and try again.")
+        return
+
+    print(f"\n  Port {port} is held by {len(ours)} stale viewer / "
+          f"http.server process{'es' if len(ours) != 1 else ''}:")
+    for pid, cmdline in ours:
+        print(f"    PID {pid}:  {cmdline[:120]}")
+    print(f"  Terminating them and retrying…")
+
+    # SIGTERM all of them first
+    for pid, _ in ours:
+        try:
+            _os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    # Wait up to ~2 s for the port to clear
+    for _ in range(20):
+        time.sleep(0.1)
+        if not _find_port_holders(port):
+            break
+    else:
+        # Still held — SIGKILL any survivors (both the original holders and
+        # any NEW holder that grabbed the socket in the meantime, as long
+        # as it matches our fingerprint).
+        for pid, cmdline in _find_port_holders(port):
+            if any(fp in cmdline for fp in _OURS_FINGERPRINTS):
+                try:
+                    _os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        time.sleep(0.3)
+
+    # Retry once
+    if not _try_bind_and_serve():
+        still = _find_port_holders(port)
+        print(f"\n  Port {port} is still in use after the kill"
+              + (f" (PIDs: {[p for p,_ in still]})" if still else "")
+              + ".")
+        print(f"  Try again with --webgl-port <other-port>.")
+
+
 def _generate_webgl_html():
     """Generate the complete self-contained 3D WebGL particle viewer HTML.
 
@@ -5521,6 +5674,16 @@ Output:
         help="Default particle count in viewer. Default: 65536",
     )
     parser.add_argument(
+        "--webgl-port", type=int, default=8080,
+        help="Local port for the auto-started HTTP server after export. "
+             "Default: 8080",
+    )
+    parser.add_argument(
+        "--webgl-no-serve", action="store_true", default=False,
+        help="Do NOT auto-start an HTTP server and open the browser after "
+             "export. Useful for batch/CI runs that only need the bundle.",
+    )
+    parser.add_argument(
         "--sat-resolution", type=int, default=5,
         help="Satellite image resolution multiplier vs DEM. Default: 5",
     )
@@ -5624,6 +5787,12 @@ Output:
             step=args.webgl_step, n_particles=args.webgl_particles,
             utm_to_ll=utm_to_ll, sat_resolution=args.sat_resolution,
         )
+
+        # Auto-serve + open in browser (opt-out via --webgl-no-serve).
+        # WebGL fetch() is same-origin so we cannot just open the file://
+        # URL directly — we need a real HTTP server.
+        if not args.webgl_no_serve:
+            _serve_webgl_bundle(args.webgl_output, int(args.webgl_port))
         return
 
     # Advected mode requires --export-video mp4

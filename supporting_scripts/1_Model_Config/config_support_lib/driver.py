@@ -94,12 +94,22 @@ def _step_dem(config: dict, repo_root: str, bin_dir: str) -> dict:
 
     # For triangular meshes the DEM is only used by get_domain_size() on the
     # C++ side — a 10x10 dummy grid is enough and keeps on-disk size tiny.
+    # However, fluxos_viewer.py reads the same .asc to derive the map
+    # extent, fetch satellite tiles, and render the heightmap background —
+    # a 10x10 dummy there produces a tiny bogus bbox. So we ALSO write a
+    # full-resolution "_preview.asc" next to the dummy for visualization.
     if config["mesh_type"] == "triangular":
         print(f"      writing DUMMY ASC (trimesh path): {out_asc}")
         write_dummy_asc(out_asc, xll, yll, cellsize, nodata_value=-9999)
+
+        base, ext = os.path.splitext(out_asc)
+        preview_asc = f"{base}_preview{ext}"
+        print(f"      writing preview ASC (for viewer): {preview_asc}")
+        write_esri_ascii(preview_asc, elevation, xll, yll, cellsize, nodata)
     else:
         print(f"      writing {out_asc}")
         write_esri_ascii(out_asc, elevation, xll, yll, cellsize, nodata)
+        preview_asc = out_asc
 
     valid = elevation[elevation != nodata]
     zmin = float(valid.min()) if valid.size else None
@@ -113,6 +123,7 @@ def _step_dem(config: dict, repo_root: str, bin_dir: str) -> dict:
     return dict(
         source=src,
         output_path=out_asc,
+        preview_asc_path=preview_asc,   # full-res ASC for the WebGL / KML viewer
         crs=str(crs) if crs is not None else "unknown",
         source_resolution_m=float(src_res),
         target_resolution_m=float(cellsize),
