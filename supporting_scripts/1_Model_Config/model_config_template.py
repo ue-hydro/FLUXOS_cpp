@@ -292,7 +292,7 @@ _config = dict(
     #
     # Same binary handles both — FLUXOS dispatches at runtime based on
     # this field. No recompile needed to switch.
-    mesh_type               = "triangular",
+    mesh_type               = "regular",
 
     # --- Only read when mesh_type == "triangular" ---------------------
     # (These fields are harmless for regular-mesh runs — driver.py
@@ -322,6 +322,19 @@ _config = dict(
     # Output Gmsh .msh filename inside ``output_bin_dir``.
     # Convention: ``<project>_trimesh.msh``.
     mesh_output_msh         = "Rosa_trimesh.msh",
+
+    # Default boundary condition for the triangular mesh perimeter.
+    #   "outflow" — transmissive (zero-gradient). Water leaves the domain
+    #               freely. Matches the regular-mesh default behaviour;
+    #               use this for open-ended river reaches or any domain
+    #               where water is expected to flow through.
+    #   "wall"    — reflective (zero normal flux). Water bounces off the
+    #               domain edges and accumulates. Use for closed basins
+    #               or when the domain perimeter is a physical barrier
+    #               (e.g. a fully-enclosed reservoir).
+    # Leaving this unset defaults to "outflow" — the apples-to-apples
+    # match with ``mesh_type = "regular"``.
+    trimesh_boundary_default = "outflow",
 
     # ==================================================================
     # 5. Forcing files — precipitation / snowmelt + optional point inflow.
