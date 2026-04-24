@@ -36,8 +36,14 @@ Working_example/modset*.json
 Working_example/*.log
 # Ad-hoc project forcings that aren't referenced by the default template.
 Working_example/Flow_*.fluxos
-# Keep these two regardless of the patterns above:
+# Keep these files regardless of the patterns above — they are the inputs
+# for the ready-to-run example shown on compile-deck slide 7
+# (`./bin/fluxos Working_example/modset_river_30h.json` right after compile,
+# no Python preprocessing needed):
 !Working_example/Qmelt_synthetic.fluxos
+!Working_example/Rosa_2m.asc
+!Working_example/Flow_river_30h.fluxos
+!Working_example/modset_river_30h.json
 # Generated WebGL / KML bundles
 fluxos_web_*/
 fluxos_kml_*/
