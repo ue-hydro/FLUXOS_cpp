@@ -388,8 +388,11 @@ _config = dict(
     mesh_output_msh         = <span class="string">"Rosa_trimesh.msh"</span>,
 
     <span class="comment"># --- Forcing ---</span>
-    meteo_file              = <span class="string">"Working_example/Qmelt_synthetic.fluxos"</span>,
-    inflow_file             = None,  <span class="comment"># no point source for Rosa</span>
+    meteo_file              = None,  <span class="comment"># no rain; hydrograph-driven</span>
+    inflow_file             = dict(
+        path = <span class="string">"Working_example/Flow_river_30h.fluxos"</span>,
+        lon  = -124.08154, lat = 52.21373,  <span class="comment"># Rosa inlet, UTM 10N</span>
+    ),
 
     <span class="comment"># --- Simulation + output ---</span>
     sim_datetime_start      = <span class="string">"2009-01-01 00:00:00"</span>,
@@ -399,7 +402,7 @@ _config = dict(
     h_min_to_print_m        = 0.001,
 
     <span class="comment"># --- Optional modules ---</span>
-    ade_transport           = dict(enabled=True, d_coef=0.5),
+    ade_transport           = dict(enabled=False, d_coef=0.5),
     soil_infiltration       = dict(enabled=False, default_ks_mm_hr=10.0),
 
     <span class="comment"># --- Run options ---</span>

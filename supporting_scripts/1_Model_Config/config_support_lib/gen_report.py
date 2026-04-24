@@ -287,6 +287,10 @@ _JS = r"""
 
   function injectLineButtons(pre){
     if (!pre || pre.dataset.perLineProcessed === '1') return;
+    // Opt-out: any ancestor with .no-copy suppresses per-line buttons.
+    // Used by the modset.json <details> block where line-by-line copy
+    // is meaningless (users want the whole JSON body, not one line).
+    if (pre.closest('.no-copy')) return;
     pre.dataset.perLineProcessed = '1';
     const rawLines = pre.innerHTML.split('\n');
     const parts = [];
@@ -1134,7 +1138,7 @@ def _config_section(data: dict) -> str:
       <h2>Configuration</h2>
       <div class="card">
         <div class="table-wrap"><table><tbody>{tbl}</tbody></table></div>
-        <details class="module-details" style="margin-top:1rem">
+        <details class="module-details no-copy" style="margin-top:1rem">
           <summary>View full modset.json</summary>
           <div class="module-content">{_code_block(pretty)}</div>
         </details>

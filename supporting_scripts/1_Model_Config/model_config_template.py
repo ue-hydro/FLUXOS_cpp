@@ -86,7 +86,7 @@ _config = dict(
     # Short human-readable name for the project. Used in the report title,
     # the generated filenames (slug-cased), and the simulation log.
     # Examples: "Rosa Creek", "Torres Vedras", "Thames Estuary 2026".
-    project_name = "Rosa Creek",
+    project_name = "Rosa Creek 30h",
 
     # List of authors / modellers responsible for the run. Free-form.
     # Example: ["Alice Wong", "Bob Ng"]
@@ -97,10 +97,11 @@ _config = dict(
     date         = "2026-04-21",
 
     # One- or two-sentence description — what the simulation is trying to
-    # capture (event, purpose, key modelling assumptions). Shown at the top
-    # of the report.
+    # capture (event, purpose, key modelling assumptions). Shown at the
+    # top of the report AND used verbatim as the modset's ``COMMENT``
+    # field, so keep it short and informative.
     description  = (
-        "Snowmelt-driven flood simulation over Rosa Creek DEM."
+        "30-hour multi-pulse flood simulation with sediment transport"
     ),
 
     # ==================================================================
@@ -127,7 +128,7 @@ _config = dict(
 
     # Final name of the modset .json inside ``output_bin_dir``.
     # Pattern suggestion: ``modset_<project>.json``.
-    modset_name     = "modset_rosa.json",
+    modset_name     = "modset_river_30h.json",
 
     # ==================================================================
     # 3. DEM source — where the elevation model comes from.
@@ -382,7 +383,10 @@ _config = dict(
     # Path is resolved relative to FLUXOS's CWD. See the column-format
     # notes above; column 2 must be in mm/day.
     # Set to "" or None to disable (no atmospheric forcing).
-    meteo_file   = "Working_example/Qmelt_synthetic.fluxos",
+    # Rosa Creek default: no atmospheric forcing — the flood is driven
+    # by the point inflow below, so METEO_FILE stays empty. Swap in
+    # e.g. "Working_example/Qmelt_synthetic.fluxos" to add rainfall.
+    meteo_file   = None,
 
     # OPTIONAL point inflow — e.g. a river or culvert entering the domain.
     # Three accepted forms (pick one):
@@ -413,7 +417,18 @@ _config = dict(
     # The .fluxos file's column 2 must be in **m³/s**. See the format
     # notes above for the full column schema.
     # Set to None to disable.
-    inflow_file  = None,   # e.g. dict(path="...", lon=..., lat=...)
+    #
+    # Rosa Creek default: a 30-hour multi-pulse river hydrograph at the
+    # valley's upstream inlet. The .fluxos forcing ships with the repo
+    # at the path below. We specify the inlet as integer easting/northing
+    # in the DEM's UTM zone (10N) so the generated modset matches the
+    # hand-tuned reference byte-for-byte; swap in ``lon=..., lat=...``
+    # if you prefer WGS84 and don't care about integer precision.
+    inflow_file  = dict(
+        path  = "Working_example/Flow_river_30h.fluxos",
+        x_utm = 426107,   # UTM 10N easting  [m]
+        y_utm = 5785362,  # UTM 10N northing [m]
+    ),
 
     # ==================================================================
     # 6. Simulation settings.
@@ -457,7 +472,7 @@ _config = dict(
     #   900    — 15 min,  normal urban flood runs
     #   1800   — 30 min,  default
     #   3600   — 1 hr,    long-duration storm runs
-    print_step_s     = 1800,
+    print_step_s     = 300,
 
     # Minimum water depth (in METRES) to write a cell to the output.
     # Cells with h below this threshold are omitted (they are "dry").
@@ -502,7 +517,25 @@ _config = dict(
     #                         clay loam  ~   2  mm/h
     #                         clay       ~   1  mm/h
     #                         asphalt / concrete ≈ 0
-    soil_infiltration  = dict(enabled=False, default_ks_mm_hr=10.0),
+    # Horton-decay infiltration. ``soil_types`` is a dict of {id: USDA
+    # class name} — every cell that doesn't have a ``SOIL_MAP`` override
+    # falls back to type 1. Valid USDA classes are listed in
+    # ``src/fluxos/soil_infiltration.cpp::get_usda_soil_table()``.
+    # Set ``enabled=False`` to skip infiltration entirely.
+    soil_infiltration  = dict(
+        enabled    = True,
+        soil_map   = "",
+        soil_types = {1: "sandy_loam"},
+    ),
+
+    # Steady-state convergence check (the sim exits once ``max|Δh|``
+    # between two adjacent timesteps drops below ``tolerance`` and
+    # ``tim >= min_time_s``). Keep disabled for a fixed-duration run.
+    steady_state       = dict(
+        enabled      = False,
+        tolerance    = 0.001,
+        min_time_s   = 1800,
+    ),
 
     # ==================================================================
     # 9. Docker / run settings — only affect the snippets shown in the
