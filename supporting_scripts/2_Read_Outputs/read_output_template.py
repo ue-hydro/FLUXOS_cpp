@@ -66,7 +66,7 @@ _config = dict(
     # Directory containing the per-timestep output files FLUXOS wrote.
     #   Regular mesh → `<seconds>.txt`
     #   Triangular   → `<seconds>.vtu`
-    results_dir  = "Results_river_30h",
+    results_dir  = "Results",
 
     # The modset .json that drove the run — used to detect mesh type, CRS,
     # whether transport was enabled, etc.
@@ -82,6 +82,18 @@ _config = dict(
     # Analyse every Nth timestep for a faster preview. Use 1 for full detail.
     # (A 30-hour river sim with 360 snapshots at stride=5 processes ~72 files.)
     stride = 1,
+
+    # ------------------------------------------------------------------
+    # 3b. Satellite basemap (UTM zone)
+    # ------------------------------------------------------------------
+    # Satellite imagery is overlaid on the map figures. To reproject the
+    # domain corners to WGS84 we need the DEM's UTM zone. Set `utm_zone`
+    # and `utm_southern` explicitly if auto-detection is unreliable.
+    #  - Rosa Creek DEM is UTM zone 10N → utm_zone=10, utm_southern=False
+    #  - Torres Vedras DEM is UTM zone 29N → utm_zone=29, utm_southern=False
+    # Leave as None to skip the satellite basemap entirely.
+    utm_zone     = 10,
+    utm_southern = False,
 
     # ------------------------------------------------------------------
     # 4. Output options
