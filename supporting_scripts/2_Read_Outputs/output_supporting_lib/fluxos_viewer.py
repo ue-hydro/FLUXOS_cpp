@@ -801,7 +801,18 @@ def _build_velocity_grids_regular(dem, meta, data, h_min):
 
 def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
                                       nrows, ncols, xll, yll, cs):
-    """Build (grid_vx, grid_vy, wet_mask, grid_h, grid_conc) from triangular mesh data."""
+    """Build (grid_vx, grid_vy, wet_mask, grid_h, grid_conc) from triangular mesh data.
+
+    Each triangle fills ALL the grid pixels that lie inside it (barycentric
+    scan-fill), not just the pixel under its centroid. Centroid-only
+    binning leaves visible holes when the trimesh is coarser than the
+    grid — a 120 m triangle maps to one pixel on a 30 m grid, so adjacent
+    triangles produce a sparse "hexagonal disconnected" look in the
+    WebGL viewer even though the mesh itself is fully connected. Filling
+    the whole footprint matches what ``rasterize_triangular`` does for
+    the colour raster, so the velocity/depth grids and the depth
+    colouring align pixel-by-pixel.
+    """
     if "h" not in cell_data:
         return (np.zeros((nrows, ncols)), np.zeros((nrows, ncols)),
                 np.zeros((nrows, ncols), dtype=bool),
@@ -813,29 +824,64 @@ def _build_velocity_grids_triangular(points, cells, cell_data, h_min,
     conc_data = cell_data.get("conc_SW", np.zeros_like(h))
     n_cells = len(cells)
 
-    # Bin cells into pixel-sized blocks and average
     grid_vx = np.zeros((nrows, ncols))
     grid_vy = np.zeros((nrows, ncols))
     grid_h = np.zeros((nrows, ncols))
     grid_conc = np.zeros((nrows, ncols))
     grid_cnt = np.zeros((nrows, ncols))
 
+    pts = np.asarray(points, dtype=float)
+
     for ci in range(n_cells):
         if h[ci] <= h_min:
             continue
         i0, i1, i2 = cells[ci]
-        p0, p1, p2 = points[i0], points[i1], points[i2]
-        cx = (p0[0] + p1[0] + p2[0]) / 3.0
-        cy = (p0[1] + p1[1] + p2[1]) / 3.0
-        col = int(round((cx - xll) / cs))
-        row = int(round((nrows - 1) - (cy - yll) / cs))
-        if 0 <= row < nrows and 0 <= col < ncols:
-            grid_vx[row, col] += vx[ci]
-            grid_vy[row, col] += vy[ci]
-            grid_h[row, col] += h[ci]
-            c = conc_data[ci] if ci < len(conc_data) else 0.0
-            grid_conc[row, col] += max(0.0, c)
-            grid_cnt[row, col] += 1
+        p0, p1, p2 = pts[i0], pts[i1], pts[i2]
+
+        # Triangle vertices in grid (col, row) coordinates.
+        c0 = (p0[0] - xll) / cs
+        c1 = (p1[0] - xll) / cs
+        c2 = (p2[0] - xll) / cs
+        r0 = (nrows - 1) - (p0[1] - yll) / cs
+        r1 = (nrows - 1) - (p1[1] - yll) / cs
+        r2 = (nrows - 1) - (p2[1] - yll) / cs
+
+        # Bbox (inclusive), clipped to grid.
+        r_min = max(0, int(np.floor(min(r0, r1, r2))))
+        r_max = min(nrows - 1, int(np.ceil(max(r0, r1, r2))))
+        c_min = max(0, int(np.floor(min(c0, c1, c2))))
+        c_max = min(ncols - 1, int(np.ceil(max(c0, c1, c2))))
+        if r_max < r_min or c_max < c_min:
+            continue
+
+        # Barycentric denominator.
+        denom = (r1 - r2) * (c0 - c2) + (c2 - c1) * (r0 - r2)
+        if abs(denom) < 1e-12:
+            continue
+        inv_denom = 1.0 / denom
+
+        # Vectorised scan-fill of the bbox.
+        rs = np.arange(r_min, r_max + 1, dtype=float)
+        cs_grid = np.arange(c_min, c_max + 1, dtype=float)
+        px, py = np.meshgrid(cs_grid, rs)  # px = col, py = row
+        w0 = ((r1 - r2) * (px - c2) + (c2 - c1) * (py - r2)) * inv_denom
+        w1 = ((r2 - r0) * (px - c2) + (c0 - c2) * (py - r2)) * inv_denom
+        w2 = 1.0 - w0 - w1
+        # Small epsilon so pixels right on an edge belong to ONE of the
+        # two sharing triangles rather than being skipped by both.
+        mask = (w0 >= -1e-6) & (w1 >= -1e-6) & (w2 >= -1e-6)
+        if not np.any(mask):
+            continue
+
+        rr, cc = np.where(mask)
+        rr_abs = rr + r_min
+        cc_abs = cc + c_min
+        grid_vx[rr_abs, cc_abs]  += vx[ci]
+        grid_vy[rr_abs, cc_abs]  += vy[ci]
+        grid_h[rr_abs, cc_abs]   += h[ci]
+        c_val = conc_data[ci] if ci < len(conc_data) else 0.0
+        grid_conc[rr_abs, cc_abs] += max(0.0, c_val)
+        grid_cnt[rr_abs, cc_abs]  += 1
 
     valid = grid_cnt > 0
     grid_vx[valid] /= grid_cnt[valid]
