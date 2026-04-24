@@ -467,15 +467,10 @@ __global__ void kernel_tri_update(
     z[ci] += dh[ci];
     double hp = fmax(0.0, z[ci] - zb[ci]);
 
-    // Depth cap: safety net against pathological numerical sinks. Must be
-    // HIGH ENOUGH to permit realistic flood depths — too low a cap silently
-    // deletes water and breaks mass conservation. Kept in sync with
-    // tri_hydrodynamics.cpp.
-    const double h_max_cap = 10.0;
-    if (hp > h_max_cap) {
-        hp = h_max_cap;
-        z[ci] = zb[ci] + hp;
-    }
+    // Depth cap DISABLED — kept in sync with tri_hydrodynamics.cpp.
+    // The previous 10 m cap silently deleted water that exceeded the
+    // threshold at any intermediate timestep (not mass-conservative).
+    // See the CPU-path explanation in tri_hydrodynamics.cpp.
 
     h[ci] = hp;
 
@@ -507,6 +502,19 @@ __global__ void kernel_tri_update(
         double den = h2 + fmax(h2, eps2);
         ux[ci] = 2.0 * hp * qx[ci] / den;
         uy[ci] = 2.0 * hp * qy[ci] / den;
+
+        // Velocity cap (in sync with tri_hydrodynamics.cpp). Prevents
+        // unphysical velocity spikes in coarse-mesh steep-terrain
+        // triangles from collapsing the global CFL timestep.
+        constexpr double u_max = 15.0;
+        double speed_now = sqrt(ux[ci] * ux[ci] + uy[ci] * uy[ci]);
+        if (speed_now > u_max) {
+            double scale = u_max / speed_now;
+            ux[ci] *= scale;
+            uy[ci] *= scale;
+            qx[ci] *= scale;
+            qy[ci] *= scale;
+        }
 
         double speed = sqrt(ux[ci] * ux[ci] + uy[ci] * uy[ci]);
         double cf_us = gacc * ks[ci] * ks[ci] / pow(fmax(hp, ks[ci]), 4.0 / 3.0);

@@ -267,8 +267,11 @@ def generate_adaptive_mesh(boundary_coords, size_field, transform, elevation,
     surface = gmsh.model.geo.addPlaneSurface([loop])
     gmsh.model.geo.synchronize()
 
-    # Add physical groups for boundary and surface
-    # All boundary lines get tag 1 (wall by default)
+    # Add physical groups for boundary and surface. All perimeter lines
+    # share a single physical tag (1); the modset's BOUNDARY_CONDITIONS
+    # map decides whether that tag means wall or outflow. The driver
+    # defaults it to "outflow" so the trimesh path matches the regular
+    # mesh's transmissive boundary behaviour.
     gmsh.model.addPhysicalGroup(1, lines, tag=1, name="boundary")
     gmsh.model.addPhysicalGroup(2, [surface], tag=1, name="domain")
 

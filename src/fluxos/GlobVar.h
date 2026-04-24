@@ -135,6 +135,16 @@ public:
     // Discharge location info (0 = coord unset)
     unsigned long inflow_xcoord = 0, inflow_ycoord = 0, inflow_ncol = 0, inflow_nrow = 0;
 
+    // Triangular-mesh inflow patch: list of cells within a disk of
+    // radius ~dxy around the inflow point, and their combined area.
+    // We distribute Q*dt uniformly (by area) across this patch so that
+    // the per-cell depth rise is bounded — otherwise a tiny river-valley
+    // triangle (area ~10 m² for a 5 m edge) would swallow 15 m³/s at
+    // dh/dt ~ 1.5 m/s, blowing up the solution. Populated in
+    // tri_initiate, consumed by tri_add_inflow. Empty for regular mesh.
+    std::vector<int>    inflow_patch_cells;
+    double              inflow_patch_total_area = 0.0;
+
     unsigned long print_step, h_min_print; // output settings
 
     double NODATA_VALUE,XLLCORNER,YLLCORNER;

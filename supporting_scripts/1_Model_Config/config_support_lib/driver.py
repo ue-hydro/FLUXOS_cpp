@@ -439,7 +439,24 @@ def _step_config(config: dict, repo_root: str, bin_dir: str,
         modset["MESH_TYPE"] = "triangular"
         modset["MESH_FILE"] = _rel(mesh_meta["output_path"], repo_root)
         modset["MESH_FORMAT"] = "gmsh"
-        modset["BOUNDARY_CONDITIONS"] = {"1": {"type": "wall"}}
+        # Default boundary condition for the single ("1") physical group
+        # that the mesh generator assigns to every perimeter edge
+        # (see mesh_generation.py). The regular-mesh solver retains
+        # mass at its perimeter via extrapolation BCs
+        # (initiate.cpp:205-234) — effectively a closed catchment. We
+        # default the triangular mesh to "wall" so the two meshes agree
+        # in the typical flood-inundation case where the DEM footprint
+        # is a catchment of interest and water should pool inside it.
+        # Set ``trimesh_boundary_default = "outflow"`` only when the
+        # boundary is truly open (e.g. a straight river reach cut in
+        # half by the DEM crop).
+        bc_default = (config.get("trimesh_boundary_default") or "wall").lower()
+        if bc_default not in {"wall", "outflow"}:
+            raise ValueError(
+                f"trimesh_boundary_default must be 'wall' or 'outflow', "
+                f"got {bc_default!r}"
+            )
+        modset["BOUNDARY_CONDITIONS"] = {"1": {"type": bc_default}}
 
     if config.get("meteo_file"):
         modset["METEO_FILE"] = config["meteo_file"]

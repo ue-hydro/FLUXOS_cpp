@@ -47,7 +47,29 @@ void tri_edge_flux_dry(
     double sign;  // +1 if wet cell is on left, -1 if on right
 
     if (rc < 0) {
-        // Boundary edge: left cell is the only cell
+        // Boundary edge.
+        // Honour the BC tag set in the modset's BOUNDARY_CONDITIONS:
+        //   tag == 3  (wall)    → zero mass flux (closed basin —
+        //                          matches regular mesh's implicit
+        //                          extrapolation-at-edge behaviour).
+        //   otherwise (outflow) → fall through to the Ritter dry-front
+        //                          formula, which drains at
+        //                          0.296·dz·√(g·dz) per unit width
+        //                          across the boundary edge — the
+        //                          standard "transmissive" approx for
+        //                          an open-ended river reach.
+        //
+        // Without this check every perimeter edge with a wet interior
+        // cell drains via Ritter regardless of the user's BC choice,
+        // and the trimesh domain bleeds mass that the regular mesh
+        // would retain — Torres Vedras collapsed from ~120 000 m³ to
+        // ~56 000 m³ between two output snapshots in that regime.
+        if (edge.boundary_tag == 3) {
+            sol.flux_mass[edge_id] = 0.0;
+            sol.flux_momx[edge_id] = 0.0;
+            sol.flux_momy[edge_id] = 0.0;
+            return;
+        }
         h_wet = sol.h[lc];
         z_wet = sol.z[lc];
         zb_wet = sol.zb[lc];

@@ -35,6 +35,7 @@
 #include <iostream>
 #include <fstream>
 #include <math.h>
+#include <limits>
 #include <armadillo>
 #include <string>
 #include <memory> 
@@ -479,6 +480,35 @@ int main(int argc, char* argv[])
 #endif
 #endif
         ds.dtfl = fmin(dtfl_local, print_next - ds.tim);
+
+        // Forcing-cadence cap. The CFL condition above is evaluated from
+        // the CURRENT solution state; when the domain is dry (first step
+        // after a cold start) it yields dtfl_local = 9e10, because there
+        // is no water to limit. Without this cap, `ds.dtfl` then collapses
+        // to `print_next - ds.tim` — i.e. the entire first 900 s print
+        // interval in one step — and the forcing module is called once
+        // with dtfl = 900 s, pumping ~Q·900 m³ = tens of thousands of m³
+        // into a single cell in one go. The resulting spike dominates
+        // the flood for many subsequent steps regardless of mesh type.
+        //
+        // Fix: clamp dtfl to the next forcing breakpoint, plus a 1 s
+        // absolute floor, so the ramp is integrated in small enough
+        // chunks to match the file's time resolution. Once water is in
+        // the domain, CFL takes over (dtfl_local « 1 s typically) and
+        // this cap becomes inert.
+        auto next_forcing_dt = [&](const std::unique_ptr<arma::Mat<float>>& f) {
+            if (!f) return std::numeric_limits<double>::infinity();
+            const arma::Mat<float>& m = *f;
+            for (arma::uword r = 0; r < m.n_rows; r++) {
+                double tk = static_cast<double>(m(r, 0));
+                if (tk > ds.tim) return tk - static_cast<double>(ds.tim);
+            }
+            return std::numeric_limits<double>::infinity();
+        };
+        double dt_forcing = std::min(next_forcing_dt(ds.inflow),
+                                     next_forcing_dt(ds.meteo));
+        const double DT_ABS_MAX = 1.0;   // sane ceiling for dry-start phase
+        ds.dtfl = std::fmin(ds.dtfl, std::fmax(dt_forcing, DT_ABS_MAX));
         hpall = hpall_local;
 
         ds.tim = ds.tim + ds.dtfl;
