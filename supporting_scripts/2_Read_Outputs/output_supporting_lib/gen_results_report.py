@@ -25,13 +25,18 @@ same visual aesthetic as the 1_Model_Config report:
 - Sidebar navigation + theme toggle
 
 Sections (complementary to the WebGL dynamic view):
-  1. Summary KPIs
-  2. Time-series (volume / flooded area / max depth / mean wet depth / max velocity)
-  3. Maximum inundation map (per-cell max depth, always the key output)
-  4. Flood-hazard classification map (ARR-2019 H×V criterion)
-  5. Depth histogram
-  6. Time-of-first-inundation map (flood-front propagation)
-  7. Chemical concentration panel (only if ADE_TRANSPORT output is present)
+  1. Summary KPIs (expanded: H3+H4 area, rise time, Froude, percentiles)
+  2. Flood dynamics (descriptive table of metrics and percentiles)
+  3. Time-series (volume / flooded area / max depth / mean wet depth / max velocity)
+  4. Maximum inundation map (on satellite basemap)
+  5. Flood-hazard classification map (on satellite basemap)
+  6. Hazard evolution over time (stacked area of class areas)
+  7. Depth histogram
+  8. Velocity histogram
+  9. Time-of-first-inundation map (on satellite basemap)
+ 10. Inundation duration (map + histogram of hours-wet per cell)
+ 11. Chemical concentration panel (only if ADE_TRANSPORT output is present)
+ 12. Run info
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import sys
 from datetime import datetime
 
 
@@ -287,6 +293,95 @@ function plotlyLayoutPatch(){
 
 
 # ---------------------------------------------------------------------------
+#  Satellite basemap (shared across all three map figures)
+# ---------------------------------------------------------------------------
+
+def _fetch_satellite_basemap(dem_meta: dict, utm_zone: int | None,
+                             utm_southern: bool, out_path: str,
+                             resolution_mult: float = 3.0) -> tuple[str | None, dict | None]:
+    """
+    Download a satellite JPEG covering the DEM bounding box and return
+    ``(output_path, info_dict)`` where info_dict has the UTM corners of the image.
+
+    Returns ``(None, None)`` on any failure so callers can degrade gracefully.
+    """
+    try:
+        ncols = int(dem_meta["ncols"]); nrows = int(dem_meta["nrows"])
+        xll = float(dem_meta["xllcorner"]); yll = float(dem_meta["yllcorner"])
+        cs = float(dem_meta["cellsize"])
+    except (KeyError, ValueError, TypeError):
+        return None, None
+    if utm_zone is None:
+        return None, None
+
+    # UTM bbox corners
+    east_sw, north_sw = xll, yll
+    east_ne, north_ne = xll + ncols * cs, yll + nrows * cs
+
+    # UTM → WGS84
+    try:
+        from pyproj import Transformer
+        epsg = 32600 + int(utm_zone) + (100 if utm_southern else 0)
+        tr = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
+        sw_lon, sw_lat = tr.transform(east_sw, north_sw)
+        ne_lon, ne_lat = tr.transform(east_ne, north_ne)
+    except Exception as exc:
+        print(f"  pyproj unavailable or transform failed ({exc}); "
+              "satellite basemap disabled.")
+        return None, None
+
+    # Downloader lives in fluxos_viewer — load it lazily to avoid pulling in
+    # the whole viewer when users only generate reports.
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        import fluxos_viewer as _fv
+    except Exception as exc:
+        print(f"  fluxos_viewer could not be imported ({exc}); "
+              "satellite basemap disabled.")
+        return None, None
+
+    img_w = max(512, int(ncols * resolution_mult))
+    img_h = max(512, int(nrows * resolution_mult))
+    # Hard cap to keep the JPEG a few MB at most.
+    while img_w * img_h > 6_000_000:
+        img_w //= 2; img_h //= 2
+    try:
+        _fv._download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
+                                img_w, img_h, out_path)
+    except Exception as exc:
+        print(f"  Satellite download failed ({exc}); basemap disabled.")
+        return None, None
+
+    if not os.path.isfile(out_path):
+        return None, None
+    info = {
+        "east_sw": east_sw, "north_sw": north_sw,
+        "east_ne": east_ne, "north_ne": north_ne,
+        "img_w": img_w, "img_h": img_h,
+    }
+    return out_path, info
+
+
+def _basemap_image_layout(sat_info: dict | None, sat_src: str | None) -> list:
+    """Return a plotly ``layout.images`` list with the satellite as background."""
+    if not sat_info or not sat_src:
+        return []
+    return [{
+        "source": sat_src,
+        "xref": "x", "yref": "y",
+        "x": sat_info["east_sw"],
+        "y": sat_info["north_ne"],
+        "sizex": sat_info["east_ne"] - sat_info["east_sw"],
+        "sizey": sat_info["north_ne"] - sat_info["north_sw"],
+        "sizing": "stretch",
+        "opacity": 0.85,
+        "layer": "below",
+    }]
+
+
+# ---------------------------------------------------------------------------
 #  Plot builders (return Plotly figure dicts)
 # ---------------------------------------------------------------------------
 
@@ -329,7 +424,8 @@ def _fig_time_series(stats: dict) -> dict:
     return {"data": data, "layout": layout}
 
 
-def _fig_max_inundation(stats: dict) -> dict | None:
+def _fig_max_inundation(stats: dict, sat_info: dict | None = None,
+                        sat_src: str | None = None) -> dict | None:
     import numpy as np
     x = stats.get("map_cell_x")
     y = stats.get("map_cell_y")
@@ -351,6 +447,7 @@ def _fig_max_inundation(stats: dict) -> dict | None:
             "cmin": 0,
             "cmax": cmax,
             "size": 4,
+            "opacity": 0.75,
             "colorbar": {"title": "Max depth (m)", "thickness": 14},
             "line": {"width": 0},
         },
@@ -362,6 +459,7 @@ def _fig_max_inundation(stats: dict) -> dict | None:
         "yaxis": {"title": "Y (m, projected CRS)"},
         "height": 520,
         "margin": {"l": 80, "r": 30, "t": 30, "b": 50},
+        "images": _basemap_image_layout(sat_info, sat_src),
         "annotations": [{
             "text": f"Colorbar capped at 95th percentile ({cmax:.2f} m); "
                     f"absolute max = {float(h_arr.max()):.2f} m.",
@@ -373,7 +471,8 @@ def _fig_max_inundation(stats: dict) -> dict | None:
     return {"data": data, "layout": layout}
 
 
-def _fig_hazard(stats: dict) -> dict | None:
+def _fig_hazard(stats: dict, sat_info: dict | None = None,
+                sat_src: str | None = None) -> dict | None:
     x = stats.get("map_cell_x")
     y = stats.get("map_cell_y")
     cls = stats.get("hazard_class")
@@ -391,7 +490,8 @@ def _fig_hazard(stats: dict) -> dict | None:
             "type": "scattergl", "mode": "markers", "name": lab,
             "x": [float(xi) for xi, m in zip(x, mask) if m],
             "y": [float(yi) for yi, m in zip(y, mask) if m],
-            "marker": {"color": palette[i], "size": 4, "line": {"width": 0}},
+            "marker": {"color": palette[i], "size": 4, "opacity": 0.75,
+                       "line": {"width": 0}},
         })
     layout = {
         "xaxis": {"title": "X (m)", "scaleanchor": "y", "scaleratio": 1},
@@ -399,6 +499,7 @@ def _fig_hazard(stats: dict) -> dict | None:
         "height": 520,
         "legend": {"orientation": "h", "y": -0.15},
         "margin": {"l": 80, "r": 30, "t": 30, "b": 80},
+        "images": _basemap_image_layout(sat_info, sat_src),
     }
     return {"data": data, "layout": layout}
 
@@ -426,7 +527,8 @@ def _fig_depth_histogram(stats: dict) -> dict | None:
     return {"data": data, "layout": layout}
 
 
-def _fig_first_wet(stats: dict) -> dict | None:
+def _fig_first_wet(stats: dict, sat_info: dict | None = None,
+                   sat_src: str | None = None) -> dict | None:
     x = stats.get("map_cell_x")
     y = stats.get("map_cell_y")
     fw = stats.get("map_first_wet_time_s")
@@ -446,7 +548,7 @@ def _fig_first_wet(stats: dict) -> dict | None:
         "marker": {
             "color": t_wet, "colorscale": "Viridis",
             "cmin": min(t_wet), "cmax": max(t_wet),
-            "size": 4, "line": {"width": 0},
+            "size": 4, "opacity": 0.75, "line": {"width": 0},
             "colorbar": {"title": "First wet (h)", "thickness": 14},
         },
         "hovertemplate": "x: %{x:.1f}<br>y: %{y:.1f}<br>first wet: %{marker.color:.2f} h<extra></extra>",
@@ -457,6 +559,122 @@ def _fig_first_wet(stats: dict) -> dict | None:
         "yaxis": {"title": "Y (m)"},
         "height": 520,
         "margin": {"l": 80, "r": 30, "t": 30, "b": 50},
+        "images": _basemap_image_layout(sat_info, sat_src),
+    }
+    return {"data": data, "layout": layout}
+
+
+def _fig_duration_map(stats: dict, sat_info: dict | None = None,
+                      sat_src: str | None = None) -> dict | None:
+    x = stats.get("map_cell_x"); y = stats.get("map_cell_y")
+    dur = stats.get("duration_wet_s")
+    if x is None or dur is None or len(dur) == 0:
+        return None
+    import numpy as np
+    dur_arr = np.asarray(dur, dtype=float)
+    if not (dur_arr > 0).any():
+        return None
+    dur_h = (dur_arr / 3600.0).tolist()
+    xs = [float(xi) for xi, d in zip(x, dur_arr) if d > 0]
+    ys = [float(yi) for yi, d in zip(y, dur_arr) if d > 0]
+    ds = [d for d in dur_h if d > 0]
+    cmax = float(np.percentile(np.asarray(ds), 99)) if ds else 1.0
+    cmax = max(cmax, 0.1)
+    data = [{
+        "type": "scattergl", "mode": "markers",
+        "x": xs, "y": ys,
+        "marker": {
+            "color": ds, "colorscale": "Plasma",
+            "cmin": 0, "cmax": cmax,
+            "size": 4, "opacity": 0.75, "line": {"width": 0},
+            "colorbar": {"title": "Hours wet", "thickness": 14},
+        },
+        "hovertemplate": "x: %{x:.1f}<br>y: %{y:.1f}<br>wet: %{marker.color:.2f} h<extra></extra>",
+        "name": "Wet duration",
+    }]
+    layout = {
+        "xaxis": {"title": "X (m)", "scaleanchor": "y", "scaleratio": 1},
+        "yaxis": {"title": "Y (m)"},
+        "height": 520,
+        "margin": {"l": 80, "r": 30, "t": 30, "b": 50},
+        "images": _basemap_image_layout(sat_info, sat_src),
+    }
+    return {"data": data, "layout": layout}
+
+
+def _fig_duration_histogram(stats: dict) -> dict | None:
+    edges = stats.get("duration_hist_edges") or []
+    counts = stats.get("duration_hist_counts") or []
+    if not edges or not counts:
+        return None
+    centres = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
+    widths = [edges[i + 1] - edges[i] for i in range(len(counts))]
+    data = [{
+        "type": "bar", "x": centres, "y": counts, "width": widths,
+        "marker": {"color": "#a78bfa", "line": {"color": "#7c3aed", "width": 1}},
+        "hovertemplate": "wet: %{x:.2f} h<br>cells: %{y}<extra></extra>",
+        "name": "Wet duration",
+    }]
+    layout = {
+        "xaxis": {"title": "Hours wet per cell"},
+        "yaxis": {"title": "Cells"},
+        "height": 360,
+        "margin": {"l": 70, "r": 30, "t": 20, "b": 50},
+        "bargap": 0.05,
+    }
+    return {"data": data, "layout": layout}
+
+
+def _fig_velocity_histogram(stats: dict) -> dict | None:
+    edges = stats.get("velocity_hist_edges") or []
+    counts = stats.get("velocity_hist_counts") or []
+    if not edges or not counts:
+        return None
+    centres = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
+    widths = [edges[i + 1] - edges[i] for i in range(len(counts))]
+    data = [{
+        "type": "bar", "x": centres, "y": counts, "width": widths,
+        "marker": {"color": "#f472b6", "line": {"color": "#be185d", "width": 1}},
+        "hovertemplate": "v: %{x:.2f} m/s<br>cells: %{y}<extra></extra>",
+        "name": "Max velocity",
+    }]
+    layout = {
+        "xaxis": {"title": "Maximum velocity (m/s, capped at 99th pct)"},
+        "yaxis": {"title": "Cells"},
+        "height": 360,
+        "margin": {"l": 70, "r": 30, "t": 20, "b": 50},
+        "bargap": 0.05,
+    }
+    return {"data": data, "layout": layout}
+
+
+def _fig_hazard_evolution(stats: dict) -> dict | None:
+    haz = stats.get("hazard_area_per_time") or []
+    t_s = stats.get("time_s") or []
+    if not haz or not t_s or len(haz) != len(t_s):
+        return None
+    t_h = [s / 3600.0 for s in t_s]
+    # Convert m² → hectares for readability
+    series = [[row[k] / 10_000.0 for row in haz] for k in range(4)]
+    labels = stats.get("hazard_labels", ["Low (H1)", "Medium (H2)", "High (H3)", "Extreme (H4)"])
+    palette = ["#60a5fa", "#fbbf24", "#fb923c", "#ef4444"]
+    data = []
+    for k in range(4):
+        data.append({
+            "type": "scatter", "mode": "lines",
+            "x": t_h, "y": series[k],
+            "name": labels[k],
+            "stackgroup": "one",
+            "line": {"color": palette[k], "width": 0.5},
+            "fillcolor": palette[k],
+            "hovertemplate": f"{labels[k]}: %{{y:.2f}} ha<extra></extra>",
+        })
+    layout = {
+        "xaxis": {"title": "Time (hours)"},
+        "yaxis": {"title": "Area (ha)"},
+        "height": 360,
+        "legend": {"orientation": "h", "y": -0.15},
+        "margin": {"l": 70, "r": 30, "t": 20, "b": 60},
     }
     return {"data": data, "layout": layout}
 
@@ -489,6 +707,10 @@ def _fig_chemical(stats: dict) -> dict | None:
 
 def _esc(s) -> str:
     return html.escape(str(s), quote=True)
+
+
+def _safe_name_slug(s: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in s)
 
 
 def _fmt_int(x):
@@ -542,6 +764,10 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       - ``results_dir``   : directory that was analysed
       - ``stats``         : dict from ``flood_statistics.analyse``
       - ``kpis``          : dict from ``flood_statistics.summary_kpis``
+      - ``dem_meta``      : dict with ncols/nrows/xllcorner/yllcorner/cellsize (optional)
+      - ``utm_zone``      : UTM zone (int) for satellite basemap (optional)
+      - ``utm_southern``  : bool, UTM southern hemisphere (optional)
+      - ``report_dir``    : directory where the HTML will live (for writing basemap)
       - ``generated_at``  : ISO timestamp (optional)
       - ``errors``        : list (optional)
     """
@@ -549,18 +775,50 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
     kpis = report_data["kpis"]
     stats = report_data["stats"]
     modset = report_data.get("modset", {})
+    dem_meta = report_data.get("dem_meta") or {}
+    utm_zone = report_data.get("utm_zone")
+    utm_southern = bool(report_data.get("utm_southern", False))
+    report_dir = report_data.get("report_dir") or os.path.dirname(output_path)
     generated_at = report_data.get("generated_at") \
         or datetime.now().isoformat(timespec="seconds")
 
     authors = ", ".join(config.get("authors", [])) or "—"
 
-    # --- KPIs grid --------------------------------------------------------
+    # --- Satellite basemap (shared by every map figure) -------------------
+    sat_src = None
+    sat_info = None
+    if dem_meta and utm_zone is not None:
+        proj_slug = _safe_name_slug(config.get("project_name") or "fluxos")
+        sat_path = os.path.join(report_dir, f"{proj_slug}_basemap.jpg")
+        print(f"  Basemap      : fetching satellite imagery → {sat_path}")
+        got_path, got_info = _fetch_satellite_basemap(
+            dem_meta, utm_zone, utm_southern, sat_path, resolution_mult=3.0)
+        if got_path and got_info:
+            sat_src = os.path.basename(got_path)  # relative URL alongside HTML
+            sat_info = got_info
+    else:
+        if not utm_zone:
+            print("  Basemap      : no UTM zone provided — skipping satellite basemap")
+
+    # --- KPIs grid (expanded) --------------------------------------------
+    # Convert H3+H4 area from m² to ha
+    h3h4_ha = float(kpis.get("hazard_h3_h4_area_m2") or 0.0) / 10_000.0
+    rise_t = kpis.get("rise_time_s")
+    rise_str = _fmt_duration(int(rise_t)) if rise_t else "—"
     kpi_html = ''.join([
         _kpi("🌊", _fmt_int(kpis["peak_volume_m3"]), "Peak flood volume", "m³"),
         _kpi("🗺️", _fmt_int(kpis["peak_area_m2"]), "Peak flooded area", "m²"),
         _kpi("📏", _fmt_num(kpis["peak_depth_m"], ".2f"), "Max water depth", "metres"),
-        _kpi("🌀", _fmt_num(kpis["peak_velocity_ms"], ".2f"), "Max velocity", "m/s"),
+        _kpi("📐", _fmt_num(kpis.get("max_h_p95") or 0.0, ".2f"),
+             "95-pct max depth", "metres"),
+        _kpi("🌀", _fmt_num(kpis["peak_velocity_ms"], ".2f"), "Peak velocity", "m/s"),
+        _kpi("⚠️", _fmt_num(h3h4_ha, ".2f"), "H3+H4 hazard area", "ha"),
         _kpi("⏱️", _fmt_duration(kpis["peak_time_s"]), "Time to peak", "since start"),
+        _kpi("📈", rise_str, "Rise time", "10%→90% peak area"),
+        _kpi("💧", _fmt_num(kpis.get("mean_wet_depth_at_peak_m") or 0.0, ".2f"),
+             "Mean wet depth at peak", "metres"),
+        _kpi("🔷", _fmt_num(kpis.get("froude_max") or 0.0, ".2f"),
+             "Froude max", "v/√(g·h)"),
         _kpi("🕰️", _fmt_duration(kpis["sim_duration_s"]), "Sim duration", ""),
         _kpi("🔢", _fmt_int(kpis["wet_cells"]), "Wet cells", "any time during run"),
         _kpi("📊", _fmt_int(stats["n_timesteps"]), "Timesteps analysed", ""),
@@ -575,17 +833,27 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
 
     # --- Plots ------------------------------------------------------------
     fig_ts = _fig_time_series(stats)
-    fig_max = _fig_max_inundation(stats)
-    fig_haz = _fig_hazard(stats)
+    fig_max = _fig_max_inundation(stats, sat_info, sat_src)
+    fig_haz = _fig_hazard(stats, sat_info, sat_src)
+    fig_haz_evo = _fig_hazard_evolution(stats)
     fig_hist = _fig_depth_histogram(stats)
-    fig_first = _fig_first_wet(stats)
+    fig_vhist = _fig_velocity_histogram(stats)
+    fig_first = _fig_first_wet(stats, sat_info, sat_src)
+    fig_dur_map = _fig_duration_map(stats, sat_info, sat_src)
+    fig_dur_hist = _fig_duration_histogram(stats)
     fig_chem = _fig_chemical(stats)
 
     # --- Navigation -------------------------------------------------------
-    nav_items = [("summary", "Summary"), ("timeseries", "Time series"),
-                 ("maxmap", "Max inundation"), ("hazard", "Hazard"),
+    nav_items = [("summary", "Summary"),
+                 ("flood-dynamics", "Flood dynamics"),
+                 ("timeseries", "Time series"),
+                 ("maxmap", "Max inundation"),
+                 ("hazard", "Hazard"),
+                 ("hazard-evolution", "Hazard evolution"),
                  ("histogram", "Depth histogram"),
-                 ("firstwet", "First inundation")]
+                 ("velocity-hist", "Velocity histogram"),
+                 ("firstwet", "First inundation"),
+                 ("duration", "Inundation duration")]
     if fig_chem:
         nav_items.append(("chemical", "Chemical transport"))
     nav_items.append(("meta", "Run info"))
@@ -602,6 +870,80 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
         <div class="table-wrap"><table>
           <thead><tr><th>Class</th><th>Cells</th></tr></thead>
           <tbody>{haz_rows}</tbody>
+        </table></div>
+      </div>
+    </section>"""
+
+    # --- Flood dynamics table ---------------------------------------------
+    def _fmt_opt_duration(v):
+        if v is None:
+            return "—"
+        try:
+            return _fmt_duration(int(v))
+        except Exception:
+            return str(v)
+
+    def _fmt_opt_num(v, fmt=".2f"):
+        if v is None:
+            return "—"
+        try:
+            return format(float(v), fmt)
+        except Exception:
+            return str(v)
+
+    dyn_rows = [
+        ("Peak flood volume",         _fmt_int(kpis["peak_volume_m3"]),
+         "m³", "Total water stored in the domain at the timestep of greatest volume."),
+        ("Peak flooded area",         _fmt_int(kpis["peak_area_m2"]),
+         "m²", "Area with water depth above the wet threshold at peak."),
+        ("Time to peak",              _fmt_duration(kpis["peak_time_s"]),
+         "—", "Time elapsed from simulation start until peak volume."),
+        ("Rise time (10%→90% peak area)", _fmt_opt_duration(kpis.get("rise_time_s")),
+         "—", "How quickly the flood rises over the domain."),
+        ("Recession time (peak→50% peak area)", _fmt_opt_duration(kpis.get("recession_time_s")),
+         "—", "How quickly the flood recedes after the peak."),
+        ("Total inundation duration", _fmt_opt_duration(kpis.get("total_inundation_duration_s")),
+         "—", "Duration over which the flooded area stayed ≥ 10% of peak area."),
+        ("Mean wet depth at peak",    _fmt_opt_num(kpis.get("mean_wet_depth_at_peak_m"), ".3f"),
+         "m",  "Average depth across wet cells at the peak timestep."),
+        ("Max depth (global)",        _fmt_num(kpis["peak_depth_m"], ".2f"),
+         "m",  "Highest water depth observed in any cell at any timestep."),
+        ("Max depth — p50 / p90 / p95 / p99",
+         f'{_fmt_num(stats.get("max_h_p50") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_h_p90") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_h_p95") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_h_p99") or 0.0, ".2f")}',
+         "m",  "Percentiles of per-cell max depth over ever-wet cells."),
+        ("Peak velocity",             _fmt_num(kpis["peak_velocity_ms"], ".2f"),
+         "m/s","Highest flow speed observed anywhere at any time."),
+        ("Max velocity — p50 / p90 / p95 / p99",
+         f'{_fmt_num(stats.get("max_v_p50") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_v_p90") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_v_p95") or 0.0, ".2f")} / '
+         f'{_fmt_num(stats.get("max_v_p99") or 0.0, ".2f")}',
+         "m/s","Percentiles of per-cell max velocity over ever-wet cells."),
+        ("Froude max",                _fmt_num(kpis.get("froude_max") or 0.0, ".2f"),
+         "—", "Highest Froude number v/√(g·h) reached anywhere (> 1 = supercritical)."),
+        ("Supercritical flow area",   _fmt_num(float(kpis.get("froude_super_area_m2") or 0.0) / 10_000.0, ".3f"),
+         "ha","Area of cells that reached supercritical flow at any point."),
+        ("H3+H4 hazard area",         _fmt_num(h3h4_ha, ".3f"),
+         "ha","Area classified as High + Extreme hazard in the max field."),
+    ]
+    dyn_table_rows = ''.join(
+        f'<tr><td>{_esc(r[0])}</td><td class="num">{_esc(r[1])}</td>'
+        f'<td>{_esc(r[2])}</td><td style="color:var(--text2)">{_esc(r[3])}</td></tr>'
+        for r in dyn_rows)
+    flood_dynamics = f"""
+    <section class="section" id="flood-dynamics">
+      <h2>Flood dynamics</h2>
+      <div class="card">
+        <p style="color:var(--text2);margin-bottom:.3rem">
+          Summary of rate-of-rise, percentile depths / velocities and hydraulic
+          severity — the numbers a flood-hazard report usually quotes alongside
+          the maps below.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Metric</th><th>Value</th><th>Units</th><th>Description</th></tr></thead>
+          <tbody>{dyn_table_rows}</tbody>
         </table></div>
       </div>
     </section>"""
@@ -641,6 +983,18 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       </div>
     </section>"""
 
+    hazard_evolution = f"""
+    <section class="section" id="hazard-evolution">
+      <h2>Hazard evolution over time</h2>
+      <div class="card">
+        <p style="color:var(--text2);margin-bottom:.3rem">
+          Stacked area of the domain-wide flooded area classified per timestep.
+          A sharp rise in the orange / red bands indicates when the flood
+          became dangerous to people and infrastructure.</p>
+        {_plot_div("haz-evo-plot", fig_haz_evo) if fig_haz_evo else '<em>No velocity data.</em>'}
+      </div>
+    </section>"""
+
     histogram = f"""
     <section class="section" id="histogram">
       <h2>Max-depth distribution</h2>
@@ -649,6 +1003,18 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Histogram of max depth across cells that were ever wet — shows
           whether the flood is predominantly shallow spreading or deep channelised.</p>
         {_plot_div("hist-plot", fig_hist) if fig_hist else '<em>No data.</em>'}
+      </div>
+    </section>"""
+
+    velocity_histogram = f"""
+    <section class="section" id="velocity-hist">
+      <h2>Max-velocity distribution</h2>
+      <div class="card">
+        <p style="color:var(--text2);margin-bottom:.3rem">
+          Histogram of the per-cell maximum flow velocity (clipped at the 99th
+          percentile to keep the x-axis readable). Heavy tails usually mean the
+          flood has narrow high-energy channels.</p>
+        {_plot_div("vhist-plot", fig_vhist) if fig_vhist else '<em>No velocity data.</em>'}
       </div>
     </section>"""
 
@@ -661,6 +1027,23 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           reveals the flood-front propagation that the WebGL animation shows
           dynamically.</p>
         {_plot_div("fw-plot", fig_first) if fig_first else '<em>No data.</em>'}
+      </div>
+    </section>"""
+
+    duration_section = f"""
+    <section class="section" id="duration">
+      <h2>Inundation duration (hours wet per cell)</h2>
+      <div class="card">
+        <p style="color:var(--text2);margin-bottom:.3rem">
+          How long each cell stayed above the wet threshold, in hours.
+          Useful for ecology, infrastructure, and residual-damage assessments
+          — brief shallow wetting has very different consequences from days
+          of sustained inundation.</p>
+        {_plot_div("dur-map-plot", fig_dur_map) if fig_dur_map else '<em>No duration data.</em>'}
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>Distribution of wet duration</h3>
+        {_plot_div("dur-hist-plot", fig_dur_hist) if fig_dur_hist else '<em>No duration data.</em>'}
       </div>
     </section>"""
 
@@ -731,11 +1114,15 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       </header>
       <div class="container">
         {summary}
+        {flood_dynamics}
         {timeseries}
         {maxmap}
         {hazard}
+        {hazard_evolution}
         {histogram}
+        {velocity_histogram}
         {firstwet}
+        {duration_section}
         {chemical_section}
         {meta}
       </div>
