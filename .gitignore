@@ -16,10 +16,32 @@ build/
 build_soil/
 .DS_Store
 *.tif
+# Exception: the Rosa Creek GeoTIFF is the default-template case study and
+# must ship with the repo so `python model_config_template.py` works
+# out-of-the-box on a fresh clone.
+!Working_example/Rosa_2m.tif
 bin/fluxos_run.log
 fluxos_web/data/
 fluxos_kml_regular/
 horton_infiltration_results.png
+
+# --- Working_example/ ------------------------------------------------------
+# Only the two inputs needed by the default Rosa Creek template (the
+# GeoTIFF and the synthetic meteo forcing) are committed. Everything else
+# in this folder is either a per-run output or test-case leftover that is
+# regenerated from the templates — don't track them.
+Working_example/*.asc
+Working_example/*.msh
+Working_example/modset*.json
+Working_example/*.log
+# Ad-hoc project forcings that aren't referenced by the default template.
+Working_example/Flow_*.fluxos
+# Keep these two regardless of the patterns above:
+!Working_example/Qmelt_synthetic.fluxos
+# Generated WebGL / KML bundles
+fluxos_web_*/
+fluxos_kml_*/
+.fluxos_tile_cache/
 
 # Python caches
 __pycache__/
