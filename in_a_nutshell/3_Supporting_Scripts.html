@@ -298,28 +298,29 @@ env -u PROJ_LIB -u PROJ_DATA -u GDAL_DATA \
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
                         <pre style="font-size: 0.82rem; padding: 20px;">
-<span class="comment"># 1. Move into the config folder</span>
+<span class="comment"># 1. Move into the 1_Model_Config folder</span>
+<span class="comment"># If you are in FLUXOS_cpp, you can run</span>
 cd FLUXOS_cpp/supporting_scripts/1_Model_Config/
 
 <span class="comment"># 2. Copy the template to a project-specific name</span>
 <span class="comment">#    (anything like model_config_&lt;project&gt;.py)</span>
 cp model_config_template.py \
-   model_config_evora.py
+   model_config_myTest.py
 
 <span class="comment"># 3. Open the copy and edit the _config dict</span>
 <span class="comment">#    (see next slide for the fields you need to set)</span>
 <span class="comment">#    You can also just double-click the file and edit</span>
 <span class="comment">#    it in any text editor — VS Code, Sublime, PyCharm,</span>
 <span class="comment">#    TextEdit, Notepad++, etc. — no terminal needed.</span>
-nano model_config_evora.py
+nano model_config_myTest.py
 
 <span class="comment"># 4. Run it — from this folder OR anywhere else,</span>
 <span class="comment">#    just point python at your edited copy</span>
-python model_config_evora.py
+python model_config_myTest.py
 
 <span class="comment"># (run from repo root instead, if you prefer):</span>
 <span class="comment"># python supporting_scripts/1_Model_Config/\</span>
-<span class="comment">#        model_config_evora.py</span></pre>
+<span class="comment">#        model_config_myTest.py</span></pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
