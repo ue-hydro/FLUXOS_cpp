@@ -2405,7 +2405,19 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
     print(f"  Satellite: {n_tiles_x}x{n_tiles_y} = "
           f"{n_tiles_x * n_tiles_y} tiles")
 
-    # Download all tiles into a big mosaic (256 px per tile)
+    # Download all tiles into a big mosaic (256 px per tile).
+    #
+    # Parallelised with a small thread pool — on a fresh cache with a
+    # large domain (e.g. 9×8 = 72 tiles over 12×14 km) the sequential
+    # path can stall for minutes, and a single bad tile with a 15 s
+    # timeout blocks every subsequent fetch. Eight workers downloading
+    # in parallel is enough to saturate a home connection without
+    # tripping the ArcGIS rate limiter.
+    #
+    # On-disk tile cache lives alongside the output directory so
+    # repeated exports over the same bbox (re-runs while iterating on
+    # mesh/particles/trail length) don't re-fetch. Cache keyed on
+    # zoom/x/y so it shares across domains that happen to overlap.
     tile_px = 256
     mosaic_w = n_tiles_x * tile_px
     mosaic_h = n_tiles_y * tile_px
@@ -2414,26 +2426,88 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
     url_template = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
                     "World_Imagery/MapServer/tile/{z}/{y}/{x}")
 
-    for ty in range(ty_min, ty_max + 1):
-        for tx in range(tx_min, tx_max + 1):
-            url = url_template.format(z=zoom, y=ty, x=tx)
+    # Tile cache — under $HOME/.fluxos_tile_cache so it's not tied to
+    # a specific export directory. Cheap disk for expensive downloads.
+    cache_root = os.path.join(os.path.expanduser("~"), ".fluxos_tile_cache")
+    try:
+        os.makedirs(cache_root, exist_ok=True)
+    except OSError:
+        cache_root = None
+
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        PILImage = None
+
+    def _fetch_one(tx, ty):
+        """Return (tx, ty, tile_rgb_array_or_None, cache_hit)."""
+        cache_path = (os.path.join(cache_root, f"{zoom}_{tx}_{ty}.png")
+                      if cache_root else None)
+        if PILImage is None:
+            return tx, ty, None, False
+        # Cache hit?
+        if cache_path and os.path.isfile(cache_path):
+            try:
+                arr = np.array(PILImage.open(cache_path).convert("RGB"))
+                return tx, ty, arr, True
+            except Exception:
+                pass  # corrupt cache, refetch
+        url = url_template.format(z=zoom, y=ty, x=tx)
+        # Up to 3 attempts with short, increasing backoff. Overall cap
+        # per tile ~ 15 s, so 72 tiles × 8 workers finishes in seconds
+        # even if a couple of tiles fail.
+        for attempt in range(3):
             try:
                 req = urllib.request.Request(url, headers={
                     "User-Agent": "FLUXOS-viewer/1.0"})
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                with urllib.request.urlopen(req, timeout=6) as resp:
                     tile_data = resp.read()
-                try:
-                    from PIL import Image as PILImage
-                    tile_img = PILImage.open(io.BytesIO(tile_data))
-                    tile_arr = np.array(tile_img.convert("RGB"))
-                except ImportError:
-                    continue
+                arr = np.array(PILImage.open(io.BytesIO(tile_data))
+                               .convert("RGB"))
+                if cache_path:
+                    try:
+                        with open(cache_path, "wb") as f:
+                            f.write(tile_data)
+                    except OSError:
+                        pass
+                return tx, ty, arr, False
+            except Exception:
+                if attempt == 2:
+                    return tx, ty, None, False
+                import time
+                time.sleep(0.25 * (attempt + 1))
+        return tx, ty, None, False
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    tile_list = [(tx, ty) for ty in range(ty_min, ty_max + 1)
+                          for tx in range(tx_min, tx_max + 1)]
+    n_total = len(tile_list)
+    n_done = 0
+    n_failed = 0
+    n_cached = 0
+    # Keep the pool small so we don't hammer the tile server.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_fetch_one, tx, ty) for tx, ty in tile_list]
+        for fut in as_completed(futures):
+            tx, ty, arr, cache_hit = fut.result()
+            n_done += 1
+            if arr is None:
+                n_failed += 1
+            else:
                 oy = (ty - ty_min) * tile_px
                 ox = (tx - tx_min) * tile_px
-                th, tw = tile_arr.shape[:2]
-                mosaic[oy:oy+th, ox:ox+tw] = tile_arr[:, :, :3]
-            except Exception as e:
-                print(f"    Tile {tx},{ty}: {e}")
+                th, tw = arr.shape[:2]
+                mosaic[oy:oy+th, ox:ox+tw] = arr[:, :, :3]
+                if cache_hit:
+                    n_cached += 1
+            # Print progress every 10% (or every 5 tiles for small sets).
+            every = max(1, n_total // 10, 5)
+            if n_done % every == 0 or n_done == n_total:
+                print(f"    tiles: {n_done}/{n_total} "
+                      f"(cached {n_cached}, failed {n_failed})")
+    if n_failed == n_total:
+        print(f"    WARNING: all {n_total} tiles failed to download; "
+              f"the satellite layer will be blank.")
 
     # ── Reproject: Mercator mosaic → equirectangular DEM grid ──
     # Compute the geographic bounds of the full tile mosaic
@@ -2452,42 +2526,62 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
 
     # Build output image by sampling the Mercator mosaic per-pixel.
     # For each output row r (0=north=top), compute the latitude, convert
-    # to Mercator-Y, and find the mosaic row.  Longitude is linear.
-    out = np.full((img_h, img_w, 3), 40, dtype=np.uint8)
+    # to Mercator-Y, and find the mosaic row. Longitude is linear.
+    #
+    # Vectorised with numpy — the original per-pixel Python loop over
+    # 6+ M pixels (≈ 2375×2595 for a 12×14 km domain at 5× DEM) could
+    # take minutes during which the terminal looked frozen. Now finishes
+    # in a fraction of a second and progress is printed as we go through
+    # the two steps (lat→merc conversion, bilinear sampling).
+    print(f"    reprojecting mosaic ({mosaic_h}x{mosaic_w}px) "
+          f"→ {img_h}x{img_w}px equirectangular …",
+          flush=True)
 
-    # Pre-compute mosaic column for each output column (lon is linear)
-    col_lons = sw_lon + (np.arange(img_w) + 0.5) / img_w * (ne_lon - sw_lon)
-    mosaic_cols = ((col_lons - mosaic_west) / lon_range * mosaic_w).astype(
-        np.float64)
+    # Per-row mosaic Y (Mercator → row index), shape (img_h,)
+    row_fracs = (np.arange(img_h) + 0.5) / img_h              # 0..1 N→S
+    lats      = ne_lat - row_fracs * (ne_lat - sw_lat)         # (img_h,)
+    merc_ys   = np.log(np.tan(np.pi / 4 + np.radians(lats) / 2))
+    mosaic_rows_f = (merc_n - merc_ys) / merc_range * mosaic_h
 
-    for r in range(img_h):
-        # DEM row 0 = north (top), row img_h-1 = south (bottom)
-        frac = (r + 0.5) / img_h          # 0..1 from north to south
-        lat = ne_lat - frac * (ne_lat - sw_lat)  # linear in lat (equirect)
+    # Per-column mosaic X (longitude is linear; shape (img_w,))
+    col_lons    = sw_lon + (np.arange(img_w) + 0.5) / img_w * (ne_lon - sw_lon)
+    mosaic_cols = (col_lons - mosaic_west) / lon_range * mosaic_w
 
-        # Convert this latitude to a mosaic row (Mercator Y)
-        merc_y = lat_to_merc_y(lat)
-        mosaic_row_f = (merc_n - merc_y) / merc_range * mosaic_h
+    # Broadcast to 2D (img_h × img_w) without materialising the full
+    # grid twice: use outer-product-like indexing directly.
+    R = mosaic_rows_f[:, None]          # (img_h, 1)
+    C = mosaic_cols[None, :]            # (1, img_w)
 
-        # Bilinear Y interpolation
-        ry0 = max(0, min(mosaic_h - 2, int(mosaic_row_f)))
-        ry1 = ry0 + 1
-        fy = mosaic_row_f - ry0
+    ry0 = np.clip(R.astype(np.int32), 0, mosaic_h - 2)   # (img_h, 1)
+    cx0 = np.clip(C.astype(np.int32), 0, mosaic_w - 2)   # (1, img_w)
+    ry1 = ry0 + 1
+    cx1 = cx0 + 1
+    fy  = R - ry0                       # (img_h, 1)
+    fx  = C - cx0                       # (1, img_w)
 
-        for c in range(img_w):
-            mx = mosaic_cols[c]
-            cx0 = max(0, min(mosaic_w - 2, int(mx)))
-            cx1 = cx0 + 1
-            fx = mx - cx0
+    # Broadcast the integer indices to full (img_h, img_w) for fancy
+    # indexing into mosaic (which is (mosaic_h, mosaic_w, 3)).
+    RY0 = np.broadcast_to(ry0, (img_h, img_w))
+    RY1 = np.broadcast_to(ry1, (img_h, img_w))
+    CX0 = np.broadcast_to(cx0, (img_h, img_w))
+    CX1 = np.broadcast_to(cx1, (img_h, img_w))
 
-            # Bilinear sample
-            p00 = mosaic[ry0, cx0].astype(np.float64)
-            p10 = mosaic[ry0, cx1].astype(np.float64)
-            p01 = mosaic[ry1, cx0].astype(np.float64)
-            p11 = mosaic[ry1, cx1].astype(np.float64)
-            val = (p00 * (1 - fx) * (1 - fy) + p10 * fx * (1 - fy) +
-                   p01 * (1 - fx) * fy + p11 * fx * fy)
-            out[r, c] = np.clip(val, 0, 255).astype(np.uint8)
+    p00 = mosaic[RY0, CX0].astype(np.float32)     # (img_h, img_w, 3)
+    p10 = mosaic[RY0, CX1].astype(np.float32)
+    p01 = mosaic[RY1, CX0].astype(np.float32)
+    p11 = mosaic[RY1, CX1].astype(np.float32)
+
+    wx = fx.astype(np.float32)                    # (1, img_w)
+    wy = fy.astype(np.float32)                    # (img_h, 1)
+    # Broadcast to (img_h, img_w, 1) for RGB multiply.
+    wx3 = wx[..., None]
+    wy3 = wy[..., None]
+    val = (p00 * (1 - wx3) * (1 - wy3)
+         + p10 *      wx3  * (1 - wy3)
+         + p01 * (1 - wx3) *      wy3
+         + p11 *      wx3  *      wy3)
+    out = np.clip(val, 0.0, 255.0).astype(np.uint8)
+    print("    reprojection done", flush=True)
 
     # ── Clip to basin (darken outside valid DEM cells) ─────────
     if basin_mask is not None:
@@ -3103,7 +3197,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     </div>
     <div class="ctrl-row" style="justify-content:center; gap:8px; margin-top:6px;">
         <button class="btn active" id="btn-water">&#128167; Water</button>
-        <button class="btn active" id="btn-particles">&#10024; Particles</button>
+        <button class="btn" id="btn-particles">&#10024; Particles</button>
         <button class="btn" id="btn-sat" style="display:none;">&#127760; Satellite</button>
         <button class="btn" id="btn-conc" style="display:none;">&#9762; Concentration</button>
     </div>
@@ -3614,7 +3708,14 @@ void main() {
     lit_water += sss_color * sss;
 
     // ── 7. Edge foam / white-water ──
-    float depth_edge = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.15, 0.4, t));
+    //
+    // Toned down from earlier: on large, slow inundations the shallow-
+    // fringe term (depth_edge) and the small-gradient term were firing
+    // over most of the domain, giving a "cloudy" look that drowned out
+    // the depth shading. Thresholds raised and composite strength cut
+    // so foam only shows on true fast/step features (spillways,
+    // wavefronts, channel banks) while calm pools stay visibly blue.
+    float depth_edge = smoothstep(0.02, 0.08, t) * (1.0 - smoothstep(0.08, 0.22, t));
     vec4 v_cur = texture2D(u_velocity, v_uv);
     vec4 v_nxt = texture2D(u_velocity_next, v_uv);
     float d_here = mix(v_cur.b, v_nxt.b, u_time_frac) * u_h_max;
@@ -3627,15 +3728,17 @@ void main() {
         texture2D(u_velocity_next, v_uv + vec2(0.0, u_texel_size.y)).b,
         u_time_frac) * u_h_max;
     float depth_gradient = length(vec2(d_here - d_right, d_here - d_up));
-    float gradient_foam = smoothstep(0.05, 0.3, depth_gradient);
-    float velocity_foam = smoothstep(0.6, 1.5, v_speed);
+    float gradient_foam = smoothstep(0.20, 0.60, depth_gradient);
+    float velocity_foam = smoothstep(1.2, 2.5, v_speed);
     float foam_noise = snoise(v_uv * 80.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
     float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_noise;
     foam = clamp(foam, 0.0, 1.0);
     vec3 foam_color = vec3(0.90, 0.95, 1.0);
 
     // ── Composite ──
-    vec3 final_col = mix(lit_water, foam_color, foam * 0.6);
+    // Was 0.6 — dropped to 0.30 so the water colour still reads through
+    // the foam mask (foam visible as hint, not as whiteout).
+    vec3 final_col = mix(lit_water, foam_color, foam * 0.30);
     final_col += specular;
     // Sky reflection blended by Fresnel
     final_col = mix(final_col, skyReflection, fresnel * 0.55);
@@ -3648,7 +3751,7 @@ void main() {
 
     // ── Alpha: Fresnel-modulated transparency ──
     float base_alpha = mix(0.4, 0.88, t);
-    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.25, 0.0, 0.95);
+    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.10, 0.0, 0.95);
 
     gl_FragColor = vec4(final_col, final_alpha);
 }
@@ -4359,7 +4462,12 @@ class FloodViewer3D {
         this.useSatellite = false;
         // Water level surface
         this.showWater = true;
-        this.showParticles = true;
+        // Particles off by default — the water-surface shading already
+        // conveys the flood extent cleanly, and the ~65k moving points
+        // can distract from depth reading and slow down weaker GPUs.
+        // The toggle button (btn-particles) still lets the user enable
+        // them whenever the velocity field is what they want to inspect.
+        this.showParticles = false;
         // Concentration overlay
         this.showConcentration = false;
         this.concFrameCache = new Map();

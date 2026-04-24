@@ -158,7 +158,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     </div>
     <div class="ctrl-row" style="justify-content:center; gap:8px; margin-top:6px;">
         <button class="btn active" id="btn-water">&#128167; Water</button>
-        <button class="btn active" id="btn-particles">&#10024; Particles</button>
+        <button class="btn" id="btn-particles">&#10024; Particles</button>
         <button class="btn" id="btn-sat" style="display:none;">&#127760; Satellite</button>
         <button class="btn" id="btn-conc" style="display:none;">&#9762; Concentration</button>
     </div>
@@ -678,7 +678,7 @@ void main() {
     lit_water += sss_color * sss;
 
     // ── 7. Edge foam / white-water ──
-    float depth_edge = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.15, 0.4, t));
+    float depth_edge = smoothstep(0.02, 0.08, t) * (1.0 - smoothstep(0.08, 0.22, t));
     vec4 v_cur = texture2D(u_velocity, v_uv);
     vec4 v_nxt = texture2D(u_velocity_next, v_uv);
     float d_here = mix(v_cur.b, v_nxt.b, u_time_frac) * u_h_max;
@@ -691,15 +691,15 @@ void main() {
         texture2D(u_velocity_next, v_uv + vec2(0.0, u_texel_size.y)).b,
         u_time_frac) * u_h_max;
     float depth_gradient = length(vec2(d_here - d_right, d_here - d_up));
-    float gradient_foam = smoothstep(0.05, 0.3, depth_gradient);
-    float velocity_foam = smoothstep(0.6, 1.5, v_speed);
+    float gradient_foam = smoothstep(0.20, 0.60, depth_gradient);
+    float velocity_foam = smoothstep(1.2, 2.5, v_speed);
     float foam_noise = snoise(v_uv * 80.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
     float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_noise;
     foam = clamp(foam, 0.0, 1.0);
     vec3 foam_color = vec3(0.90, 0.95, 1.0);
 
     // ── Composite ──
-    vec3 final_col = mix(lit_water, foam_color, foam * 0.6);
+    vec3 final_col = mix(lit_water, foam_color, foam * 0.30);
     final_col += specular;
     // Sky reflection blended by Fresnel
     final_col = mix(final_col, skyReflection, fresnel * 0.55);
@@ -712,7 +712,7 @@ void main() {
 
     // ── Alpha: Fresnel-modulated transparency ──
     float base_alpha = mix(0.4, 0.88, t);
-    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.25, 0.0, 0.95);
+    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.10, 0.0, 0.95);
 
     gl_FragColor = vec4(final_col, final_alpha);
 }
@@ -1463,7 +1463,11 @@ class FloodViewer3D {
         this.useSatellite = false;
         // Water level surface
         this.showWater = true;
-        this.showParticles = true;
+        // Particles off by default — the water-surface shading already
+        // conveys the flood extent cleanly. The toggle button still
+        // lets the user enable particles whenever the velocity field
+        // is what they want to inspect.
+        this.showParticles = false;
         // Concentration overlay
         this.showConcentration = false;
         this.concFrameCache = new Map();
