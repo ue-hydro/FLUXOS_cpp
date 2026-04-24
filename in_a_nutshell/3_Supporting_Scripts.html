@@ -171,19 +171,28 @@
 <span class="comment"># 1. Create a virtual environment at the repo root</span>
 python3 -m venv .venv
 
-<span class="comment"># 2. Activate it</span>
-<span class="comment"># macOS / Linux:</span>
+<span class="comment"># 2. Activate it — the next two lines are idempotent and safe whether</span>
+<span class="comment">#    or not you use Conda. They prevent a stale Conda (base) env and</span>
+<span class="comment">#    its PROJ_LIB pointing at Conda's proj.db from shadowing the</span>
+<span class="comment">#    venv's rasterio/pyproj (a classic hang on `import rasterio`).</span>
+conda deactivate 2>/dev/null || true
+unset PROJ_LIB PROJ_DATA
 source .venv/bin/activate
 
 <span class="comment"># Windows (PowerShell):</span>
-.venv\Scripts\Activate.ps1
+<span class="comment">#   if ($env:CONDA_DEFAULT_ENV) { conda deactivate }</span>
+<span class="comment">#   Remove-Item Env:PROJ_LIB, Env:PROJ_DATA -ErrorAction SilentlyContinue</span>
+<span class="comment">#   .venv\Scripts\Activate.ps1</span>
 
 <span class="comment"># 3. Install the dependencies</span>
 pip install --upgrade pip
 pip install -r supporting_scripts/requirements.txt
 
-<span class="comment"># 4. Verify</span>
-python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span></pre>
+<span class="comment"># 4. Verify — `env -u` runs python with a cleaned environment so a</span>
+<span class="comment">#    leftover PROJ_LIB from Conda (base) can't make rasterio hang.</span>
+<span class="comment">#    Works on macOS, Linux and WSL; no `timeout` / no Conda needed.</span>
+env -u PROJ_LIB -u PROJ_DATA \
+    python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span></pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
@@ -204,6 +213,15 @@ python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</
                             <strong>gmsh on macOS / Linux:</strong> if <code>pip install gmsh</code>
                             fails on the binary wheel, install via your package manager
                             (<code>brew install gmsh</code> / <code>apt install gmsh</code>) first.
+                        </div>
+                        <div class="highlight-box warning">
+                            <strong>Conda / PROJ_LIB conflict:</strong> if your shell shows
+                            <code>(.venv)&nbsp;(base)</code>, Conda's <code>PROJ_LIB</code>
+                            can shadow the venv's <code>proj.db</code> and make
+                            <code>import rasterio</code> hang forever. The activation step
+                            <code>unset</code>s those vars, and the verify command runs
+                            under <code>env&nbsp;-u&nbsp;PROJ_LIB&nbsp;-u&nbsp;PROJ_DATA</code>,
+                            so the recipe is immune whether or not Conda is active.
                         </div>
                     </div>
                 </div>
