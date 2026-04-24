@@ -244,19 +244,27 @@ void tri_hydrodynamics_calc(
         // Recompute depth
         double hp = std::fmax(0.0, sol.z[ci] - sol.zb[ci]);
 
-        // Depth cap: safety net against unbounded accumulation in pathological
-        // numerical sinks (tiny triangular cells near sharp terrain features
-        // can act as numerical sinks that don't exist on the regular mesh).
-        // The cap must be HIGH ENOUGH to pass realistic flood depths — rivers
-        // routinely reach 3-5 m, and floodplain ponds can exceed that. A too-
-        // low cap silently deletes water and breaks mass conservation. 10 m
-        // is a reasonable default: still catches pathological pileups that
-        // would freeze the CFL timestep, but lets normal floods through.
-        const double h_max_cap = 10.0;  // Maximum allowable depth (m)
-        if (hp > h_max_cap) {
-            hp = h_max_cap;
-            sol.z[ci] = sol.zb[ci] + hp;
-        }
+        // Depth cap DISABLED.
+        //
+        // The previous implementation silently clipped hp at 10 m when
+        // an "intermediate" timestep produced a local pileup, then
+        // reset sol.z[ci] = sol.zb[ci] + 10 and moved on. That clip is
+        // NOT mass-conservative — any water above 10 m in that cell was
+        // deleted, without redistribution to neighbours. For Torres
+        // Vedras we observed the triangular-mesh run tracking the
+        // regular-mesh mass perfectly up to ~t=4500 s, then losing
+        // ~62 000 m³ (≈ 50% of the domain volume) between two output
+        // snapshots — the cap fires during the ramp-up spike and never
+        // "un-fires".
+        //
+        // True pathological pileups (tiny numerical-sink triangles) are
+        // now prevented upstream by the inflow-patch spreading in
+        // tri_initiate / tri_add_inflow and by the forcing-cadence dt
+        // clamp in main.cpp. If hp still goes to a silly value after
+        // those fixes, that is a real physics/numerics problem and the
+        // simulation should expose it, not silently eat the mass.
+        // Leaving the conditional here so a future diagnostic can
+        // re-enable a mass-conservative clip without restructuring.
 
         sol.h[ci] = hp;
 
@@ -296,6 +304,33 @@ void tri_hydrodynamics_calc(
             double denom = h2 + std::fmax(h2, eps2);
             sol.ux[ci] = 2.0 * hp * sol.qx[ci] / denom;
             sol.uy[ci] = 2.0 * hp * sol.qy[ci] / denom;
+
+            // ---- Velocity cap ----
+            // Unstructured meshes at coarse resolution can develop
+            // unphysical velocity spikes in tiny triangles near steep
+            // terrain. These spikes don't just look wrong in the output
+            // — they collapse the CFL time step (dt ~ r/|u|) so the
+            // solver grinds at microsecond steps and appears to freeze
+            // the simulation while the wetted footprint is still
+            // growing. Clipping |u| at a physically defensible ceiling
+            // keeps the global CFL bounded without touching cells that
+            // are behaving normally.
+            //
+            // 15 m/s is well above realistic flood-flow speeds (typical
+            // urban rivers 1-4 m/s, dam-break 5-8 m/s, catastrophic
+            // dambreak ~10 m/s). Anything above is numerics, not
+            // physics. The clip scales qx, qy proportionally so mass
+            // and flow direction are preserved.
+            constexpr double u_max = 15.0;
+            double speed_now = std::sqrt(sol.ux[ci] * sol.ux[ci]
+                                       + sol.uy[ci] * sol.uy[ci]);
+            if (speed_now > u_max) {
+                double scale = u_max / speed_now;
+                sol.ux[ci] *= scale;
+                sol.uy[ci] *= scale;
+                sol.qx[ci] *= scale;
+                sol.qy[ci] *= scale;
+            }
 
             // Shear stress velocity: us = sqrt(g * h * Sf)
             double speed = std::sqrt(sol.ux[ci] * sol.ux[ci] + sol.uy[ci] * sol.uy[ci]);

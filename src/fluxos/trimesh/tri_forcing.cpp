@@ -113,14 +113,23 @@ bool tri_add_inflow(
             }
         }
 
-        int ci = ds.inflow_nrow;  // Cell index for triangular mesh
-
-        if (ci < 0 || ci >= mesh.num_cells) {
-            return errflag;  // No valid inflow cell
+        // Distribute Q*dt across the injection PATCH built in
+        // tri_initiate (a disk of cells around the inflow point, total
+        // area ≈ π·dxy²). This decouples the per-cell depth rise from
+        // the local mesh refinement, so a 5 m triangle and a 30 m
+        // triangle get the same dh — matching the regular-mesh single-
+        // cell injection at a coarse dxy scale.
+        //
+        // Fallback: if the patch is empty (should only happen when
+        // tri_initiate could not find the inflow point at all), we
+        // simply skip injection this step.
+        if (ds.inflow_patch_cells.empty() ||
+            ds.inflow_patch_total_area <= 0.0) {
+            return errflag;
         }
 
-        // Inflow as m3/s, convert to depth change: dh = Q * dt / cell_area
-        double inflowi = (*ds.inflow).at(inflow_rowi, 1) * ds.dtfl / mesh.cells[ci].area;
+        const double Q_dt = (*ds.inflow).at(inflow_rowi, 1) * ds.dtfl;
+        const double dh   = Q_dt / ds.inflow_patch_total_area;
 
         // Get chem data
         std::vector<double> inflow_conci(nchem);
@@ -128,33 +137,30 @@ bool tri_add_inflow(
             inflow_conci[ichem] = (*ds.inflow).at(inflow_rowi, ichem + 2);
         }
 
-        if (sol.innerNeumannBCWeir[ci] != 1.0f) {
+        for (int ci : ds.inflow_patch_cells) {
+            if (ci < 0 || ci >= mesh.num_cells) continue;
+            if (sol.innerNeumannBCWeir[ci] == 1.0f) continue; // NODATA
+
             if (sol.z[ci] <= sol.zb[ci]) {
                 sol.z[ci] = sol.zb[ci];
             }
 
             double hp = std::fmax(sol.z[ci] - sol.zb[ci], 0.0);
-            sol.z[ci] += inflowi;
+            sol.z[ci] += dh;
             sol.h[ci] = std::fmax(sol.z[ci] - sol.zb[ci], 0.0);
 
-            if (sol.h[ci] <= ds.hdry)
-                sol.ldry[ci] = 1.0f;
-            else
-                sol.ldry[ci] = 0.0f;
+            sol.ldry[ci] = (sol.h[ci] <= ds.hdry) ? 1.0f : 0.0f;
+            sol.h0[ci]   = sol.h[ci];
 
-            sol.h0[ci] = sol.h[ci];
-
-            // Concentration adjustment
-            if (ds.ade_solver && hp > 0.0) {
+            // Concentration: local mixing of existing water (depth hp)
+            // with injected water (depth dh) per cell.
+            if (ds.ade_solver && sol.h[ci] > 0.0) {
                 for (int ichem = 0; ichem < nchem; ichem++) {
                     sol.conc_SW[ichem][ci] =
-                        (sol.conc_SW[ichem][ci] * hp + inflowi * inflow_conci[ichem])
+                        (sol.conc_SW[ichem][ci] * hp + dh * inflow_conci[ichem])
                         / sol.h[ci];
                 }
             }
-        } else {
-            std::cout << "inflow cell is in NODATA_VALUE region" << std::endl;
-            errflag = true;
         }
     } catch (...) {
         std::cout << "problem in 'tri_add_inflow' module" << std::endl;
