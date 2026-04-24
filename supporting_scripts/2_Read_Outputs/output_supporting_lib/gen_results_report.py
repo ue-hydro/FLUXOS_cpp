@@ -148,6 +148,17 @@ td.num{text-align:right;font-family:'JetBrains Mono',monospace;font-size:.82rem}
   border-radius:12px;overflow:hidden}
 .plot-wide{min-height:480px}
 
+/* Satellite-basemap toggle next to each map */
+.plot-controls{display:flex;justify-content:flex-end;align-items:center;gap:.4rem;
+  margin:.6rem 0 -.2rem;font-size:.82rem;color:var(--text2)}
+.plot-controls label{display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;
+  user-select:none;padding:.25rem .55rem;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface);
+  transition:background .15s,border-color .15s}
+.plot-controls label:hover{background:var(--bg);border-color:var(--border2)}
+.plot-controls input[type="checkbox"]{cursor:pointer;accent-color:var(--primary);margin:0}
+.plot-controls .hint{font-size:.72rem;color:var(--text3);margin-right:auto;font-style:italic}
+
 /* Per-line copy buttons in code blocks (for the shell snippet sections) */
 .code-block{position:relative;margin:.6rem 0}
 .code-block pre{background:var(--code-bg);color:var(--code-text);padding:1rem;
@@ -284,8 +295,98 @@ function plotlyLayoutPatch(){
       if (!raw) return;
       const fig = JSON.parse(raw);
       Plotly.newPlot(el, fig.data || [], Object.assign({}, fig.layout || {}, plotlyLayoutPatch()),
-                     {displaylogo:false, responsive:true});
+                     {displaylogo:false, responsive:true, scrollZoom:true,
+                      modeBarButtonsToAdd:['zoomIn2d','zoomOut2d','autoScale2d','resetScale2d'],
+                      doubleClick:'reset+autosize'});
       el._fluxos_fig = fig;
+    });
+  });
+})();
+
+// Per-plot UI controls: "Satellite basemap" checkbox (maps only) and
+// "Lock zoom" checkbox (every plot, ON by default).
+//
+// Satellite toggle: relayouts layout.images[] on/off, saving the original
+//   array on the DOM so flipping the checkbox twice doesn't lose it.
+//
+// Lock-zoom toggle: relayouts xaxis.fixedrange / yaxis.fixedrange on all
+//   subplots of the figure (covers multi-y charts like the time-series).
+//   Default state is LOCKED — prevents accidental zoom via scroll wheel
+//   when the user is actually trying to scroll the page. Unchecking the
+//   lock re-enables scroll-zoom, drag-pan, and double-click-to-reset.
+(function(){
+  function waitForPlotly(cb, tries = 80){
+    if (window.Plotly) return cb();
+    if (tries <= 0) return;
+    setTimeout(() => waitForPlotly(cb, tries-1), 100);
+  }
+  // Collect every axis key in a layout (xaxis, xaxis2, yaxis, yaxis3, …)
+  // so the lock applies to every subplot of a multi-axis figure.
+  function axisKeys(layout){
+    const keys = [];
+    Object.keys(layout || {}).forEach(k => {
+      if (/^(x|y)axis(\d*)$/.test(k)) keys.push(k);
+    });
+    if (!keys.length) keys.push('xaxis', 'yaxis'); // default single-axis
+    return keys;
+  }
+  function applyLock(plot, locked){
+    const update = {};
+    axisKeys(plot.layout || {}).forEach(k => {
+      update[k + '.fixedrange'] = !!locked;
+    });
+    Plotly.relayout(plot, update);
+    plot.dataset.locked = locked ? 'true' : 'false';
+  }
+  // Wheel-passthrough: when a plot is LOCKED, Plotly's scroll-zoom
+  // handler still captures the wheel event (preventing the page from
+  // scrolling when the cursor happens to hover over the plot). We
+  // intercept wheel events in the CAPTURE phase before Plotly sees
+  // them; if the plot is locked we stopImmediatePropagation (so Plotly
+  // never runs) and we deliberately do NOT preventDefault, letting
+  // the browser's native page scroll take over.
+  function installWheelPassthrough(plot){
+    plot.addEventListener('wheel', (e) => {
+      if (plot.dataset.locked === 'true') {
+        e.stopImmediatePropagation();
+      }
+    }, {capture: true, passive: true});
+  }
+  waitForPlotly(() => {
+    // Satellite-basemap toggle
+    document.querySelectorAll('.basemap-toggle').forEach(cb => {
+      const plot = document.getElementById(cb.getAttribute('data-target'));
+      if (!plot || !plot._fluxos_fig) return;
+      const saved = (plot._fluxos_fig.layout || {}).images || [];
+      if (!saved.length) return;
+      plot._fluxos_basemap_images = saved;
+      cb.addEventListener('change', () => {
+        Plotly.relayout(plot, {
+          images: cb.checked ? plot._fluxos_basemap_images : []
+        });
+      });
+    });
+    // Lock-zoom toggle — apply initial state (locked by default), wire
+    // the change handler, and install the wheel-passthrough so a locked
+    // plot never eats page-scroll events.
+    document.querySelectorAll('.lock-zoom').forEach(cb => {
+      const plot = document.getElementById(cb.getAttribute('data-target'));
+      if (!plot) return;
+      installWheelPassthrough(plot);
+      applyLock(plot, cb.checked);   // matches the initial `checked` attribute
+      cb.addEventListener('change', () => applyLock(plot, cb.checked));
+    });
+    // Results-overlay toggle — hide / show every scattergl trace in the
+    // map so users can inspect the satellite imagery without the flood
+    // cells in the way. Uses Plotly.restyle with the 'visible' attribute.
+    document.querySelectorAll('.results-toggle').forEach(cb => {
+      const plot = document.getElementById(cb.getAttribute('data-target'));
+      if (!plot || !plot.data) return;
+      const traceIdx = plot.data.map((_, i) => i);
+      cb.addEventListener('change', () => {
+        Plotly.restyle(plot, {visible: cb.checked ? true : 'legendonly'},
+                       traceIdx);
+      });
     });
   });
 })();
@@ -318,13 +419,29 @@ def _fetch_satellite_basemap(dem_meta: dict, utm_zone: int | None,
     east_sw, north_sw = xll, yll
     east_ne, north_ne = xll + ncols * cs, yll + nrows * cs
 
-    # UTM → WGS84
+    # UTM → WGS84. A UTM rectangle is NOT a lat/lon rectangle (the
+    # UTM projection curves slightly), so the lat/lon bbox that CIRC-
+    # UMSCRIBES the UTM rectangle is obtained by sampling all four
+    # corners AND edge midpoints — the bow-out can be 10s of metres
+    # at a 10-km box. We buffer a little on each side so the warped
+    # image has source pixels covering every UTM corner.
     try:
         from pyproj import Transformer
+        import numpy as np
         epsg = 32600 + int(utm_zone) + (100 if utm_southern else 0)
-        tr = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
-        sw_lon, sw_lat = tr.transform(east_sw, north_sw)
-        ne_lon, ne_lat = tr.transform(east_ne, north_ne)
+        tr_u2ll = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326",
+                                       always_xy=True)
+        tr_ll2u = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}",
+                                       always_xy=True)
+        corners_e = [east_sw, east_ne, east_ne, east_sw,
+                     (east_sw + east_ne) / 2, (east_sw + east_ne) / 2,
+                     east_sw, east_ne]
+        corners_n = [north_sw, north_sw, north_ne, north_ne,
+                     north_sw, north_ne,
+                     (north_sw + north_ne) / 2, (north_sw + north_ne) / 2]
+        lons, lats = tr_u2ll.transform(corners_e, corners_n)
+        sw_lon, sw_lat = min(lons), min(lats)
+        ne_lon, ne_lat = max(lons), max(lats)
     except Exception as exc:
         print(f"  pyproj unavailable or transform failed ({exc}); "
               "satellite basemap disabled.")
@@ -347,12 +464,69 @@ def _fetch_satellite_basemap(dem_meta: dict, utm_zone: int | None,
     # Hard cap to keep the JPEG a few MB at most.
     while img_w * img_h > 6_000_000:
         img_w //= 2; img_h //= 2
+
+    # Download to a sibling tmp path first — we'll warp it to UTM and
+    # overwrite the final path with the warped image.
+    tmp_path = out_path + ".latlon.jpg"
     try:
         _fv._download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
-                                img_w, img_h, out_path)
+                                img_w, img_h, tmp_path)
     except Exception as exc:
         print(f"  Satellite download failed ({exc}); basemap disabled.")
         return None, None
+    if not os.path.isfile(tmp_path):
+        return None, None
+
+    # --- Warp lat/lon (equirectangular) → UTM (linear in east/north) ---
+    #
+    # The downloaded image has pixel (i, j) at
+    #     lon = sw_lon + (j+0.5)/img_w * (ne_lon - sw_lon)
+    #     lat = ne_lat - (i+0.5)/img_h * (ne_lat - sw_lat)
+    # We need an image where pixel (i, j) corresponds to a UTM coord.
+    # For each output pixel, compute UTM → lat/lon → source pixel and
+    # bilinear-sample.
+    try:
+        from PIL import Image as _PILImage
+        src = np.asarray(_PILImage.open(tmp_path).convert("RGB"))
+        src_h, src_w = src.shape[:2]
+
+        east = east_sw + (np.arange(img_w) + 0.5) / img_w * (east_ne - east_sw)
+        north = north_ne - (np.arange(img_h) + 0.5) / img_h * (north_ne - north_sw)
+        EE, NN = np.meshgrid(east, north)                          # (img_h, img_w)
+        lon_grid, lat_grid = tr_u2ll.transform(EE.ravel(), NN.ravel())
+        lon_grid = np.asarray(lon_grid).reshape(img_h, img_w)
+        lat_grid = np.asarray(lat_grid).reshape(img_h, img_w)
+
+        # Source-pixel coords (fractional)
+        col_f = (lon_grid - sw_lon) / (ne_lon - sw_lon) * src_w - 0.5
+        row_f = (ne_lat - lat_grid) / (ne_lat - sw_lat) * src_h - 0.5
+
+        # Bilinear sampling
+        col0 = np.clip(np.floor(col_f).astype(np.int32), 0, src_w - 1)
+        col1 = np.clip(col0 + 1, 0, src_w - 1)
+        row0 = np.clip(np.floor(row_f).astype(np.int32), 0, src_h - 1)
+        row1 = np.clip(row0 + 1, 0, src_h - 1)
+        fx = (col_f - col0)[..., None]
+        fy = (row_f - row0)[..., None]
+        p00 = src[row0, col0].astype(np.float32)
+        p10 = src[row0, col1].astype(np.float32)
+        p01 = src[row1, col0].astype(np.float32)
+        p11 = src[row1, col1].astype(np.float32)
+        out = ((1 - fx) * (1 - fy) * p00 +
+               fx * (1 - fy) * p10 +
+               (1 - fx) * fy * p01 +
+               fx * fy * p11).astype(np.uint8)
+
+        _PILImage.fromarray(out).save(out_path, "JPEG", quality=85)
+        try: os.remove(tmp_path)
+        except OSError: pass
+        print(f"  Warped basemap to UTM grid: {img_w}×{img_h} px")
+    except Exception as exc:
+        # Fall back to the raw lat/lon image — geographic alignment will
+        # be slightly off for large bboxes but the report still renders.
+        print(f"  Warp to UTM failed ({exc}); using un-warped basemap.")
+        try: os.replace(tmp_path, out_path)
+        except OSError: pass
 
     if not os.path.isfile(out_path):
         return None, None
@@ -744,9 +918,81 @@ def _kpi(icon: str, value, label: str, sub: str = "") -> str:
 
 
 def _plot_div(plot_id: str, fig: dict, wide: bool = False) -> str:
+    """Raw plot div — no controls. Kept for backwards-compat. Most
+    callers should use ``_graph_plot_div`` or ``_map_plot_div`` so the
+    lock-zoom checkbox gets attached."""
     klass = "plot plot-wide" if wide else "plot"
     encoded = _esc(json.dumps(fig, default=float))
     return f'<div id="{plot_id}" class="{klass}" data-fig="{encoded}"></div>'
+
+
+def _zoom_lock_checkbox(plot_id: str, label: str = "Lock zoom") -> str:
+    """A checkbox wired to ``.lock-zoom`` JS that flips xaxis/yaxis
+    ``fixedrange`` on / off. Checked (locked) by default — protects
+    against accidental scroll-zoom when the user is trying to scroll
+    the page."""
+    return (
+        f'<label title="Disable / enable scroll-zoom and box-zoom. '
+        f'When locked, the plot axes stay at the default range.">'
+        f'<input type="checkbox" class="lock-zoom" '
+        f'data-target="{plot_id}" checked> {_esc(label)}'
+        '</label>'
+    )
+
+
+def _graph_plot_div(plot_id: str, fig: dict | None, wide: bool = False,
+                    missing_msg: str = "No data.") -> str:
+    """Render a non-spatial plot (time-series, histogram, …) with a
+    "Lock zoom" checkbox in the control bar. No basemap / results
+    toggles (those are map-specific)."""
+    if fig is None:
+        return f'<em>{_esc(missing_msg)}</em>'
+    controls = (
+        '<div class="plot-controls">'
+        '<span class="hint">Uncheck to enable scroll / drag zoom · '
+        'double-click to reset</span>'
+        f'{_zoom_lock_checkbox(plot_id)}'
+        '</div>'
+    )
+    return controls + _plot_div(plot_id, fig, wide=wide)
+
+
+def _map_plot_div(plot_id: str, fig: dict | None, wide: bool = False) -> str:
+    """Render a spatial plot with THREE control checkboxes:
+      * **Satellite basemap** — show / hide layout.images (only rendered
+        when the figure actually has one).
+      * **Lock zoom** — disables scroll / box-zoom (on by default, so the
+        page doesn't hijack the scroll wheel).
+      * **Results** — show / hide all scattergl traces (so users can
+        inspect the underlying satellite imagery with no overlay).
+    """
+    if fig is None:
+        return '<em>No spatial data.</em>'
+    has_basemap = bool((fig.get("layout") or {}).get("images"))
+
+    basemap_cb = ''
+    if has_basemap:
+        basemap_cb = (
+            f'<label title="Show / hide the ArcGIS World Imagery basemap">'
+            f'<input type="checkbox" class="basemap-toggle" '
+            f'data-target="{plot_id}" checked> Satellite basemap'
+            '</label>'
+        )
+    results_cb = (
+        f'<label title="Show / hide the per-cell scatter overlay — '
+        f'uncheck to inspect the satellite imagery unobstructed">'
+        f'<input type="checkbox" class="results-toggle" '
+        f'data-target="{plot_id}" checked> Results'
+        '</label>'
+    )
+    controls = (
+        '<div class="plot-controls">'
+        '<span class="hint">Uncheck "Lock zoom" to enable scroll / drag · '
+        'double-click to reset</span>'
+        f'{basemap_cb}{results_cb}{_zoom_lock_checkbox(plot_id)}'
+        '</div>'
+    )
+    return controls + _plot_div(plot_id, fig, wide=wide)
 
 
 # ---------------------------------------------------------------------------
@@ -785,6 +1031,17 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
     authors = ", ".join(config.get("authors", [])) or "—"
 
     # --- Satellite basemap (shared by every map figure) -------------------
+    #
+    # We embed the JPEG as a base64 data URI inside the HTML rather than
+    # referencing a sibling file via a relative URL. Reason: Chrome and
+    # most Chromium-based browsers refuse to load ``file://`` images when
+    # the parent HTML itself came from a ``file://`` URL (the "local file
+    # access" security policy), so a relative ``<project>_basemap.jpg``
+    # reference looks fine in the HTML but shows no image in the browser.
+    # With a data URI the report is fully self-contained — works over
+    # ``file://``, over HTTP, and as an email attachment alike.
+    # Size cost: a 800 KB JPEG becomes ~1.1 MB of base64, which is still
+    # tiny next to the 100–200 KB of plotly data already in the report.
     sat_src = None
     sat_info = None
     if dem_meta and utm_zone is not None:
@@ -794,8 +1051,22 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
         got_path, got_info = _fetch_satellite_basemap(
             dem_meta, utm_zone, utm_southern, sat_path, resolution_mult=3.0)
         if got_path and got_info:
-            sat_src = os.path.basename(got_path)  # relative URL alongside HTML
-            sat_info = got_info
+            # Inline the JPEG as a data URI so the HTML is self-contained.
+            try:
+                import base64
+                with open(got_path, "rb") as f:
+                    jpg_bytes = f.read()
+                b64 = base64.b64encode(jpg_bytes).decode("ascii")
+                sat_src = f"data:image/jpeg;base64,{b64}"
+                sat_info = got_info
+                print(f"  Basemap      : embedded {len(jpg_bytes) / 1024:.0f} KB "
+                      f"as data URI (self-contained HTML)")
+            except Exception as exc:
+                print(f"  Basemap      : failed to embed basemap ({exc}); "
+                      "falling back to relative URL "
+                      "(may not load in Chrome from file://)")
+                sat_src = os.path.basename(got_path)
+                sat_info = got_info
     else:
         if not utm_zone:
             print("  Basemap      : no UTM zone provided — skipping satellite basemap")
@@ -956,7 +1227,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Per-timestep aggregates over the full domain. Volume and area quantify
           the overall flood extent; max/mean depth and max velocity characterise
           the severity.</p>
-        {_plot_div("ts-plot", fig_ts, wide=True)}
+        {_graph_plot_div("ts-plot", fig_ts, wide=True)}
       </div>
     </section>"""
 
@@ -968,7 +1239,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Per-cell maximum water depth observed at any timestep — the single
           most important output for floodplain delimitation and post-event
           analysis.</p>
-        {_plot_div("max-plot", fig_max) if fig_max else '<em>No spatial data.</em>'}
+        {_map_plot_div("max-plot", fig_max)}
       </div>
     </section>"""
 
@@ -979,7 +1250,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
         <p style="color:var(--text2);margin-bottom:.3rem">
           Cells classified by the hazard factor <code>D = h·(v + 0.5)</code>
           (Australian Rainfall &amp; Runoff 2019). H1 (Low) to H4 (Extreme).</p>
-        {_plot_div("haz-plot", fig_haz) if fig_haz else '<em>No velocity data.</em>'}
+        {_map_plot_div("haz-plot", fig_haz)}
       </div>
     </section>"""
 
@@ -991,7 +1262,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Stacked area of the domain-wide flooded area classified per timestep.
           A sharp rise in the orange / red bands indicates when the flood
           became dangerous to people and infrastructure.</p>
-        {_plot_div("haz-evo-plot", fig_haz_evo) if fig_haz_evo else '<em>No velocity data.</em>'}
+        {_graph_plot_div("haz-evo-plot", fig_haz_evo, missing_msg="No velocity data.")}
       </div>
     </section>"""
 
@@ -1002,7 +1273,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
         <p style="color:var(--text2);margin-bottom:.3rem">
           Histogram of max depth across cells that were ever wet — shows
           whether the flood is predominantly shallow spreading or deep channelised.</p>
-        {_plot_div("hist-plot", fig_hist) if fig_hist else '<em>No data.</em>'}
+        {_graph_plot_div("hist-plot", fig_hist)}
       </div>
     </section>"""
 
@@ -1014,7 +1285,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Histogram of the per-cell maximum flow velocity (clipped at the 99th
           percentile to keep the x-axis readable). Heavy tails usually mean the
           flood has narrow high-energy channels.</p>
-        {_plot_div("vhist-plot", fig_vhist) if fig_vhist else '<em>No velocity data.</em>'}
+        {_graph_plot_div("vhist-plot", fig_vhist, missing_msg="No velocity data.")}
       </div>
     </section>"""
 
@@ -1026,7 +1297,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           First timestep at which each cell exceeded the wet-depth threshold —
           reveals the flood-front propagation that the WebGL animation shows
           dynamically.</p>
-        {_plot_div("fw-plot", fig_first) if fig_first else '<em>No data.</em>'}
+        {_map_plot_div("fw-plot", fig_first)}
       </div>
     </section>"""
 
@@ -1039,11 +1310,11 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
           Useful for ecology, infrastructure, and residual-damage assessments
           — brief shallow wetting has very different consequences from days
           of sustained inundation.</p>
-        {_plot_div("dur-map-plot", fig_dur_map) if fig_dur_map else '<em>No duration data.</em>'}
+        {_map_plot_div("dur-map-plot", fig_dur_map)}
       </div>
       <div class="card" style="margin-top:1rem">
         <h3>Distribution of wet duration</h3>
-        {_plot_div("dur-hist-plot", fig_dur_hist) if fig_dur_hist else '<em>No duration data.</em>'}
+        {_graph_plot_div("dur-hist-plot", fig_dur_hist, missing_msg="No duration data.")}
       </div>
     </section>"""
 
@@ -1056,7 +1327,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
             <p style="color:var(--text2);margin-bottom:.3rem">
               Domain-wide statistics of the transported solute concentration.
               Enabled because <code>ADE_TRANSPORT.STATUS = true</code> in the modset.</p>
-            {_plot_div("chem-plot", fig_chem)}
+            {_graph_plot_div("chem-plot", fig_chem)}
           </div>
         </section>"""
 
