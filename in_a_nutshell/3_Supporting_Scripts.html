@@ -133,7 +133,8 @@
                             <p style="margin-bottom: 8px;">&bull; Python Environment Setup</p>
                             <p style="margin-bottom: 8px;">&bull; Tools Overview</p>
                             <p style="margin-top: 15px; color: var(--primary); font-weight: 600;">Section 01: Preprocessing</p>
-                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; <code>1_Model_Config/model_config_template.py</code></p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; <code>1_Model_Config/</code> &mdash; copy, edit, run</p>
+                            <p style="margin-left: 20px; margin-bottom: 8px;">&bull; What goes inside <code>model_config_&lt;project&gt;.py</code></p>
                             <p style="margin-left: 20px; margin-bottom: 8px;">&bull; The HTML configuration report</p>
                         </div>
                     </div>
@@ -155,74 +156,56 @@
         </div>
 
         <!-- Slide 3: Python environment setup -->
-        <div class="slide" data-slide="3">
-            <div class="slide-header">
+        <div class="slide" data-slide="3" style="padding: 40px 70px 50px;">
+            <div class="slide-header" style="margin-bottom: 20px;">
                 <h2>Python Environment Setup</h2>
             </div>
             <div class="slide-content">
-                <p style="font-size: 1.1rem; margin-bottom: 20px;">
-                    The two templates and the results viewer are pure Python. A virtual environment
-                    keeps their dependencies isolated from your system Python. Run this once, after
-                    cloning the repo:
+                <p style="font-size: 0.95rem; margin-bottom: 8px; color: var(--text-light);">
+                    Create the venv once after clone:
                 </p>
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <pre style="font-size: 0.85rem; padding: 20px;">
-<span class="comment"># 1. Create a virtual environment at the repo root</span>
+                        <pre style="font-size: 0.82rem; padding: 16px; line-height: 1.4;">
+<span class="comment"># 1. Create the venv</span>
 python3 -m venv .venv
 
-<span class="comment"># 2. Activate it — the next two lines are idempotent and safe whether</span>
-<span class="comment">#    or not you use Conda. They prevent a stale Conda (base) env and</span>
-<span class="comment">#    its PROJ_LIB pointing at Conda's proj.db from shadowing the</span>
-<span class="comment">#    venv's rasterio/pyproj (a classic hang on `import rasterio`).</span>
+<span class="comment"># 2. Activate (the conda/unset lines are harmless</span>
+<span class="comment">#    w/o Conda; they stop a stale PROJ_LIB from</span>
+<span class="comment">#    hanging `import rasterio`)</span>
 conda deactivate 2>/dev/null || true
 unset PROJ_LIB PROJ_DATA
 source .venv/bin/activate
 
-<span class="comment"># Windows (PowerShell):</span>
-<span class="comment">#   if ($env:CONDA_DEFAULT_ENV) { conda deactivate }</span>
-<span class="comment">#   Remove-Item Env:PROJ_LIB, Env:PROJ_DATA -ErrorAction SilentlyContinue</span>
-<span class="comment">#   .venv\Scripts\Activate.ps1</span>
-
-<span class="comment"># 3. Install the dependencies</span>
+<span class="comment"># 3. Install deps</span>
 pip install --upgrade pip
 pip install -r supporting_scripts/requirements.txt
 
-<span class="comment"># 4. Verify — `env -u` runs python with a cleaned environment so a</span>
-<span class="comment">#    leftover PROJ_LIB from Conda (base) can't make rasterio hang.</span>
-<span class="comment">#    Works on macOS, Linux and WSL; no `timeout` / no Conda needed.</span>
+<span class="comment"># 4. Verify</span>
 env -u PROJ_LIB -u PROJ_DATA \
     python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span></pre>
                     </div>
                     <div class="column">
-                        <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">What's in requirements.txt</h3>
-                            <table style="font-size: 0.9rem;">
+                        <div class="card primary" style="padding: 14px 18px; margin-bottom: 10px;">
+                            <h3 style="font-size: 1.05rem; margin-bottom: 6px;">requirements.txt</h3>
+                            <table style="font-size: 0.82rem; line-height: 1.4;">
                                 <tr><td><code>rasterio</code></td><td>GeoTIFF I/O</td></tr>
-                                <tr><td><code>numpy</code></td><td>arrays</td></tr>
-                                <tr><td><code>scipy</code></td><td>resampling</td></tr>
+                                <tr><td><code>numpy</code> / <code>scipy</code></td><td>arrays, resampling</td></tr>
                                 <tr><td><code>pygmsh</code>, <code>gmsh</code></td><td>triangular meshing</td></tr>
                                 <tr><td><code>pyvista</code></td><td>read <code>.vtu</code> output</td></tr>
                             </table>
                         </div>
-                        <div class="highlight-box info">
-                            <strong>Reactivate next time:</strong> every new terminal needs
-                            <code>source .venv/bin/activate</code> before running the templates.
-                        </div>
-                        <div class="highlight-box warning">
-                            <strong>gmsh on macOS / Linux:</strong> if <code>pip install gmsh</code>
-                            fails on the binary wheel, install via your package manager
-                            (<code>brew install gmsh</code> / <code>apt install gmsh</code>) first.
-                        </div>
-                        <div class="highlight-box warning">
-                            <strong>Conda / PROJ_LIB conflict:</strong> if your shell shows
-                            <code>(.venv)&nbsp;(base)</code>, Conda's <code>PROJ_LIB</code>
-                            can shadow the venv's <code>proj.db</code> and make
-                            <code>import rasterio</code> hang forever. The activation step
-                            <code>unset</code>s those vars, and the verify command runs
-                            under <code>env&nbsp;-u&nbsp;PROJ_LIB&nbsp;-u&nbsp;PROJ_DATA</code>,
-                            so the recipe is immune whether or not Conda is active.
-                        </div>
+                        <p style="font-size: 0.82rem; color: var(--text-light); margin: 6px 0;">
+                            <strong>gmsh wheel fails?</strong>
+                            <code>brew install gmsh</code> (macOS) /
+                            <code>apt install gmsh</code> (Linux), then re-run&nbsp;pip.
+                        </p>
+                        <p style="font-size: 0.82rem; color: var(--text-light); margin: 4px 0;">
+                            <strong>Windows&nbsp;PowerShell:</strong>&nbsp;
+                            <code>if&nbsp;($env:CONDA_DEFAULT_ENV){conda&nbsp;deactivate}</code>;
+                            <code>Remove-Item&nbsp;Env:PROJ_LIB,Env:PROJ_DATA&nbsp;-EA&nbsp;SilentlyContinue</code>;
+                            <code>.venv\Scripts\Activate.ps1</code>.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -289,58 +272,142 @@ env -u PROJ_LIB -u PROJ_DATA \
         <!-- Slide 6: model_config_template.py -->
         <div class="slide" data-slide="6">
             <div class="slide-header">
-                <h2>1_Model_Config/model_config_template.py</h2>
+                <h2>1_Model_Config/ &mdash; copy, edit, run</h2>
             </div>
             <div class="slide-content">
+                <p style="font-size: 1.05rem; margin-bottom: 18px;">
+                    The preprocessing entry point is a single Python file you
+                    <strong>copy</strong>, <strong>edit</strong>, and <strong>run</strong>.
+                    The template never changes &mdash; each project gets its own copy so
+                    configurations are reproducible and diff-able under version control.
+                </p>
                 <div class="two-column" style="gap: 40px;">
                     <div class="column">
-                        <pre style="font-size: 0.7rem; padding: 18px;">
-<span class="comment"># Copy the template and edit the _config dict:</span>
-cp supporting_scripts/1_Model_Config/model_config_template.py \
-   supporting_scripts/1_Model_Config/model_config_torres_vedras.py
+                        <pre style="font-size: 0.82rem; padding: 20px;">
+<span class="comment"># 1. Move into the config folder</span>
+cd FLUXOS_cpp/supporting_scripts/1_Model_Config/
 
-_config = dict(
-    project_name = <span class="string">"Torres Vedras"</span>,
+<span class="comment"># 2. Copy the template to a project-specific name</span>
+<span class="comment">#    (anything like model_config_&lt;project&gt;.py)</span>
+cp model_config_template.py \
+   model_config_evora.py
 
-    <span class="comment"># --- DOWNLOAD mode — AWS mirror, NO KEY needed ---</span>
-    dem_source_mode       = <span class="string">"download"</span>,
-    download_provider     = <span class="string">"COP30_AWS"</span>,    <span class="comment"># 30 m, global</span>
-    download_bbox_wgs84   = (-9.280, 39.080,
-                             -9.240, 39.108),
-    download_target_crs   = <span class="string">"auto"</span>,          <span class="comment"># → UTM 29N</span>
+<span class="comment"># 3. Open the copy and edit the _config dict</span>
+<span class="comment">#    (see next slide for the fields you need to set)</span>
+<span class="comment">#    You can also just double-click the file and edit</span>
+<span class="comment">#    it in any text editor — VS Code, Sublime, PyCharm,</span>
+<span class="comment">#    TextEdit, Notepad++, etc. — no terminal needed.</span>
+nano model_config_evora.py
 
-    dem_target_resolution_m = 30.0,          <span class="comment"># native</span>
-    dem_output_asc          = <span class="string">"TorresVedras_30m.asc"</span>,
-    dem_utm_zone            = 29,
+<span class="comment"># 4. Run it — from this folder OR anywhere else,</span>
+<span class="comment">#    just point python at your edited copy</span>
+python model_config_evora.py
 
-    <span class="comment"># --- Triangular mesh ---</span>
-    mesh_type        = <span class="string">"triangular"</span>,
-    trimesh_min_size = 30.0,                 <span class="comment"># ≥ DEM cell</span>
-    trimesh_max_size = 120.0,
-
-    output_bin_dir = <span class="string">"Working_example"</span>,
-    modset_name    = <span class="string">"modset_torres_vedras.json"</span>,
-)
-
-<span class="comment"># Just run it — no API key needed for COP30_AWS:</span>
-python supporting_scripts/1_Model_Config/\
-model_config_torres_vedras.py</pre>
+<span class="comment"># (run from repo root instead, if you prefer):</span>
+<span class="comment"># python supporting_scripts/1_Model_Config/\</span>
+<span class="comment">#        model_config_evora.py</span></pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">What it produces</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;dem&gt;.asc</code> &mdash; ESRI-ASCII DEM</li>
-                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;mesh&gt;.msh</code> &mdash; Gmsh triangular mesh</li>
-                                <li style="font-size: 0.95rem;"><code>Working_example/&lt;modset&gt;.json</code> &mdash; solver config</li>
-                                <li style="font-size: 0.95rem;">HTML report under <code>1_Model_Config/reports/</code></li>
+                            <h3 style="font-size: 1.2rem;">What the 4 steps do</h3>
+                            <ul style="margin-left: 15px; margin-bottom: 0;">
+                                <li style="font-size: 0.95rem;"><strong>1. cd</strong> &mdash; the templates, their support lib and the generated reports all live in <code>1_Model_Config/</code></li>
+                                <li style="font-size: 0.95rem;"><strong>2. cp</strong> &mdash; never edit <code>model_config_template.py</code> directly; keep it pristine</li>
+                                <li style="font-size: 0.95rem;"><strong>3. edit</strong> &mdash; fill in <code>project_name</code>, DEM source, bbox, mesh size, inflow point, simulation dates (details on the next slide)</li>
+                                <li style="font-size: 0.95rem;"><strong>4. run</strong> &mdash; downloads/reads the DEM, builds the mesh, writes the modset JSON, opens an HTML report with ready-to-paste Docker commands</li>
+                            </ul>
+                        </div>
+                        <div class="highlight-box info">
+                            <strong>Activate your venv first:</strong> <code>source .venv/bin/activate</code>
+                            (see slide 3). The template imports <code>rasterio</code> /
+                            <code>pygmsh</code> &mdash; they have to be installed.
+                        </div>
+                        <div class="highlight-box success">
+                            <strong>Reproducibility:</strong> the copy lives alongside
+                            the template under git, so reviewers / future-you can re-run
+                            the exact same setup by <code>git checkout</code> +
+                            <code>python model_config_&lt;project&gt;.py</code>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">6</div>
+            </div>
+        </div>
+
+        <!-- Slide 7: Config file internals -->
+        <div class="slide" data-slide="7">
+            <div class="slide-header">
+                <h2>What goes inside model_config_&lt;project&gt;.py</h2>
+            </div>
+            <div class="slide-content">
+                <div class="highlight-box info" style="padding: 10px 18px; margin: 0 0 14px; font-size: 0.9rem;">
+                    <strong>Example &mdash; this is the default template content</strong>
+                    (<code>model_config_template.py</code>, Rosa Creek case study). It runs
+                    out-of-the-box on the GeoTIFF shipped at <code>Working_example/Rosa_2m.tif</code>
+                    &mdash; no edits needed.
+                </div>
+                <div class="two-column" style="gap: 40px; max-height: calc(100vh - 290px); overflow-y: auto; align-items: start;">
+                    <div class="column no-copy" style="min-height: 0;">
+                        <pre style="font-size: 0.72rem; padding: 18px;">
+_config = dict(
+    project_name    = <span class="string">"Rosa Creek"</span>,
+    authors         = [<span class="string">"Diogo Costa"</span>],
+    date            = <span class="string">"2026-04-21"</span>,
+
+    output_bin_dir  = <span class="string">"Working_example"</span>,
+    modset_name     = <span class="string">"modset_rosa.json"</span>,
+
+    <span class="comment"># --- DEM: local GeoTIFF ---</span>
+    dem_source_mode         = <span class="string">"file"</span>,
+    dem_source_geotiff      = <span class="string">"Working_example/Rosa_2m.tif"</span>,
+    dem_target_resolution_m = 2.0,
+    dem_output_asc          = <span class="string">"Rosa_2m.asc"</span>,
+
+    <span class="comment"># --- Mesh ---</span>
+    mesh_type               = <span class="string">"regular"</span>,
+    trimesh_min_size        = 2.0,
+    trimesh_max_size        = 30.0,
+    trimesh_slope_factor    = 2.0,
+    mesh_output_msh         = <span class="string">"Rosa_trimesh.msh"</span>,
+
+    <span class="comment"># --- Forcing ---</span>
+    meteo_file              = <span class="string">"Working_example/Qmelt_synthetic.fluxos"</span>,
+    inflow_file             = None,  <span class="comment"># no point source for Rosa</span>
+
+    <span class="comment"># --- Simulation + output ---</span>
+    sim_datetime_start      = <span class="string">"2009-01-01 00:00:00"</span>,
+    roughness_height        = 0.005,
+    output_folder           = <span class="string">"Results/"</span>,
+    print_step_s            = 1800,
+    h_min_to_print_m        = 0.001,
+
+    <span class="comment"># --- Optional modules ---</span>
+    ade_transport           = dict(enabled=True, d_coef=0.5),
+    soil_infiltration       = dict(enabled=False, default_ks_mm_hr=10.0),
+
+    <span class="comment"># --- Run options ---</span>
+    fluxos_executable       = <span class="string">"bin/fluxos"</span>,
+    generate_report         = True,
+)</pre>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 20px;">
+                            <h3 style="font-size: 1.2rem;">What the run produces</h3>
+                            <ul style="margin-left: 15px; margin-bottom: 0;">
+                                <li style="font-size: 0.92rem;"><code>Working_example/&lt;dem&gt;.asc</code> &mdash; ESRI-ASCII DEM</li>
+                                <li style="font-size: 0.92rem;"><code>Working_example/&lt;mesh&gt;.msh</code> &mdash; Gmsh triangular mesh (only for <code>mesh_type="triangular"</code>)</li>
+                                <li style="font-size: 0.92rem;"><code>Working_example/&lt;modset&gt;.json</code> &mdash; solver input</li>
+                                <li style="font-size: 0.92rem;">HTML report under <code>1_Model_Config/reports/</code> with copy-paste Docker compile + run commands</li>
                             </ul>
                         </div>
                         <div class="card secondary" style="padding: 20px;">
                             <h3 style="font-size: 1.2rem;">DEM sources &amp; resolutions</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 0.92rem;"><strong>"file"</strong> &mdash; your own GeoTIFF (must be projected)</li>
-                                <li style="font-size: 0.92rem;"><strong>"download"</strong> &mdash; auto-fetch by bbox:
+                            <ul style="margin-left: 15px; margin-bottom: 0;">
+                                <li style="font-size: 0.9rem;"><strong>"file"</strong> &mdash; your own GeoTIFF (must be in a projected CRS) &mdash; default</li>
+                                <li style="font-size: 0.9rem;"><strong>"download"</strong> &mdash; auto-fetch by bbox:
                                     <br>&nbsp;&nbsp;<em>No key:</em> <strong>COP30_AWS 30 m (global)</strong>&nbsp;★, USGS 3DEP 1-10 m (USA)
                                     <br>&nbsp;&nbsp;<em>OpenTopography (free key):</em> COP30, SRTM, AW3D30, NASADEM (30 m), EU-DTM (10 m, Europe)</li>
                             </ul>
@@ -355,12 +422,12 @@ model_config_torres_vedras.py</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">6</div>
+                <div class="page-number">7</div>
             </div>
         </div>
 
-        <!-- Slide 7: HTML Configuration Report -->
-        <div class="slide" data-slide="7">
+        <!-- Slide 8: HTML Configuration Report -->
+        <div class="slide" data-slide="8">
             <div class="slide-header">
                 <h2>The HTML Configuration Report</h2>
             </div>
@@ -405,25 +472,35 @@ model_config_torres_vedras.py</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">7</div>
+                <div class="page-number">8</div>
             </div>
         </div>
 
-        <!-- Slide 8: Section - Post-Processing -->
-        <div class="slide section-slide purple" data-slide="8">
+        <!-- Slide 9: Section - Post-Processing -->
+        <div class="slide section-slide purple" data-slide="9">
             <div class="section-number">02</div>
             <h2>Post-Processing</h2>
             <img src="uevora_logo.png" alt="University of &Eacute;vora" class="university-logo">
         </div>
 
-        <!-- Slide 9: read_output_template.py -->
-        <div class="slide" data-slide="9">
+        <!-- Slide 10: read_output_template.py -->
+        <div class="slide" data-slide="10">
             <div class="slide-header">
                 <h2>2_Read_Outputs/read_output_template.py</h2>
             </div>
             <div class="slide-content">
+                <div class="highlight-box success" style="padding: 12px 20px; margin: 0 0 18px; font-size: 0.95rem;">
+                    <strong>Don't edit this template by hand if you don't have to.</strong>
+                    The HTML configuration report generated by the preprocessing step already
+                    contains ready-to-run snippets for every post-processing tool &mdash;
+                    the statistics report <em>and</em> the WebGL / KML / MP4 viewer &mdash;
+                    pre-filled with the correct results folder, modset path, DEM, and UTM
+                    zone. Use those if you just want results now. The template + CLI flags
+                    shown below are the <em>manual</em> escape hatch for batch runs,
+                    CI, or calling the scripts from a different project.
+                </div>
                 <div class="two-column" style="gap: 40px;">
-                    <div class="column">
+                    <div class="column no-copy">
                         <pre style="font-size: 0.78rem; padding: 20px;">
 <span class="comment"># Edit the _config dict:</span>
 
@@ -471,108 +548,76 @@ python read_output_template.py</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
-                <div class="page-number">9</div>
-            </div>
-        </div>
-
-        <!-- Slide 10: fluxos_viewer.py -->
-        <div class="slide" data-slide="10">
-            <div class="slide-header">
-                <h2>fluxos_viewer.py &mdash; KML / WebGL / MP4</h2>
-            </div>
-            <div class="slide-content">
-                <div class="two-column" style="gap: 40px;">
-                    <div class="column">
-                        <pre style="font-size: 0.82rem; padding: 20px;">
-<span class="comment"># Located under 2_Read_Outputs/output_supporting_lib/</span>
-
-<span class="comment"># Animated KML for Google Earth</span>
-python supporting_scripts/2_Read_Outputs/\
-output_supporting_lib/fluxos_viewer.py \
-    --results-dir Results_river_30h \
-    --dem Working_example/Rosa_2m.asc \
-    --utm-zone 10 \
-    --output flood.kmz
-
-<span class="comment"># Interactive 3D WebGL page</span>
-python fluxos_viewer.py \
-    --results-dir Results_river_30h \
-    --dem Working_example/Rosa_2m.asc \
-    --utm-zone 10 \
-    --webgl --output-dir web_viewer
-
-<span class="comment"># MP4 animation (requires ffmpeg)</span>
-python fluxos_viewer.py \
-    --results-dir Results_river_30h \
-    --dem Working_example/Rosa_2m.asc \
-    --utm-zone 10 \
-    --mp4 flood.mp4</pre>
-                    </div>
-                    <div class="column">
-                        <div class="card primary" style="padding: 20px;">
-                            <h3 style="font-size: 1.2rem;">Features</h3>
-                            <ul style="margin-left: 15px;">
-                                <li style="font-size: 0.95rem;">Reads both <strong>regular</strong> (<code>.txt</code>) and <strong>triangular</strong> (<code>.vtu</code>) output</li>
-                                <li style="font-size: 0.95rem;">UTM &rarr; WGS84 on the fly; UTM zone auto-detected from DEM</li>
-                                <li style="font-size: 0.95rem;">Time-aware KML with built-in playback slider in Google Earth</li>
-                                <li style="font-size: 0.95rem;">Variables: <code>h</code>, <code>velocity</code>, <code>conc_SW</code></li>
-                                <li style="font-size: 0.95rem;">WebGL output ships as a self-contained folder (<code>index.html</code> + data)</li>
-                            </ul>
-                        </div>
-                        <div class="highlight-box success">
-                            <strong>Called automatically</strong> &mdash; the Next-Steps section of the
-                            configuration report already writes these commands for you, pre-filled with
-                            the correct DEM, UTM zone and results path.
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="slide-footer">
-                <div class="logo">FLUX<span>OS</span></div>
                 <div class="page-number">10</div>
             </div>
         </div>
 
-        <!-- Slide 11: Summary -->
+        <!-- Slide 11: fluxos_viewer.py -->
         <div class="slide" data-slide="11">
             <div class="slide-header">
-                <h2>Summary</h2>
+                <h2>fluxos_viewer.py &mdash; WebGL / KML / MP4</h2>
             </div>
             <div class="slide-content">
-                <div class="center-content">
-                    <div style="max-width: 1100px;">
-                        <table style="margin-bottom: 30px;">
-                            <tr>
-                                <th>Template / Tool</th>
-                                <th>Role</th>
-                                <th>User edits</th>
-                                <th>Output</th>
-                            </tr>
-                            <tr>
-                                <td><strong>1_Model_Config/<br>model_config_template.py</strong></td>
-                                <td>Preprocessing</td>
-                                <td><code>_config</code> dict</td>
-                                <td>DEM <code>.asc</code>, mesh <code>.msh</code>, <code>modset.json</code>, HTML config report</td>
-                            </tr>
-                            <tr>
-                                <td><strong>2_Read_Outputs/<br>read_output_template.py</strong></td>
-                                <td>Post-processing</td>
-                                <td><code>_config</code> dict</td>
-                                <td>HTML flood-statistics report (time-series, maps, histogram)</td>
-                            </tr>
-                            <tr>
-                                <td><strong>fluxos_viewer.py</strong></td>
-                                <td>Visualisation CLI</td>
-                                <td>flags only</td>
-                                <td>KMZ / WebGL folder / MP4</td>
-                            </tr>
-                        </table>
-                        <div class="highlight-box success" style="text-align: center; font-size: 1.2rem;">
-                            <strong>End-to-end:</strong>
-                            <code>pip install -r requirements.txt</code> &rarr;
-                            edit <code>model_config_template.py</code> &rarr; run &rarr;
-                            Docker build &amp; run &rarr;
-                            edit <code>read_output_template.py</code> &rarr; run
+                <div class="highlight-box success" style="padding: 10px 18px; margin: 0 0 14px; font-size: 0.9rem;">
+                    <strong>Pre-filled for you:</strong> step&nbsp;6a of the configuration report
+                    is already the WebGL command with the correct DEM, mesh type, UTM zone and
+                    results path. Paste it and skip the block below. These CLI examples are for
+                    when you want KML / MP4 instead, or need to drive the viewer from a script.
+                </div>
+                <div class="two-column" style="gap: 40px; max-height: calc(100vh - 290px); overflow-y: auto; align-items: start;">
+                    <div class="column" style="min-height: 0;">
+                        <pre style="font-size: 0.78rem; padding: 18px;">
+<span class="comment"># Lives at 2_Read_Outputs/output_supporting_lib/fluxos_viewer.py</span>
+<span class="comment"># Add --mesh-type triangular for .vtu output (regular = .txt default)</span>
+
+<span class="comment"># Interactive 3D WebGL viewer (starts a local HTTP server</span>
+<span class="comment"># on --webgl-port and opens http://localhost:8080)</span>
+python supporting_scripts/2_Read_Outputs/\
+output_supporting_lib/fluxos_viewer.py \
+    --results-dir Results/ \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --export-webgl \
+    --webgl-output fluxos_web_rosa \
+    --webgl-step 1 \
+    --webgl-port 8080
+
+<span class="comment"># Animated KML/KMZ for Google Earth</span>
+<span class="comment"># (default action if neither --export-webgl nor --export-video given)</span>
+python fluxos_viewer.py \
+    --results-dir Results/ \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --output-dir fluxos_kml_rosa
+
+<span class="comment"># MP4 animation (requires ffmpeg in PATH)</span>
+python fluxos_viewer.py \
+    --results-dir Results/ \
+    --dem Working_example/Rosa_2m.asc \
+    --utm-zone 10 \
+    --export-video mp4 \
+    --video-output flood.mp4 \
+    --video-fps 15</pre>
+                    </div>
+                    <div class="column">
+                        <div class="card primary" style="padding: 18px;">
+                            <h3 style="font-size: 1.15rem; margin-bottom: 8px;">Features</h3>
+                            <ul style="margin-left: 15px;">
+                                <li style="font-size: 0.92rem;">Reads both <strong>regular</strong> (<code>.txt</code>) and <strong>triangular</strong> (<code>.vtu</code>) output &mdash; pass <code>--mesh-type</code></li>
+                                <li style="font-size: 0.92rem;">UTM&nbsp;&rarr;&nbsp;WGS84 on the fly; UTM zone auto-detected from DEM if omitted</li>
+                                <li style="font-size: 0.92rem;">Variables: <code>--variable h</code> (default), <code>velocity</code>, <code>conc_SW</code></li>
+                                <li style="font-size: 0.92rem;">WebGL folder is self-contained (<code>index.html</code> + data); a local HTTP server auto-opens in the browser</li>
+                                <li style="font-size: 0.92rem;">Satellite tiles cached under <code>~/.fluxos_tile_cache/</code> so re-runs skip the network</li>
+                            </ul>
+                        </div>
+                        <div class="card secondary" style="padding: 18px;">
+                            <h3 style="font-size: 1.15rem; margin-bottom: 8px;">Useful flags</h3>
+                            <table style="font-size: 0.85rem; line-height: 1.4;">
+                                <tr><td><code>--webgl-step&nbsp;N</code></td><td>keep every Nth snapshot (smaller bundle)</td></tr>
+                                <tr><td><code>--webgl-no-serve</code></td><td>export only, don't start the server</td></tr>
+                                <tr><td><code>--video-scale&nbsp;N</code></td><td>Nx DEM resolution for MP4 frames</td></tr>
+                                <tr><td><code>--velocity-arrows</code></td><td>overlay flow arrows on KML / MP4</td></tr>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -583,8 +628,66 @@ python fluxos_viewer.py \
             </div>
         </div>
 
-        <!-- Slide 12: Thank You -->
-        <div class="slide title-slide" data-slide="12">
+        <!-- Slide 12: Summary -->
+        <div class="slide" data-slide="12">
+            <div class="slide-header">
+                <h2>Summary</h2>
+            </div>
+            <div class="slide-content">
+                <div class="center-content" style="max-height: calc(100vh - 240px); overflow-y: auto;">
+                    <div style="max-width: 1200px;">
+                        <table style="margin-bottom: 28px;">
+                            <tr>
+                                <th>Template / Tool</th>
+                                <th>Role</th>
+                                <th>User edits</th>
+                                <th>Output</th>
+                            </tr>
+                            <tr>
+                                <td><strong>1_Model_Config/<br>model_config_template.py</strong></td>
+                                <td>Preprocessing</td>
+                                <td><em>copy</em> &rarr; edit <code>_config</code> dict of the copy</td>
+                                <td>DEM <code>.asc</code>, mesh <code>.msh</code>, <code>modset.json</code>, HTML configuration report <em>(with ready-to-paste Docker, sim-run, and visualisation snippets)</em></td>
+                            </tr>
+                            <tr>
+                                <td><strong>2_Read_Outputs/<br>read_output_template.py</strong></td>
+                                <td>Post-processing (statistics)</td>
+                                <td>flags on the CLI, or <code>_config</code> if running the template</td>
+                                <td>HTML flood-statistics report: time-series, max-inundation &amp; first-inundation maps, ARR-2019 hazard map, depth histogram</td>
+                            </tr>
+                            <tr>
+                                <td><strong>2_Read_Outputs/output_supporting_lib/<br>fluxos_viewer.py</strong></td>
+                                <td>Post-processing (visualisation)</td>
+                                <td>flags only</td>
+                                <td>Interactive WebGL viewer folder, animated KML/KMZ for Google Earth, or MP4 video</td>
+                            </tr>
+                        </table>
+                        <div class="highlight-box success" style="text-align: center; font-size: 1.1rem; margin-bottom: 14px;">
+                            <strong>End-to-end workflow:</strong>
+                            <code>python3 -m venv .venv</code> &amp; install requirements &rarr;
+                            <code>cp model_config_template.py model_config_&lt;project&gt;.py</code> &rarr;
+                            edit the copy &rarr;
+                            <code>python model_config_&lt;project&gt;.py</code> &rarr;
+                            <strong>open the HTML report</strong> and paste its Next-Steps snippets
+                            (compile FLUXOS, run the sim, visualise results).
+                        </div>
+                        <div class="highlight-box info" style="text-align: center; font-size: 1rem;">
+                            The configuration report is the single source of truth for running
+                            your simulation &mdash; DEM path, modset name, UTM zone, and
+                            visualisation flags are all pre-filled. You rarely need to type a
+                            command by hand after <code>python model_config_&lt;project&gt;.py</code>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-footer">
+                <div class="logo">FLUX<span>OS</span></div>
+                <div class="page-number">12</div>
+            </div>
+        </div>
+
+        <!-- Slide 13: Thank You -->
+        <div class="slide title-slide" data-slide="13">
             <h1 style="font-size: 3.5rem;">Thank You</h1>
             <div class="subtitle" style="font-size: 1.8rem;">Questions &amp; Resources</div>
             <div style="margin-top: 3rem;">
@@ -680,6 +783,7 @@ python fluxos_viewer.py \
             document.querySelectorAll('pre').forEach(pre => {
                 if (pre.dataset.perLineProcessed === '1') return;
                 if (pre.closest('.diagram')) return;
+                if (pre.closest('.no-copy')) return;
                 pre.dataset.perLineProcessed = '1';
                 const originalText = pre.textContent;
                 const rawLines = pre.innerHTML.split('\n');
