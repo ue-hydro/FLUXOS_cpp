@@ -140,10 +140,30 @@ int main(int argc, char* argv[])
     // #######################################################
     json master_MODSET_local;
     std::ifstream i(modset_flname);
+    if (!i.good()) {
+        std::cerr << "ERROR: cannot open modset file '" << modset_flname
+                  << "' (current working directory is"
+                  << " important — the path is resolved relative to CWD)."
+                  << std::endl;
+        std::cerr << "  Hint: run FLUXOS from the repo root, e.g.\n"
+                  << "        cd /work && ./bin/fluxos "
+                  << modset_flname << std::endl;
+        exit(EXIT_FAILURE);
+    }
     master_MODSET_local = json::parse(i,
         /* callback */ nullptr,
         /* allow exceptions */ false,
         /* skip_comments */ true);
+    if (master_MODSET_local.is_discarded()) {
+        std::cerr << "ERROR: '" << modset_flname
+                  << "' is not valid JSON (parser returned 'discarded')."
+                  << std::endl;
+        std::cerr << "  Hint: validate the file with `python -c "
+                  << "\"import json; json.load(open('" << modset_flname
+                  << "'))\"` — a missing comma, stray comment, or BOM "
+                  << "character will trip the parser." << std::endl;
+        exit(EXIT_FAILURE);
+    }
     
     // #######################################################
     // Get the size of the domain (nrow and ncol)
