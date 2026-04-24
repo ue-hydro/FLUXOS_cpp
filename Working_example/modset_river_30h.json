@@ -11,7 +11,7 @@
         }
     },
     "OUTPUT": {
-        "OUTPUT_FOLDER": "Working_example/Results/",
+        "OUTPUT_FOLDER": "Results/",
         "PRINT_STEP": 300,
         "H_MIN_TO_PRINT": 0.001
     },

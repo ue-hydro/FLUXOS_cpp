@@ -181,9 +181,13 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r supporting_scripts/requirements.txt
 
-<span class="comment"># 4. Verify</span>
-env -u PROJ_LIB -u PROJ_DATA \
-    python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span></pre>
+<span class="comment"># 4. Verify — call the venv's own python directly with a clean</span>
+<span class="comment">#    environment. This is the "it just works" form: no timeout,</span>
+<span class="comment">#    no retries, no chance of a Conda shim interfering.</span>
+env -u PROJ_LIB -u PROJ_DATA -u GDAL_DATA \
+    -u CONDA_PREFIX -u CONDA_DEFAULT_ENV \
+    ./.venv/bin/python -c <span class="string">"import rasterio, pygmsh, pyvista; print('ok')"</span>
+<span class="comment"># → if it hangs &gt; 10 s, see the troubleshooting note on the right</span></pre>
                     </div>
                     <div class="column">
                         <div class="card primary" style="padding: 14px 18px; margin-bottom: 10px;">
@@ -201,10 +205,20 @@ env -u PROJ_LIB -u PROJ_DATA \
                             <code>apt install gmsh</code> (Linux), then re-run&nbsp;pip.
                         </p>
                         <p style="font-size: 0.82rem; color: var(--text-light); margin: 4px 0;">
+                            <strong>Verify still hangs?</strong>
+                            Conda is polluting the child process with
+                            <code>DYLD/LD_LIBRARY_PATH</code>. Last resort:
+                            open a <em>fresh</em> terminal (no auto-Conda),
+                            <code>source .venv/bin/activate</code> and re-run
+                            step&nbsp;4. Or permanently disable Conda auto-activation:
+                            <code>conda config --set auto_activate_base false</code>.
+                        </p>
+                        <p style="font-size: 0.82rem; color: var(--text-light); margin: 4px 0;">
                             <strong>Windows&nbsp;PowerShell:</strong>&nbsp;
                             <code>if&nbsp;($env:CONDA_DEFAULT_ENV){conda&nbsp;deactivate}</code>;
                             <code>Remove-Item&nbsp;Env:PROJ_LIB,Env:PROJ_DATA&nbsp;-EA&nbsp;SilentlyContinue</code>;
-                            <code>.venv\Scripts\Activate.ps1</code>.
+                            <code>.venv\Scripts\Activate.ps1</code>; then
+                            <code>.venv\Scripts\python -c "import&nbsp;rasterio,&nbsp;pygmsh,&nbsp;pyvista;&nbsp;print('ok')"</code>.
                         </p>
                     </div>
                 </div>
