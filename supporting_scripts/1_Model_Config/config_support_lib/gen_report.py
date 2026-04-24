@@ -1294,22 +1294,36 @@ def _next_steps_section(data: dict) -> str:
                                     "requirements.txt")
     if os_key == "windows":
         activate_ps1 = os.path.join(venv_dir_abs, "Scripts", "Activate.ps1")
+        venv_py_ps1  = os.path.join(venv_dir_abs, "Scripts", "python.exe")
         venv_activate_cmd = (
             f'if ($env:CONDA_DEFAULT_ENV) {{ conda deactivate }}\n'
-            f'$env:PROJ_LIB = $null; $env:PROJ_DATA = $null\n'
+            f'Remove-Item Env:PROJ_LIB,Env:PROJ_DATA,Env:GDAL_DATA '
+            f'-ErrorAction SilentlyContinue\n'
             f'if (-Not (Test-Path "{venv_dir_abs}")) '
             f'{{ python -m venv "{venv_dir_abs}" }}\n'
             f'& "{activate_ps1}"\n'
-            f'pip install -q -r "{requirements_abs}"'
+            f'pip install -q -r "{requirements_abs}"\n'
+            f'& "{venv_py_ps1}" -c '
+            f'"import rasterio, pygmsh, pyvista; print(\'venv ok\')"'
         )
     else:  # macOS / Linux — bash / zsh
         activate_sh = os.path.join(venv_dir_abs, "bin", "activate")
+        venv_py     = os.path.join(venv_dir_abs, "bin", "python")
+        # NOTE: no '#'-comments in the snippet itself — default zsh
+        # (without ``interactive_comments``) treats them as commands and
+        # errors out. The final ``env -u … python -c``  line verifies the
+        # scrubbed venv can import rasterio/pygmsh/pyvista; if it can't,
+        # the paste stops there with a traceback that names the culprit.
         venv_activate_cmd = (
             f'conda deactivate 2>/dev/null || true\n'
             f'unset PROJ_LIB PROJ_DATA\n'
             f'[ -d "{venv_dir_abs}" ] || python3 -m venv "{venv_dir_abs}"\n'
             f'source "{activate_sh}"\n'
-            f'pip install -q -r "{requirements_abs}"'
+            f'pip install -q -r "{requirements_abs}"\n'
+            f'env -u PROJ_LIB -u PROJ_DATA -u GDAL_DATA '
+            f'-u CONDA_PREFIX -u CONDA_DEFAULT_ENV \\\n'
+            f'    "{venv_py}" -c '
+            f'\'import rasterio, pygmsh, pyvista; print("venv ok")\''
         )
 
     viewer_script = os.path.join(repo_root, "supporting_scripts",
