@@ -102,6 +102,23 @@
 
         .code-container { position: relative; }
         pre { background: var(--dark); color: #e2e8f0; padding: 25px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; line-height: 1.5; overflow-x: auto; }
+        /* Long code snippets scroll inside the slide instead of pushing the
+           footer off-screen. The cap is sized so 1280×720 laptop projectors
+           always show a small slice plus the slide footer; on 1920×1080 the
+           cap is generous and most snippets fit without scrolling at all. */
+        .slide pre { max-height: calc(100vh - 280px); overflow-y: auto; }
+        .slide pre::-webkit-scrollbar { width: 8px; height: 8px; }
+        .slide pre::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .slide pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        .slide pre::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
+        /* Slides with several stacked pres + cards (Docker Part 1, Build
+           Summary, Native Run) need the WHOLE content area to scroll, not
+           just each pre — the cards + h3 headings between snippets also
+           contribute to the overflow. */
+        .slide.scroll-content .slide-content { max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 8px; }
+        .slide.scroll-content .slide-content::-webkit-scrollbar { width: 10px; }
+        .slide.scroll-content .slide-content::-webkit-scrollbar-track { background: rgba(0,0,0,0.04); border-radius: 5px; }
+        .slide.scroll-content .slide-content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 5px; }
         .comment { color: #68d391; }
         .string { color: #fbd38d; }
         .keyword { color: #90cdf4; }
@@ -255,7 +272,7 @@
         </div>
 
         <!-- Slide 4: Get the code — git clone -->
-        <div class="slide" data-slide="4">
+        <div class="slide scroll-content" data-slide="4">
             <div class="slide-header">
                 <h2>Get the code &mdash; <code style="font-size:0.85em">git clone</code></h2>
             </div>
@@ -310,7 +327,7 @@ cd FLUXOS_cpp</pre>
         </div>
 
         <!-- Slide 6: Docker — Part 1 (activate + create container) -->
-        <div class="slide" data-slide="6">
+        <div class="slide scroll-content" data-slide="6">
             <div class="slide-header">
                 <h2>Docker &mdash; Part 1 <span style="font-weight: 400; color: var(--text-light);">· activate &amp; create the container</span></h2>
             </div>
@@ -327,8 +344,11 @@ cd FLUXOS_cpp</pre>
                 <pre style="font-size: 0.92rem; padding: 18px;">
 <span class="comment"># macOS / Windows:  install &amp; launch Docker Desktop  (https://www.docker.com/products/docker-desktop)</span>
 <span class="comment"># Linux:            install Docker Engine              (https://docs.docker.com/engine/install/)</span>
-<span class="comment"># Sanity check: daemon is up</span>
-docker --version &amp;&amp; docker compose version</pre>
+<span class="comment"># Sanity check (bash / zsh — macOS &amp; Linux):</span>
+docker --version &amp;&amp; docker compose version
+
+<span class="comment"># Sanity check (Windows PowerShell — `&amp;&amp;` is unsupported in PowerShell 5.1):</span>
+<span class="comment">#   docker --version ; docker compose version</span></pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
                     2&nbsp;·&nbsp;Create the container image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build deps)</span>
@@ -337,10 +357,24 @@ docker --version &amp;&amp; docker compose version</pre>
 <span class="comment"># From the repo root. Installs CMake, GCC, Armadillo, HDF5, nlohmann/json, OpenMP.</span>
 docker compose -f containers/docker-compose.yml build
 
-<span class="comment"># Add MPI support (optional) — brings OpenMPI into the image:</span>
-USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
+<span class="comment"># Add MPI support (optional) — brings OpenMPI into the image.</span>
+<span class="comment"># bash / zsh (macOS &amp; Linux):</span>
+USE_MPI=ON docker compose -f containers/docker-compose.yml build
 
-                <div class="highlight-box info" style="margin-top: 16px; font-size: 0.9rem; padding: 10px 14px;">
+<span class="comment"># Windows PowerShell equivalent (set the env var first, then build):</span>
+<span class="comment">#   $env:USE_MPI="ON"; docker compose -f containers/docker-compose.yml build</span>
+
+<span class="comment"># Windows cmd.exe equivalent:</span>
+<span class="comment">#   set USE_MPI=ON&amp;&amp; docker compose -f containers/docker-compose.yml build</span></pre>
+
+                <div class="highlight-box info" style="margin-top: 16px; font-size: 0.88rem; padding: 10px 14px;">
+                    <strong>Windows PowerShell users:</strong> PowerShell&nbsp;5.1 (still the default
+                    on many Windows&nbsp;10/11 installs) doesn't support <code>&amp;&amp;</code>; use
+                    <code>;</code> to chain commands and <code>$env:VAR="value"</code> to set
+                    environment variables. PowerShell&nbsp;7+ accepts <code>&amp;&amp;</code> but
+                    <em>not</em> <code>VAR=value cmd</code> — always use <code>$env:</code> first.
+                </div>
+                <div class="highlight-box info" style="margin-top: 8px; font-size: 0.9rem; padding: 10px 14px;">
                     <strong>Next:</strong> open a shell inside this container and compile FLUXOS &rarr; slide 6.
                 </div>
             </div>
@@ -351,7 +385,7 @@ USE_MPI=ON docker compose -f containers/docker-compose.yml build</pre>
         </div>
 
         <!-- Slide 7: Docker — Part 2 (shell + compile) -->
-        <div class="slide" data-slide="7">
+        <div class="slide scroll-content" data-slide="7">
             <div class="slide-header">
                 <h2>Docker &mdash; Part 2 <span style="font-weight: 400; color: var(--text-light);">· shell in &amp; compile FLUXOS</span></h2>
             </div>
@@ -375,9 +409,13 @@ docker compose -f containers/docker-compose.yml run --rm fluxos</pre>
                     4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell)</span>
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># You are now inside the container; /work is the bind-mounted repo root</span>
+<span class="comment"># You are now inside the container (default shell is bash). /work is</span>
+<span class="comment"># the bind-mounted repo root. Each command is on its own line so the</span>
+<span class="comment"># snippet survives multi-line paste in any host terminal — including</span>
+<span class="comment"># Windows PowerShell, which can mangle &amp;&amp; chains.</span>
 cd /work
-mkdir -p build &amp;&amp; cd build
+mkdir -p build
+cd build
 
 <span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin drops the binary onto the host's ./bin/</span>
 cmake -DMODE_release=ON \
@@ -406,7 +444,7 @@ cd /work
         </div>
 
         <!-- Slide 8: Apptainer — Part 1 (activate + create .sif) -->
-        <div class="slide" data-slide="8">
+        <div class="slide scroll-content" data-slide="8">
             <div class="slide-header">
                 <h2>Apptainer (HPC) &mdash; Part 1 <span style="font-weight: 400; color: var(--text-light);">· activate &amp; create the container</span></h2>
             </div>
@@ -418,6 +456,11 @@ cd /work
                     <strong>fluxos_apptainer_cuda.def</strong> (CUDA + MPI). Neither
                     compiles FLUXOS during image build &mdash; that's step 4, next slide.
                 </p>
+                <div class="highlight-box info" style="font-size: 0.85rem; padding: 8px 14px; margin: 0 0 12px;">
+                    <strong>Apptainer is Linux-only.</strong> If you're on Windows or macOS,
+                    use Docker (slides&nbsp;6&ndash;7) instead. The commands below assume a
+                    bash shell &mdash; on Windows you'd be inside WSL2 anyway.
+                </div>
 
                 <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
                     1&nbsp;·&nbsp;Activate Apptainer <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(login node)</span>
@@ -452,7 +495,7 @@ apptainer build --fakeroot fluxos_cuda.sif \
         </div>
 
         <!-- Slide 9: Apptainer — Part 2 (shell + compile) -->
-        <div class="slide" data-slide="9">
+        <div class="slide scroll-content" data-slide="9">
             <div class="slide-header">
                 <h2>Apptainer (HPC) &mdash; Part 2 <span style="font-weight: 400; color: var(--text-light);">· shell in &amp; compile FLUXOS</span></h2>
             </div>
@@ -479,7 +522,8 @@ apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif</pre>
                 <pre style="font-size: 0.88rem; padding: 16px;">
 <span class="comment"># You are now inside the container. Source tree is at /opt/fluxos (read-only).</span>
 cd /src
-mkdir -p build &amp;&amp; cd build
+mkdir -p build
+cd build
 
 <span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin → binary appears on the host at ./bin/</span>
 cmake -DMODE_release=ON -DUSE_MPI=ON \
@@ -515,7 +559,7 @@ mpirun -n 16 apptainer exec --bind $PWD:/src fluxos_cpu.sif \
         </div>
 
         <!-- Slide 8: Native — 1. Set up system dependencies -->
-        <div class="slide" data-slide="11">
+        <div class="slide scroll-content" data-slide="11">
             <div class="slide-header">
                 <h2>Native &mdash; 1&nbsp;·&nbsp;Set up <span style="font-weight: 400; color: var(--text-light);">(host system)</span></h2>
             </div>
@@ -526,6 +570,13 @@ mpirun -n 16 apptainer exec --bind $PWD:/src fluxos_cpu.sif \
                     Install the toolchain and libraries FLUXOS links against. All commands
                     below target Debian / Ubuntu; adjust for your package manager.
                 </p>
+                <div class="highlight-box info" style="font-size: 0.85rem; padding: 8px 14px; margin: 0 0 12px;">
+                    <strong>Windows native build is supported via WSL2 only.</strong> Install
+                    <a href="https://learn.microsoft.com/windows/wsl/install">WSL2 + Ubuntu</a>,
+                    then run every command on the next three slides inside the WSL bash
+                    shell. PowerShell-native builds aren't supported &mdash; use Docker
+                    (slides&nbsp;6&ndash;7) if you can't install WSL.
+                </div>
                 <pre style="font-size: 0.88rem; padding: 16px;">
 <span class="comment"># 1. Compiler + build tools (GCC 7+ or Clang 5+ for C++17)</span>
 sudo apt install build-essential cmake git ca-certificates
@@ -558,7 +609,7 @@ nvidia-smi</pre>
         </div>
 
         <!-- Slide 12: Native — 2. Compile -->
-        <div class="slide" data-slide="12">
+        <div class="slide scroll-content" data-slide="12">
             <div class="slide-header">
                 <h2>Native &mdash; 2&nbsp;·&nbsp;Compile <span style="font-weight: 400; color: var(--text-light);">(on the host)</span></h2>
             </div>
@@ -567,8 +618,9 @@ nvidia-smi</pre>
                     All variants share the same CMake pattern &mdash; only the feature flags differ.
                 </p>
                 <pre style="font-size: 0.9rem; padding: 18px;">
-<span class="comment"># Generic pattern (run from the repo root)</span>
-mkdir build && cd build
+<span class="comment"># Generic pattern (run from the repo root). Linux / macOS / WSL bash:</span>
+mkdir build
+cd build
 cmake -DMODE_release=ON  &lt;flags&gt;  ..
 make -j$(nproc)</pre>
 
@@ -629,7 +681,7 @@ make -j$(nproc)</pre>
         </div>
 
         <!-- Slide 13: Native — 3. Run -->
-        <div class="slide" data-slide="13">
+        <div class="slide scroll-content" data-slide="13">
             <div class="slide-header">
                 <h2>Native &mdash; 3&nbsp;·&nbsp;Run <span style="font-weight: 400; color: var(--text-light);">(on the host)</span></h2>
             </div>
@@ -802,9 +854,12 @@ cmake -DARMADILLO_INCLUDE_DIR=/path/to/armadillo ..</pre>
                         <div class="card accent" style="padding: 20px;">
                             <h3 style="font-size: 1.2rem;">CUDA compiler not found</h3>
                             <pre style="font-size: 0.75rem; padding: 10px; margin-top: 10px;">
-<span class="comment"># Ensure nvcc is in PATH</span>
+<span class="comment"># Ensure nvcc is in PATH (Linux / macOS / WSL bash):</span>
 export PATH=/usr/local/cuda/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH</pre>
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+<span class="comment"># Windows PowerShell equivalent (CUDA on Windows native):</span>
+<span class="comment">#   $env:PATH = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin;" + $env:PATH</span></pre>
                         </div>
                     </div>
                     <div class="column">
@@ -833,7 +888,7 @@ sudo apt install nlohmann-json3-dev
         </div>
 
         <!-- Slide 18: Summary -->
-        <div class="slide" data-slide="18">
+        <div class="slide scroll-content" data-slide="18">
             <div class="slide-header">
                 <h2>Build Summary</h2>
             </div>
@@ -841,14 +896,18 @@ sudo apt install nlohmann-json3-dev
                 <div class="center-content">
                     <div style="max-width: 900px;">
                         <pre style="font-size: 1rem; padding: 30px; margin-bottom: 20px;">
-<span class="comment"># Quick start: clone, build, run (native)</span>
+<span class="comment"># Quick start: clone, build, run (native — Linux / macOS / WSL bash)</span>
 git clone https://github.com/ue-hydro/FLUXOS_cpp.git
-cd FLUXOS_cpp && mkdir build && cd build
+cd FLUXOS_cpp
+mkdir build
+cd build
 cmake -DMODE_release=ON ..
 make -j$(nproc)
-cd .. && ./build/bin/fluxos Working_example/modset.json</pre>
-                        <pre style="font-size: 1rem; padding: 30px; margin-bottom: 30px;">
+cd ..
+./build/bin/fluxos Working_example/modset.json</pre>
+                        <pre style="font-size: 1rem; padding: 30px; margin-bottom: 20px;">
 <span class="comment"># Quick start: containerized (no host dependencies)</span>
+<span class="comment"># Linux / macOS / WSL bash, OR Windows PowerShell — works as-is in both:</span>
 git clone https://github.com/ue-hydro/FLUXOS_cpp.git
 cd FLUXOS_cpp
 docker compose -f containers/docker-compose.yml build
@@ -858,6 +917,12 @@ docker compose -f containers/docker-compose.yml run --rm fluxos \
                    -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/work/bin /work && \
              make -j\$(nproc) && \
              cd /work && ./bin/fluxos Working_example/modset.json"</pre>
+                        <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 24px;">
+                            Native build on Windows requires WSL2 (run the bash snippet inside Ubuntu/WSL).
+                            The Docker snippet works on Windows PowerShell, cmd.exe, bash, and zsh
+                            without changes &mdash; the multi-line <code>&amp;&amp;</code> chain runs
+                            inside the container's bash shell, not on the host.
+                        </p>
                         <div class="three-column" style="gap: 25px;">
                             <div class="card primary" style="text-align: center; padding: 20px;">
                                 <h3 style="justify-content: center; font-size: 1.2rem;">&#128230; Required</h3>
