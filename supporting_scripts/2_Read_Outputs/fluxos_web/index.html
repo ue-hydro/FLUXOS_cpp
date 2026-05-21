@@ -1055,7 +1055,9 @@ class OrbitCamera {
         this.theta = -0.55;           // azimuth (radians)
         this.phi = 0.22;             // elevation (low panoramic angle)
         this.distance = 0.9;
-        this.target = [0.1, 0.08, 0.05];  // shifted toward flood area
+        this.target = [0.1, 0.08, -0.05];  // shifted toward flood area
+        // (worldZ sign flipped together with buildTerrainMesh — north is
+        //  now at worldZ ≈ -0.5, south at +0.5)
         this.fov = 45 * Math.PI / 180;
         this.near = 0.01;
         this.far = 100;
@@ -1374,7 +1376,13 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
 
             const worldX = (u - 0.5) * aspect;
             const worldY = h.valid ? h.z * exaggeration : 0;
-            const worldZ = -(v - 0.5);
+            // PNG row 0 (texture v = 0) is the NORTH row of the DEM.
+            // The Top-view camera (eye at +Y, world up = +Y) resolves
+            // screen-up to world −Z, so for north to appear at the top
+            // of the screen we must place north at world −Z, i.e.
+            // worldZ = +(v - 0.5). Previously this was −(v - 0.5),
+            // which put north at world +Z → screen BOTTOM (flipped).
+            const worldZ = (v - 0.5);
 
             valid[idx] = h.valid ? 1 : 0;
             verts[vi++] = worldX;
@@ -1702,7 +1710,8 @@ class FloodViewer3D {
         }
 
         // Set camera to cinematic low panoramic view of the flood
-        this.camera.target = [0.08, 0.02, -0.15];
+        // (target z sign flipped with the buildTerrainMesh "north→-Z" fix)
+        this.camera.target = [0.08, 0.02,  0.15];
         this.camera.distance = 0.85;
         this.camera.phi = 0.30;              // low panoramic angle (~17°)
         this.camera.theta = -0.28;           // azimuth (~-16°), shifted more right
@@ -2650,9 +2659,11 @@ function showError(stage, detail) {
         'cam-top':   { theta: 0,          phi: 1.56,  distance: 1.4, target: [0, 0, 0] },
         'cam-front': { theta: 0,          phi: 0.08,  distance: 1.5, target: [0, 0.03, 0] },
         'cam-side':  { theta: Math.PI/2,  phi: 0.08,  distance: 1.5, target: [0, 0.03, 0] },
-        'cam-low':   { theta: -0.4,       phi: 0.15,  distance: 0.7, target: [0.08, 0.02, -0.1] },
+        // target z signs flipped together with buildTerrainMesh — see
+        // the comment in buildTerrainMesh for the "north is at -Z" fix.
+        'cam-low':   { theta: -0.4,       phi: 0.15,  distance: 0.7, target: [0.08, 0.02,  0.1] },
         'cam-3d':    { theta: -0.5,       phi: 0.65,  distance: 1.5, target: [0, 0, 0] },
-        'cam-fly':   { theta: -0.28,      phi: 0.30,  distance: 0.85, target: [0.08, 0.02, -0.15] }
+        'cam-fly':   { theta: -0.28,      phi: 0.30,  distance: 0.85, target: [0.08, 0.02,  0.15] }
     };
     const camBtns = document.querySelectorAll('[id^="cam-"]');
     camBtns.forEach(btn => {

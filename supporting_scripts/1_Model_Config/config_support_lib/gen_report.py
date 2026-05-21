@@ -1263,12 +1263,61 @@ def _next_steps_section(data: dict) -> str:
         '             make -j$(nproc)"'
     )
 
-    # Step 4: RUN — also a host-side one-liner. The config field
-    # ``fluxos_executable`` names the compiled binary (default
-    # ``bin/fluxos``). On MPI builds the report wraps it in ``mpirun``.
-    # The container starts, runs the simulation, and exits when done;
-    # all output lands on the host through the /work bind mount.
-    exe_rel = (config.get("fluxos_executable") or "bin/fluxos").lstrip("./")
+    # Step 4: RUN — host-side one-liner. The command runs INSIDE the
+    # container, where the host repo is bind-mounted at /work, so the
+    # executable path here must be relative to the container's /work
+    # (i.e. relative to the repo root on the host).
+    #
+    # ``fluxos_executable`` may be set in the config as:
+    #   * a repo-relative path  → "bin/fluxos"          ✓ default
+    #   * an absolute HOST path → "/Users/.../bin/fluxos"  ✗ Linux abs
+    #                              "C:/FLUXOS/bin/fluxos"    ✗ Windows abs
+    # The latter two only work as host paths (Finder / Explorer); inside
+    # the container they don't exist. We normalise here: any absolute
+    # path under ``repo_root`` is rewritten to its repo-relative form;
+    # anything outside the repo (or unparseable) falls back to the safe
+    # default ``bin/fluxos`` with a console warning.
+    raw_exe = config.get("fluxos_executable") or "bin/fluxos"
+
+    def _normalise_exe(raw: str) -> str:
+        # Strip leading ``./`` only (not as a char set — ``lstrip("./")``
+        # eats real path chars from absolute paths and corrupts them).
+        if raw.startswith("./"):
+            raw = raw[2:]
+        # Detect absolute paths (POSIX ``/...`` or Windows ``C:/...``).
+        is_posix_abs = raw.startswith("/")
+        is_win_abs   = len(raw) > 2 and raw[1] == ":" and raw[2] in ("/", "\\")
+        if not (is_posix_abs or is_win_abs):
+            return raw  # already repo-relative
+        # Absolute path on the host. Try to express it relative to
+        # ``repo_root`` so it survives the host → container hop.
+        host_path = raw.replace("\\", "/")
+        repo_norm = repo_root.replace("\\", "/")
+        # Cross-OS guard: if we're on POSIX (repo path starts with "/")
+        # and the user supplied a Windows-style ``C:/`` path, or vice
+        # versa, relpath() will produce garbage. Detect mismatched
+        # roots and just fall back.
+        same_family = (is_posix_abs and repo_norm.startswith("/")) or \
+                      (is_win_abs and (len(repo_norm) > 1 and repo_norm[1] == ":"))
+        if not same_family:
+            rel = ""
+        else:
+            try:
+                rel = os.path.relpath(host_path, repo_norm).replace(os.sep, "/")
+            except (ValueError, OSError):
+                rel = ""
+        if not rel or rel.startswith(".."):
+            print(
+                f"  WARNING: fluxos_executable={raw!r} is outside the "
+                f"repo (or otherwise unparseable) — the run snippet "
+                f"falls back to 'bin/fluxos'. Set the field to a "
+                f"REPO-RELATIVE path (e.g. \"bin/fluxos\") so it "
+                f"resolves inside the container's /work."
+            )
+            return "bin/fluxos"
+        return rel
+
+    exe_rel = _normalise_exe(raw_exe)
     if config.get("use_mpi"):
         run_core = f'mpirun -n {int(config["mpi_np"])} ./{exe_rel} {modset_rel}'
     else:

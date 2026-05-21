@@ -142,7 +142,7 @@ _config = dict(
     #                 from one of the providers below (OpenTopography, USGS
     #                 3DEP, or the AWS Copernicus mirror). Results are cached
     #                 so re-runs skip the network. No GIS setup required.
-    dem_source_mode = "file",
+    dem_source_mode = "download",
 
     # --- Only used when dem_source_mode == "file" ---------------------
     # Absolute or repo-relative path to your GeoTIFF DEM.
@@ -253,7 +253,7 @@ _config = dict(
 
     # Output .asc filename inside ``output_bin_dir``. Convention:
     #   ``<project>_<res>m.asc``  (e.g. "Rosa_2m.asc", "TorresVedras_30m.asc")
-    dem_output_asc          = "Rosa_2m.asc",
+    dem_output_asc          = "alcacer_do_sal.asc",
 
     # You DO NOT need a ``dem_utm_zone`` field here any more. UTM is used
     # only internally by the FLUXOS solver (which needs metric distances
@@ -426,8 +426,8 @@ _config = dict(
     # if you prefer WGS84 and don't care about integer precision.
     inflow_file  = dict(
         path  = "Working_example/Flow_river_30h.fluxos",
-        x_utm = 426107,   # UTM 10N easting  [m]
-        y_utm = 5785362,  # UTM 10N northing [m]
+        lon = 39.0955849,   # UTM 10N easting  [m]
+        lat = -9.2563201,  # UTM 10N northing [m]
     ),
 
     # ==================================================================
@@ -499,7 +499,7 @@ _config = dict(
     #                0.1-1 — typical urban-flood range (moderate smoothing).
     #                1-10  — larger basin-scale or regional runs where
     #                        sub-grid mixing is significant.
-    ade_transport      = dict(enabled=True, d_coef=0.5),
+    ade_transport      = dict(enabled=False, d_coef=0.5),
 
     # Soil infiltration — simplified constant-rate loss per cell per
     # timestep ( infil = min(Ks·dt, h) ). Useful for urban / pervious
@@ -523,7 +523,7 @@ _config = dict(
     # ``src/fluxos/soil_infiltration.cpp::get_usda_soil_table()``.
     # Set ``enabled=False`` to skip infiltration entirely.
     soil_infiltration  = dict(
-        enabled    = True,
+        enabled    = False,
         soil_map   = "",
         soil_types = {1: "sandy_loam"},
     ),
