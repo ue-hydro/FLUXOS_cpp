@@ -133,7 +133,12 @@ public:
     std::string output_folder, sim_start_time, dem_file,meteo_file,inflow_file,sim_purp;
 
     // Discharge location info (0 = coord unset)
-    unsigned long inflow_xcoord = 0, inflow_ycoord = 0, inflow_ncol = 0, inflow_nrow = 0;
+    // X/Y are stored as signed doubles because local CRSs (Portugal TM06,
+    // many European grids) put the false origin INSIDE the country, so
+    // coords are negative. `unsigned long` wrapped to ~1.8e19 and the
+    // inflow landed outside the grid → empty results.
+    double        inflow_xcoord = 0.0, inflow_ycoord = 0.0;
+    unsigned long inflow_ncol = 0, inflow_nrow = 0;
 
     // Triangular-mesh inflow patch: list of cells within a disk of
     // radius ~dxy around the inflow point, and their combined area.
