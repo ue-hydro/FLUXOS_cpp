@@ -318,6 +318,26 @@ def make_utm_to_latlon(utm_zone, northern=True):
     return transform
 
 
+def make_crs_to_latlon(crs):
+    """Return ``(easting, northing) -> (lon, lat)`` for an arbitrary
+    projected CRS — accepts any pyproj-parseable string (e.g.
+    ``"EPSG:3763"`` for Portugal TM06, ``"EPSG:25830"`` for ETRS89
+    UTM 30N, or a full PROJ string). Use this when the DEM is not in
+    a plain WGS84 UTM zone."""
+    from pyproj import Transformer
+    tf = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+
+    def transform(x, y):
+        lon, lat = tf.transform(x, y)
+        return lon, lat
+
+    def transform_arrays(x_arr, y_arr):
+        return tf.transform(x_arr, y_arr)
+
+    transform.arrays = transform_arrays
+    return transform
+
+
 def detect_utm_zone(xll, yll):
     """
     UTM zone cannot be uniquely determined from (easting, northing) alone.
@@ -5704,6 +5724,13 @@ Output:
         help="Set if the site is in the southern hemisphere.",
     )
     parser.add_argument(
+        "--dem-crs", type=str, default=None,
+        help="Explicit EPSG / PROJ string for the DEM's projected CRS — "
+             "use this INSTEAD of --utm-zone when the DEM is not in a "
+             "WGS84 UTM zone (e.g. 'EPSG:3763' for Portugal TM06, "
+             "'EPSG:25830' for ETRS89 UTM 30N). Overrides --utm-zone.",
+    )
+    parser.add_argument(
         "--sim-start", type=str, default=None,
         help="Simulation start date-time (ISO format, e.g. '2009-01-01T00:00:00'). "
              "Defaults to value in modset.json if found, else 2000-01-01.",
@@ -5861,15 +5888,21 @@ Output:
 
     # ── Step 2: Coordinate transform ─────────────────────────
     print("[2/4] Setting up coordinate transform...")
-    if args.utm_zone is not None:
-        zone = args.utm_zone
-        northern = not args.southern_hemisphere
+    if args.dem_crs:
+        # Explicit CRS wins — needed for non-UTM grids (Portugal TM06,
+        # ETRS89-LAEA, State Plane, etc.) where the auto-detect path
+        # silently falls back to a wrong UTM zone.
+        utm_to_ll = make_crs_to_latlon(args.dem_crs)
+        print(f"  DEM CRS: {args.dem_crs}")
     else:
-        zone, northern = detect_utm_zone(meta["xllcorner"], meta["yllcorner"])
-
-    utm_to_ll = make_utm_to_latlon(zone, northern)
+        if args.utm_zone is not None:
+            zone = args.utm_zone
+            northern = not args.southern_hemisphere
+        else:
+            zone, northern = detect_utm_zone(meta["xllcorner"], meta["yllcorner"])
+        utm_to_ll = make_utm_to_latlon(zone, northern)
+        print(f"  UTM Zone {zone}{'N' if northern else 'S'}")
     test_lon, test_lat = utm_to_ll(meta["xllcorner"], meta["yllcorner"])
-    print(f"  UTM Zone {zone}{'N' if northern else 'S'}")
     print(f"  DEM SW corner -> lat={test_lat:.6f}, lon={test_lon:.6f}")
 
     # ── Simulation start time ────────────────────────────────
