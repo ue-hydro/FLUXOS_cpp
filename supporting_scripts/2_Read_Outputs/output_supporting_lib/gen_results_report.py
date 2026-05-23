@@ -294,7 +294,17 @@ function plotlyLayoutPatch(){
       const raw = el.getAttribute('data-fig');
       if (!raw) return;
       const fig = JSON.parse(raw);
-      Plotly.newPlot(el, fig.data || [], Object.assign({}, fig.layout || {}, plotlyLayoutPatch()),
+      // Patch the shared basemap sentinel back to the real (large) data URI
+      // — we embed the URI in ONE global below to avoid duplicating it
+      // across every map figure's layout.images.
+      if (fig.layout && fig.layout.images && window.__FLUXOS_BASEMAP) {
+        fig.layout.images.forEach(im => {
+          if (im && im.source === '__FLUXOS_BASEMAP_SRC__')
+            im.source = window.__FLUXOS_BASEMAP;
+        });
+      }
+      Plotly.newPlot(el, fig.data || [],
+                     Object.assign({}, fig.layout || {}, plotlyLayoutPatch()),
                      {displaylogo:false, responsive:true, scrollZoom:true,
                       modeBarButtonsToAdd:['zoomIn2d','zoomOut2d','autoScale2d','resetScale2d'],
                       doubleClick:'reset+autosize'});
@@ -331,12 +341,11 @@ function plotlyLayoutPatch(){
     return keys;
   }
   function applyLock(plot, locked){
-    const update = {};
-    axisKeys(plot.layout || {}).forEach(k => {
-      update[k + '.fixedrange'] = !!locked;
-    });
-    Plotly.relayout(plot, update);
     plot.dataset.locked = locked ? 'true' : 'false';
+    const layout = plot.layout || {};
+    const update = {};
+    axisKeys(layout).forEach(k => { update[k + '.fixedrange'] = !!locked; });
+    Plotly.relayout(plot, update);
   }
   // Wheel-passthrough: when a plot is LOCKED, Plotly's scroll-zoom
   // handler still captures the wheel event (preventing the page from
@@ -353,12 +362,21 @@ function plotlyLayoutPatch(){
     }, {capture: true, passive: true});
   }
   waitForPlotly(() => {
-    // Satellite-basemap toggle
+    // Satellite-basemap toggle. The plot's layout.images may still carry
+    // the basemap-source placeholder; we patch any remaining sentinel to
+    // the global URI here too (defensive — the init pass should have
+    // already done it).
     document.querySelectorAll('.basemap-toggle').forEach(cb => {
       const plot = document.getElementById(cb.getAttribute('data-target'));
       if (!plot || !plot._fluxos_fig) return;
       const saved = (plot._fluxos_fig.layout || {}).images || [];
       if (!saved.length) return;
+      if (window.__FLUXOS_BASEMAP) {
+        saved.forEach(im => {
+          if (im && im.source === '__FLUXOS_BASEMAP_SRC__')
+            im.source = window.__FLUXOS_BASEMAP;
+        });
+      }
       plot._fluxos_basemap_images = saved;
       cb.addEventListener('change', () => {
         Plotly.relayout(plot, {
@@ -538,12 +556,26 @@ def _fetch_satellite_basemap(dem_meta: dict, utm_zone: int | None,
     return out_path, info
 
 
+
+# A sentinel string that stands in for the (large) satellite data URI inside
+# each figure's ``layout.images`` entry. The init JS substitutes the real
+# source before calling Plotly.newPlot, so we only embed the basemap ONCE
+# (in a single JS global) instead of 4–5 times across the report. For a
+# 1 MB basemap this saves ~3–4 MB on the deployed HTML.
+_BASEMAP_TOKEN = "__FLUXOS_BASEMAP_SRC__"
+
+
 def _basemap_image_layout(sat_info: dict | None, sat_src: str | None) -> list:
-    """Return a plotly ``layout.images`` list with the satellite as background."""
+    """Return a plotly ``layout.images`` list with the satellite as background.
+
+    If ``sat_src`` is a long data URI, we substitute a small sentinel here
+    (``_BASEMAP_TOKEN``). The runtime JS replaces it with the real URI on
+    first render, dropping size cost of 4× duplication for the basemap."""
     if not sat_info or not sat_src:
         return []
+    use_token = isinstance(sat_src, str) and sat_src.startswith("data:")
     return [{
-        "source": sat_src,
+        "source": _BASEMAP_TOKEN if use_token else sat_src,
         "xref": "x", "yref": "y",
         "x": sat_info["east_sw"],
         "y": sat_info["north_ne"],
@@ -958,13 +990,13 @@ def _graph_plot_div(plot_id: str, fig: dict | None, wide: bool = False,
 
 
 def _map_plot_div(plot_id: str, fig: dict | None, wide: bool = False) -> str:
-    """Render a spatial plot with THREE control checkboxes:
+    """Render a spatial plot with up to THREE control checkboxes:
       * **Satellite basemap** — show / hide layout.images (only rendered
         when the figure actually has one).
-      * **Lock zoom** — disables scroll / box-zoom (on by default, so the
-        page doesn't hijack the scroll wheel).
       * **Results** — show / hide all scattergl traces (so users can
         inspect the underlying satellite imagery with no overlay).
+      * **Lock zoom** — disables scroll / box-zoom (on by default, so the
+        page doesn't hijack the scroll wheel).
     """
     if fig is None:
         return '<em>No spatial data.</em>'
@@ -1350,6 +1382,18 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       <div class="card"><div class="table-wrap"><table><tbody>{meta_html}</tbody></table></div></div>
     </section>"""
 
+    # Embed the satellite basemap data URI in ONE global so every map
+    # figure can reference it by token instead of repeating the 1 MB
+    # base64 string in every layout.images entry. Saves ~3–4 MB on a
+    # deployed Rosa Creek report.
+    if sat_src and isinstance(sat_src, str) and sat_src.startswith("data:"):
+        # JSON-encode so embedded chars are escaped properly; assigning the
+        # whole string in one shot keeps it readable.
+        basemap_js = (f"window.__FLUXOS_BASEMAP = "
+                      f"{json.dumps(sat_src)};")
+    else:
+        basemap_js = "window.__FLUXOS_BASEMAP = null;"
+
     subtitle = (f"Flood statistics report — "
                 f"{stats['n_timesteps']} timesteps, {_fmt_duration(kpis['sim_duration_s'])}")
 
@@ -1404,6 +1448,7 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
       </footer>
     </main>
   </div>
+  <script>{basemap_js}</script>
   <script>{_JS}</script>
 </body>
 </html>

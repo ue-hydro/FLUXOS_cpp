@@ -100,6 +100,7 @@ def run(config: dict, template_file: str) -> dict:
                       f"({ncols}×{nrows} @ {cellsize} m)")
             else:
                 print(f"  DEM          : {dem_path} (bbox reference)")
+
         except Exception as exc:
             print(f"  DEM header could not be parsed ({exc}); "
                   "satellite basemap will be skipped.")
@@ -156,16 +157,31 @@ def run(config: dict, template_file: str) -> dict:
         name = _safe_name(config.get("project_name") or "fluxos")
         report_path = os.path.join(report_dir, f"{name}_results_report.html")
         # UTM zone for satellite basemap. Preference order:
-        #   1. explicit config["utm_zone"]
-        #   2. auto-detect from DEM corner easting (pyproj, if available)
+        #   1. detection from a sibling .tif / .prj (most reliable — the
+        #      DEM file itself knows its own CRS)
+        #   2. explicit config["utm_zone"]
         #   3. None => satellite basemap disabled, report still renders.
-        utm_zone = config.get("utm_zone")
-        utm_southern = bool(config.get("utm_southern", False))
-        if utm_zone is None and dem_meta:
-            utm_zone, utm_southern = _detect_utm_from_dem(dem_meta)
-        if utm_zone is not None:
-            print(f"  UTM zone     : {utm_zone}"
-                  + ("  (southern hemisphere)" if utm_southern else ""))
+        #
+        # We trust the DEM-derived value over the config because a
+        # very common mistake is to copy a template, change the project
+        # name + DEM path, and forget to update ``utm_zone``. Without
+        # the override the satellite shows tiles from the wrong country.
+        cfg_zone = config.get("utm_zone")
+        cfg_southern = bool(config.get("utm_southern", False))
+        det_zone, det_southern = (None, False)
+        if dem_meta:
+            det_zone, det_southern = _detect_utm_from_dem(dem_meta)
+        if det_zone is not None:
+            utm_zone, utm_southern = det_zone, det_southern
+            if cfg_zone is not None and cfg_zone != det_zone:
+                print(f"  UTM zone     : {det_zone} (auto-detected from DEM; "
+                      f"config said {cfg_zone} — using DEM)")
+            else:
+                print(f"  UTM zone     : {det_zone} (auto-detected from DEM)")
+        else:
+            utm_zone, utm_southern = cfg_zone, cfg_southern
+            if utm_zone is not None:
+                print(f"  UTM zone     : {utm_zone}  (from config — no DEM CRS to verify)")
 
         generate_results_report({
             "config": config,
@@ -206,39 +222,95 @@ def _detect_utm_from_dem(dem_meta: dict) -> tuple[int | None, bool]:
     the satellite basemap.
     """
     path = dem_meta.get("path")
-    yll = float(dem_meta.get("yllcorner", 0.0))
-    southern = yll > 0 and yll > 1_000_000 and yll < 10_000_000 and False
-    # Heuristic for hemisphere: UTM southing in southern hem = 10_000_000 - y
-    # (we treat very large northings as southern) — only kicks in if we can't
-    # read a .prj.
-    if path:
-        # 1. Sibling .prj
-        prj_path = os.path.splitext(path)[0] + ".prj"
-        if os.path.isfile(prj_path):
-            try:
-                with open(prj_path) as f:
-                    prj = f.read()
-                zone, south = _parse_utm_from_wkt(prj)
-                if zone is not None:
-                    return zone, south
-            except Exception:
-                pass
-        # 2. Try rasterio / pyproj against a sibling .tif or the .asc itself
+    if not path:
+        return None, False
+
+    # 1. Sibling .prj (ArcGIS convention).
+    prj_path = os.path.splitext(path)[0] + ".prj"
+    if os.path.isfile(prj_path):
         try:
-            import pyproj
-            xll = float(dem_meta.get("xllcorner", 0.0))
-            ncols = int(dem_meta.get("ncols", 1))
-            nrows = int(dem_meta.get("nrows", 1))
-            cs = float(dem_meta.get("cellsize", 1.0))
-            east_mid = xll + 0.5 * ncols * cs
-            north_mid = yll + 0.5 * nrows * cs
-            # We can't infer zone from (e,n) — but we can validate with pyproj
-            # once the caller provides one. Without a projection, we default to
-            # a hemisphere guess only.
-            southern = north_mid > 10_000_000 or (north_mid < 0)
-            _ = pyproj  # pragma: no cover — used only to probe availability
+            with open(prj_path) as f:
+                prj = f.read()
+            zone, south = _parse_utm_from_wkt(prj)
+            if zone is not None:
+                return zone, south
         except Exception:
             pass
+
+    # 2. Sibling .tif / .tiff — rasterio reads its embedded CRS directly.
+    # We try:
+    #   (a) a same-basename sibling (Rosa_2m.asc → Rosa_2m.tif)
+    #   (b) ANY .tif/.tiff in the same directory whose bbox overlaps the
+    #       ASC's xll/yll extent (handles betao-style projects where the
+    #       source GeoTIFF has a totally different basename like
+    #       MDT-2m-…-UTM29N.tif while the generated ASC is "site_30m.asc")
+    base, _ = os.path.splitext(path)
+    candidates = [base + e for e in (".tif", ".tiff", ".TIF", ".TIFF")]
+    dem_dir = os.path.dirname(path) or "."
+    try:
+        for f in sorted(os.listdir(dem_dir)):
+            if f.lower().endswith((".tif", ".tiff")):
+                full = os.path.join(dem_dir, f)
+                if full not in candidates:
+                    candidates.append(full)
+    except OSError:
+        pass
+
+    # ASC bbox for overlap check (when we scan unrelated TIFs)
+    try:
+        xll = float(dem_meta.get("xllcorner", 0.0))
+        yll = float(dem_meta.get("yllcorner", 0.0))
+        cs  = float(dem_meta.get("cellsize", 1.0))
+        ncols = int(dem_meta.get("ncols", 1))
+        nrows = int(dem_meta.get("nrows", 1))
+        asc_box = (xll, yll, xll + ncols * cs, yll + nrows * cs)
+    except (TypeError, ValueError):
+        asc_box = None
+
+    def _zone_from_crs(crs):
+        if crs is None:
+            return None, False
+        epsg = crs.to_epsg() if hasattr(crs, "to_epsg") else None
+        if epsg is not None:
+            if 32601 <= epsg <= 32660:
+                return epsg - 32600, False
+            if 32701 <= epsg <= 32760:
+                return epsg - 32700, True
+        try:
+            return _parse_utm_from_wkt(crs.to_wkt())
+        except Exception:
+            return None, False
+
+    for tif in candidates:
+        if not os.path.isfile(tif):
+            continue
+        try:
+            import rasterio
+            with rasterio.open(tif) as src:
+                crs = src.crs
+                src_box = src.bounds  # (left, bottom, right, top)
+            zone, south = _zone_from_crs(crs)
+            if zone is None:
+                continue
+            # Same-basename sibling: trust unconditionally. Otherwise
+            # require bbox overlap with the ASC so we don't pick a TIF
+            # of an unrelated project that happens to be in the folder.
+            is_same_basename = tif.startswith(base + ".")
+            if is_same_basename:
+                return zone, south
+            if asc_box is None or src_box is None:
+                continue
+            ax0, ay0, ax1, ay1 = asc_box
+            bx0, by0, bx1, by1 = src_box.left, src_box.bottom, src_box.right, src_box.top
+            overlaps = not (ax1 < bx0 or bx1 < ax0 or ay1 < by0 or by1 < ay0)
+            if overlaps:
+                return zone, south
+        except Exception:
+            continue
+
+    # 3. Hemisphere fallback only (zone unknown).
+    yll = float(dem_meta.get("yllcorner", 0.0))
+    southern = yll > 10_000_000 or yll < 0
     return None, southern
 
 
@@ -264,8 +336,16 @@ def _write_timeseries_csv(path: str, stats: dict) -> None:
         stats["max_h_m"], stats["mean_h_wet_m"], stats["max_v_ms"]))
     if stats.get("has_conc"):
         cols += ["max_conc_SW", "mean_conc_SW"]
-        rows = [r + (stats["max_conc_SW_t"][i], stats["mean_conc_SW_t"][i])
-                for i, r in enumerate(rows)]
+        # Defensive zero-pad: per-timestep arrays should already match
+        # `time_s` (flood_statistics.py keeps them in lockstep), but if a
+        # future change ever desyncs them we'd rather emit a short row than
+        # crash mid-export.
+        mc = stats.get("max_conc_SW_t") or []
+        sc = stats.get("mean_conc_SW_t") or []
+        rows = [r + (
+            mc[i] if i < len(mc) else 0.0,
+            sc[i] if i < len(sc) else 0.0,
+        ) for i, r in enumerate(rows)]
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(cols)

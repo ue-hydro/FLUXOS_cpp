@@ -91,8 +91,11 @@ _config = dict(
     # and `utm_southern` explicitly if auto-detection is unreliable.
     #  - Rosa Creek DEM is UTM zone 10N → utm_zone=10, utm_southern=False
     #  - Torres Vedras DEM is UTM zone 29N → utm_zone=29, utm_southern=False
+    # If you set the WRONG zone here, the satellite imagery in the maps
+    # will show the right LOOKING tiles but for the wrong place on Earth
+    # (e.g. setting zone 10 with a UTM 29N DEM = tiles of BC, Canada).
     # Leave as None to skip the satellite basemap entirely.
-    utm_zone     = 10,
+    utm_zone     = 29,
     utm_southern = False,
 
     # ------------------------------------------------------------------

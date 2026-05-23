@@ -191,8 +191,13 @@ def analyse(iterator, mesh_type: str, *,
             idx = irow * ncols + icol
 
         if h.size == 0:
+            # Keep EVERY per-timestep array in lockstep with `time_s`,
+            # otherwise downstream code that zips them (CSV export, plotting)
+            # will index off the end of the shorter arrays.
             time_s.append(int(t)); vol_m3.append(0.0); area_m2.append(0.0)
             max_h_t.append(0.0); mean_h_wet_t.append(0.0); max_v_t.append(0.0)
+            max_conc_t.append(0.0); mean_conc_t.append(0.0)
+            hazard_area_per_time.append((0.0, 0.0, 0.0, 0.0))
             continue
 
         wet = h > h_threshold

@@ -32,6 +32,10 @@ canvas#gl { width: 100%; height: 100%; display: block; }
     transition: background 0.15s; }
 .btn:hover { background: rgba(60,90,140,0.6); }
 .btn.active { background: rgba(80,140,220,0.4); border-color: rgba(100,160,240,0.6); }
+.btn.recording { background: rgba(200,40,40,0.55); border-color: rgba(255,100,100,0.7);
+    color: #ffe4e4; animation: rec-pulse 1.2s ease-in-out infinite; }
+@keyframes rec-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,80,80,0.55); }
+    50% { box-shadow: 0 0 0 6px rgba(255,80,80,0); } }
 .btn-sm { background: rgba(40,60,100,0.5); color: #8899bb; border: 1px solid
     rgba(80,120,180,0.3); border-radius: 4px; padding: 4px 8px;
     cursor: pointer; font-family: inherit; font-size: 10px;
@@ -135,6 +139,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <button class="btn active" id="btn-play">&#9654; Play</button>
         <button class="btn" id="btn-reset">&#8634; Reset</button>
         <button class="btn" id="btn-fs">&#x26F6; Fullscreen</button>
+        <button class="btn" id="btn-rec"
+            title="Record one full simulation loop as a WebM video using the browser's native MediaRecorder. Click again to stop early. The download starts automatically when the recording ends.">
+            &#9210; Record</button>
     </div>
     <div class="ctrl-row">
         <label>Speed</label>
@@ -1427,7 +1434,12 @@ function buildTerrainMesh(heightData, imgW, imgH, meta, exaggeration) {
 class FloodViewer3D {
     constructor(canvas) {
         this.gl = canvas.getContext('webgl', {
-            antialias: false, premultipliedAlpha: false, alpha: false
+            antialias: false, premultipliedAlpha: false, alpha: false,
+            // preserveDrawingBuffer keeps the back-buffer readable between
+            // draws so the video recorder (CCapture.js → canvas.toBlob)
+            // can sample the final composited frame. Tiny perf cost; the
+            // browser keeps a copy of the framebuffer around after present.
+            preserveDrawingBuffer: true
         });
         if (!this.gl) throw new Error('WebGL not supported');
 
@@ -2525,6 +2537,10 @@ class FloodViewer3D {
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
+        // Video recorder hook — captures the composited canvas if a
+        // recording is in progress. No-op the rest of the time.
+        if (this.recorder) this.recorder.captureIfRecording();
+
         requestAnimationFrame(() => this.render());
     }
 }
@@ -2533,6 +2549,171 @@ function fmtTime(s) {
     if (s < 60) return Math.round(s) + 's';
     if (s < 3600) return (s/60).toFixed(1) + ' min';
     return (s/3600).toFixed(1) + ' hr';
+}
+
+// ───────────────────────────────────────────────────────────────────
+//  Video recorder — built on native MediaRecorder + canvas.captureStream().
+//
+//  Why NOT CCapture.js?
+//   • Its Whammy.js encoder is brittle (throws "dataOffset" on frames it
+//     can't parse) and pulls a CDN dependency.
+//   • It monkey-patches requestAnimationFrame, so if Whammy stalls the
+//     whole render loop freezes — exactly the symptom we hit.
+//
+//  MediaRecorder taps the canvas via captureStream() at the compositor
+//  level, runs entirely off the main thread, and uses the browser's
+//  native VP9/VP8 encoder. No CDN, no rAF interception, no freezes.
+//  Supported in Chrome ≥ 47, Firefox ≥ 25, Edge ≥ 79, Safari ≥ 14.1.
+//
+//  Flow: click Record → rewinds to t=0, forces playing=true, captures
+//  the live canvas, auto-stops after one full simulation loop (or on
+//  a second click). WebM downloads automatically.
+// ───────────────────────────────────────────────────────────────────
+class VideoRecorder {
+    constructor(viewer, canvas) {
+        this.viewer = viewer;
+        this.canvas = canvas;
+        this.recorder = null;
+        this.chunks = [];
+        this.mimeType = '';
+        this.recording = false;
+        this.framesSeen = 0;
+        this.prevSimFrame = 0;
+        this.startedAt = 0;
+        this.uiTimer = null;
+        this.savedPlayState = false;
+    }
+    toggle() {
+        if (this.recording) { this.stop(); return; }
+        try { this.start(); }
+        catch (e) {
+            console.error('[recorder] start failed:', e);
+            alert('Could not start recording.\n\n' + e.message);
+        }
+    }
+    start(opts) {
+        opts = opts || {};
+        if (!('MediaRecorder' in window))
+            throw new Error('MediaRecorder API is not supported in this browser.');
+        if (typeof this.canvas.captureStream !== 'function')
+            throw new Error('canvas.captureStream() is not supported in this browser.');
+        // Pick the best WebM codec the browser actually supports.
+        const candidates = [
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm',
+        ];
+        this.mimeType = '';
+        for (const c of candidates) {
+            if (MediaRecorder.isTypeSupported(c)) { this.mimeType = c; break; }
+        }
+        if (!this.mimeType)
+            throw new Error('No supported WebM MIME type found in MediaRecorder.');
+
+        const fps = opts.fps || 30;
+        const stream = this.canvas.captureStream(fps);
+        this.chunks = [];
+        this.recorder = new MediaRecorder(stream, {
+            mimeType: this.mimeType,
+            videoBitsPerSecond: opts.bitrate || 8 * 1024 * 1024,  // 8 Mbps
+        });
+        this.recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) this.chunks.push(e.data);
+        };
+        this.recorder.onstop = () => this._finalize();
+        this.recorder.onerror = (e) => {
+            console.error('[recorder] MediaRecorder error:', e);
+            alert('Recorder error: ' + ((e.error && e.error.message) || 'unknown'));
+        };
+
+        // Snapshot viewer state so we can restore it when stopped.
+        this.savedPlayState = this.viewer.playing;
+        // Rewind for a clean cycle; clear trails so the video doesn't open
+        // with stale particle streaks from before recording.
+        this.viewer.currentFrame = 0;
+        this.viewer.timeFrac = 0;
+        this.viewer.playing = true;
+        this.viewer.initTrailTextures(this.viewer.gl);
+        this.viewer.initParticleState(this.viewer.gl);
+        const pb = document.getElementById('btn-play');
+        if (pb) {
+            pb.innerHTML = '&#9646;&#9646; Pause';
+            pb.classList.add('active');
+        }
+
+        this.framesSeen = 0;
+        this.prevSimFrame = 0;
+        this.startedAt = performance.now();
+        this.recording = true;
+        this.recorder.start();           // single Blob on stop()
+        this._updateUI();
+        // Refresh the elapsed-time label every 250 ms.
+        this.uiTimer = setInterval(() => this._updateUI(), 250);
+        console.log('[recorder] started: ' + this.mimeType + ' @ ' + fps + ' fps');
+    }
+    // Called by the render loop every drawn frame — used solely to detect
+    // when the simulation has wrapped from (n-1) → 0, which auto-stops
+    // recording after one complete cycle. The actual pixel capture happens
+    // off-thread inside MediaRecorder, not here.
+    captureIfRecording() {
+        if (!this.recording) return;
+        this.framesSeen++;
+        const cf = this.viewer.currentFrame;
+        if (this.framesSeen > 1 && cf < this.prevSimFrame) {
+            this.stop();
+            return;
+        }
+        this.prevSimFrame = cf;
+    }
+    stop() {
+        if (!this.recording) return;
+        this.recording = false;
+        if (this.uiTimer) { clearInterval(this.uiTimer); this.uiTimer = null; }
+        try { this.recorder.stop(); }   // → onstop → _finalize → download
+        catch (e) { console.error('[recorder] stop error:', e); }
+        // Restore viewer state immediately (encoding finishes async).
+        this.viewer.playing = this.savedPlayState;
+        const pb = document.getElementById('btn-play');
+        if (pb) {
+            pb.innerHTML = this.savedPlayState ? '&#9646;&#9646; Pause' : '&#9654; Play';
+            pb.classList.toggle('active', this.savedPlayState);
+        }
+        this._updateUI();
+    }
+    _finalize() {
+        if (!this.chunks.length) {
+            alert('Recording produced no data. Try again with the simulation already playing.');
+            this.recorder = null;
+            return;
+        }
+        const blob = new Blob(this.chunks, { type: this.mimeType });
+        const url  = URL.createObjectURL(blob);
+        const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'fluxos_' + ts + '.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Free the blob URL after the download has had time to register.
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+        const secs   = ((performance.now() - this.startedAt) / 1000).toFixed(1);
+        console.log('[recorder] saved ' + sizeMB + ' MB (~' + secs + ' s)');
+        this.recorder = null;
+        this.chunks = [];
+    }
+    _updateUI() {
+        const b = document.getElementById('btn-rec');
+        if (!b) return;
+        b.classList.toggle('recording', this.recording);
+        if (this.recording) {
+            const secs = ((performance.now() - this.startedAt) / 1000).toFixed(1);
+            b.innerHTML = '&#9209; Stop (' + secs + 's)';
+        } else {
+            b.innerHTML = '&#9210; Record';
+        }
+    }
 }
 
 // ── Init ──
@@ -2608,6 +2789,12 @@ function showError(stage, detail) {
     });
     document.getElementById('btn-fs').addEventListener('click', () => {
         document.documentElement.requestFullscreen().catch(() => {});
+    });
+    // Video recorder — created lazily on first toggle. The class lives on
+    // the viewer so render() can poke it on every frame.
+    viewer.recorder = new VideoRecorder(viewer, canvas);
+    document.getElementById('btn-rec').addEventListener('click', () => {
+        viewer.recorder.toggle();
     });
     document.getElementById('sl-speed').addEventListener('input', e => {
         viewer.speed = parseInt(e.target.value) / 100;
