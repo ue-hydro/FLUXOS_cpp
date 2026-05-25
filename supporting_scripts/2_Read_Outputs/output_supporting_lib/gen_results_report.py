@@ -158,6 +158,13 @@ td.num{text-align:right;font-family:'JetBrains Mono',monospace;font-size:.82rem}
 .plot-controls label:hover{background:var(--bg);border-color:var(--border2)}
 .plot-controls input[type="checkbox"]{cursor:pointer;accent-color:var(--primary);margin:0}
 .plot-controls .hint{font-size:.72rem;color:var(--text3);margin-right:auto;font-style:italic}
+.plot-controls .pdf-btn{display:inline-flex;align-items:center;gap:.35rem;cursor:pointer;
+  font:inherit;font-size:.82rem;color:var(--text2);padding:.25rem .6rem;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface);
+  transition:background .15s,border-color .15s,color .15s}
+.plot-controls .pdf-btn:hover{background:var(--bg);border-color:var(--primary);color:var(--primary)}
+.plot-controls .pdf-btn:disabled{opacity:.55;cursor:wait}
+.plot-controls .pdf-btn.busy{color:var(--text3);border-color:var(--border2)}
 
 /* Per-line copy buttons in code blocks (for the shell snippet sections) */
 .code-block{position:relative;margin:.6rem 0}
@@ -406,8 +413,336 @@ function plotlyLayoutPatch(){
                        traceIdx);
       });
     });
+    // Per-figure PDF download. Each .pdf-btn carries data-target=<plotId>.
+    // We lazy-load jsPDF from a CDN on first click (~150 KB), then cache it
+    // on `window.jspdf` for all subsequent clicks.
+    document.querySelectorAll('.pdf-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const plot = document.getElementById(btn.getAttribute('data-target'));
+        if (!plot) return;
+        await downloadPlotAsPDF(plot, btn);
+      });
+    });
   });
 })();
+
+// ───────────────────────────────────────────────────────────────────
+//  Per-figure PDF export — Plotly → high-res PNG → jsPDF → download
+// ───────────────────────────────────────────────────────────────────
+const _JSPDF_CDN = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+
+function _loadJsPDF(){
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = _JSPDF_CDN; s.async = true;
+    s.onload = () => {
+      if (window.jspdf && window.jspdf.jsPDF) resolve();
+      else reject(new Error('jsPDF loaded but the jspdf global is missing'));
+    };
+    s.onerror = () => reject(new Error('Failed to fetch jsPDF from ' + _JSPDF_CDN));
+    document.head.appendChild(s);
+    setTimeout(() => {
+      if (!(window.jspdf && window.jspdf.jsPDF))
+        reject(new Error('jsPDF fetch timed out (15 s)'));
+    }, 15000);
+  });
+}
+
+// Try to figure out a human-readable name for this figure from the
+// <h2>/<h3> heading of the section the plot lives in, falling back to
+// the plot's own DOM id.
+function _figureTitle(plot){
+  let n = plot.closest('.section') || plot.parentElement;
+  while (n && n !== document.body) {
+    const h = n.querySelector('h2, h3');
+    if (h && h.textContent && h.textContent.trim()) return h.textContent.trim();
+    n = n.parentElement;
+  }
+  return plot.id;
+}
+
+function _slug(s){
+  return (s || '').replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '');
+}
+
+// PDF-export overrides — force a printable LIGHT theme with larger fonts
+// regardless of the live page theme. We never mutate the live plot; instead
+// we pass an off-screen figure object to Plotly.toImage with these overrides.
+const PDF_BG      = '#ffffff';
+const PDF_FG      = '#1a1a1a';
+const PDF_GRID    = '#d4d4d4';
+const PDF_FONT    = 'Inter, Helvetica, Arial, sans-serif';
+const PDF_FS_BASE = 20;   // body / legend
+const PDF_FS_TICK = 24;   // axis tick labels (x/y numeric ticks, colorbar ticks)
+const PDF_FS_AXIS = 28;   // axis titles ("Time (hours)", "Easting (m)", …)
+const PDF_FS_HEAD = 30;   // figure title
+
+// Deep-merge helpers — explicit so we keep big trace arrays by REFERENCE
+// (avoiding multi-MB clones of scattergl x/y/marker.color arrays).
+function _exportLayout(srcLayout){
+  // Layout is small; full clone via JSON is safe and strips functions.
+  const L = JSON.parse(JSON.stringify(srcLayout || {}));
+  L.paper_bgcolor = PDF_BG;
+  L.plot_bgcolor  = PDF_BG;
+  L.font = Object.assign({}, L.font || {}, {
+    color: PDF_FG, size: PDF_FS_BASE, family: PDF_FONT
+  });
+  // Title — accept both string and object forms.
+  if (L.title) {
+    if (typeof L.title === 'string') L.title = { text: L.title };
+    L.title.font = Object.assign({}, L.title.font || {}, {
+      color: PDF_FG, size: PDF_FS_HEAD, family: PDF_FONT
+    });
+  }
+  // Bump the figure-level margin so the larger axis fonts have room to live
+  // without colliding with the title rule above or the page edge. Plotly's
+  // per-axis `automargin: true` (set below) WILL grow these further, but
+  // having a generous baseline avoids "axis title chopped off" cases that
+  // automargin alone can't fix when the original layout had tight margins.
+  L.margin = Object.assign({}, L.margin || {});
+  L.margin.l = Math.max(L.margin.l || 0, 95);
+  L.margin.r = Math.max(L.margin.r || 0, 50);
+  L.margin.t = Math.max(L.margin.t || 0, 60);
+  L.margin.b = Math.max(L.margin.b || 0, 95);
+
+  // Walk every axis (xaxis, xaxis2, yaxis3, …) — multi-y time series need this.
+  Object.keys(L).forEach(k => {
+    if (!/^(x|y)axis\d*$/.test(k)) return;
+    const ax = L[k] = Object.assign({}, L[k] || {});
+    ax.color         = PDF_FG;
+    ax.linecolor     = PDF_FG;
+    ax.gridcolor     = PDF_GRID;
+    ax.zerolinecolor = PDF_GRID;
+    ax.tickcolor     = PDF_FG;
+    // automargin lets Plotly grow the figure margin to fit the (now larger)
+    // tick labels and axis title without clipping them.
+    ax.automargin    = true;
+    ax.tickfont = Object.assign({}, ax.tickfont || {}, {
+      color: PDF_FG, size: PDF_FS_TICK, family: PDF_FONT
+    });
+    if (ax.title) {
+      if (typeof ax.title === 'string') ax.title = { text: ax.title };
+      ax.title.font = Object.assign({}, ax.title.font || {}, {
+        color: PDF_FG, size: PDF_FS_AXIS, family: PDF_FONT
+      });
+      // Standoff = pixel gap between the axis title and the nearest tick.
+      // Plotly's default underestimates with the bumped tick font and the
+      // title ends up sitting on top of the numbers — 28 px clears it.
+      ax.title.standoff = 28;
+    }
+  });
+  if (L.legend) {
+    L.legend = Object.assign({}, L.legend, {
+      bgcolor:     'rgba(255,255,255,0.92)',
+      bordercolor: PDF_GRID,
+      font: Object.assign({}, L.legend.font || {}, {
+        color: PDF_FG, size: PDF_FS_BASE, family: PDF_FONT
+      })
+    });
+  }
+  if (Array.isArray(L.annotations)) {
+    L.annotations = L.annotations.map(a => Object.assign({}, a, {
+      font: Object.assign({}, a.font || {}, {
+        color: PDF_FG, size: PDF_FS_BASE, family: PDF_FONT
+      })
+    }));
+  }
+  // Background satellite image stays as-is — it's already a baked-in raster
+  // so dark / light theme doesn't change it.
+  return L;
+}
+
+// How much to grow scattergl marker sizes for PDF export. We render at
+// 2× resolution, so a pixel-fixed marker.size looks proportionally smaller
+// on the printed page; ~1.75× compensates and matches the visual density
+// the live HTML report has on screen.
+const PDF_MARKER_SCALE = 1.75;
+const PDF_MARKER_MIN   = 2;
+
+function _styleColorbar(srcCB){
+  // Recolour ticks + bump fonts on a colorbar (used by both trace.colorbar
+  // for heatmaps AND trace.marker.colorbar for scattergl maps).
+  const cb = Object.assign({}, srcCB);
+  cb.tickcolor    = PDF_FG;
+  cb.outlinecolor = PDF_FG;
+  cb.tickfont = Object.assign({}, cb.tickfont || {}, {
+    color: PDF_FG, size: PDF_FS_TICK, family: PDF_FONT
+  });
+  if (cb.title) {
+    const title = (typeof cb.title === 'string')
+      ? { text: cb.title }
+      : Object.assign({}, cb.title);
+    title.font = Object.assign({}, title.font || {}, {
+      color: PDF_FG, size: PDF_FS_AXIS, family: PDF_FONT
+    });
+    cb.title = title;
+  }
+  return cb;
+}
+
+function _bumpMarkerSize(s){
+  // Scalars get scaled directly; per-point arrays get scaled element-wise
+  // (used by the hazard map's discrete-class trace, for example).
+  const one = (v) => {
+    const n = Number(v);
+    if (!isFinite(n) || n <= 0) return v;
+    return Math.max(PDF_MARKER_MIN, Math.round(n * PDF_MARKER_SCALE));
+  };
+  return Array.isArray(s) ? s.map(one) : one(s);
+}
+
+function _exportData(srcData){
+  // Trace-level overrides for PDF export:
+  //   • bump scattergl marker.size so per-cell flood data stays visible
+  //     after the 2× oversample,
+  //   • restyle any colorbar (trace.colorbar OR trace.marker.colorbar — the
+  //     map traces use the latter, which the earlier version missed).
+  // Heavy data arrays (x, y, marker.color) stay by-reference; we only
+  // shallow-clone the wrappers we actually need to touch.
+  return (srcData || []).map(tr => {
+    const needsMarker = tr.marker && (
+      tr.marker.size !== undefined || tr.marker.colorbar
+    );
+    const hasTraceColorbar = !!tr.colorbar;
+    if (!needsMarker && !hasTraceColorbar) return tr;
+
+    const out = Object.assign({}, tr);
+    if (needsMarker) {
+      const m = Object.assign({}, tr.marker);
+      if (m.size !== undefined) m.size = _bumpMarkerSize(m.size);
+      if (m.colorbar)            m.colorbar = _styleColorbar(m.colorbar);
+      out.marker = m;
+    }
+    if (hasTraceColorbar) {
+      out.colorbar = _styleColorbar(tr.colorbar);
+    }
+    return out;
+  });
+}
+
+async function downloadPlotAsPDF(plot, btn){
+  if (!window.Plotly) { alert('Plotly is not loaded yet — try again.'); return; }
+  const origHTML = btn ? btn.innerHTML : null;
+  try {
+    if (btn) { btn.disabled = true; btn.classList.add('busy');
+               btn.innerHTML = '&#8987; Building…'; }
+    await _loadJsPDF();
+
+    // Live figure dimensions (CSS px). We oversample 2× for crisp PDF
+    // output — the embedded image is still proportional, just denser.
+    const cssW = Math.max(plot.clientWidth  || 1200, 800);
+    const cssH = Math.max(plot.clientHeight || 600, 480);
+    // Render off-screen with the PRINT overrides (white background, larger
+    // text). Plotly.toImage accepts a {data, layout} object as its first
+    // argument and creates a transient off-screen plot — so the live page
+    // theme is never disturbed and there's no visible "flash".
+    const pngURI = await Plotly.toImage({
+      data:   _exportData(plot.data || []),
+      layout: _exportLayout(plot.layout || {}),
+      config: { displayModeBar: false, staticPlot: true },
+    }, {
+      format: 'png', width: cssW * 2, height: cssH * 2,
+    });
+
+    const { jsPDF } = window.jspdf;
+    const landscape = cssW >= cssH;
+    const pdf = new jsPDF({
+      unit: 'mm', format: 'a4',
+      orientation: landscape ? 'landscape' : 'portrait',
+      compress: true,
+    });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 12;
+
+    const projName = window.__FLUXOS_PROJECT_NAME || 'FLUXOS simulation';
+    const figTitle = _figureTitle(plot);
+    const genAt    = window.__FLUXOS_GENERATED_AT || new Date().toISOString();
+
+    // FLUXOS brand colour — same '#0066cc' the live HTML report uses for
+    // the highlighted "OS" in the wordmark.
+    const BRAND_R = 0x00, BRAND_G = 0x66, BRAND_B = 0xcc;
+    const INK_R = 0x1a, INK_G = 0x1a, INK_B = 0x1a;
+    const MUTED_R = 110, MUTED_G = 110, MUTED_B = 110;
+
+    // Header — FLUXOS wordmark (top-left) and project / figure (top-right).
+    // Draw "FLUX" + "OS" as two text() calls so the second half can be in
+    // the brand colour, mirroring the .logo span styling in the HTML.
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(20);
+    const logoY = margin + 2;
+    pdf.setTextColor(INK_R, INK_G, INK_B);
+    pdf.text('FLUX', margin, logoY);
+    const fluxW = pdf.getTextWidth('FLUX');
+    pdf.setTextColor(BRAND_R, BRAND_G, BRAND_B);
+    pdf.text('OS', margin + fluxW, logoY);
+
+    // Project name (right-aligned, same baseline as the logo).
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    pdf.setTextColor(INK_R, INK_G, INK_B);
+    pdf.text(projName, pageW - margin, logoY, { align: 'right' });
+    // Figure title, second line under the project name.
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    pdf.setTextColor(MUTED_R, MUTED_G, MUTED_B);
+    pdf.text(figTitle, pageW - margin, logoY + 5, { align: 'right' });
+
+    // Thin brand-colour rule separating header from figure.
+    pdf.setDrawColor(BRAND_R, BRAND_G, BRAND_B);
+    pdf.setLineWidth(0.4);
+    const ruleY = margin + 9;
+    pdf.line(margin, ruleY, pageW - margin, ruleY);
+
+    // Fit the image into the remaining page area, preserving aspect.
+    const headerH = 12;   // logo + rule clearance
+    const footerH = 8;
+    const availW = pageW - 2 * margin;
+    const availH = pageH - 2 * margin - headerH - footerH;
+    const imgRatio = cssW / cssH;
+    let imgW = availW, imgH = availW / imgRatio;
+    if (imgH > availH) { imgH = availH; imgW = availH * imgRatio; }
+    const ox = margin + (availW - imgW) / 2;
+    const oy = margin + headerH + (availH - imgH) / 2;
+    pdf.addImage(pngURI, 'PNG', ox, oy, imgW, imgH, undefined, 'FAST');
+
+    // Footer — small brand mark on the left, run metadata on the right.
+    const footY = pageH - margin / 2;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9);
+    pdf.setTextColor(INK_R, INK_G, INK_B);
+    pdf.text('FLUX', margin, footY);
+    const fluxWf = pdf.getTextWidth('FLUX');
+    pdf.setTextColor(BRAND_R, BRAND_G, BRAND_B);
+    pdf.text('OS', margin + fluxWf, footY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.setTextColor(MUTED_R, MUTED_G, MUTED_B);
+    pdf.text('  ·  generated ' + genAt.slice(0, 19).replace('T', ' '),
+             margin + fluxWf + pdf.getTextWidth('OS'), footY);
+    pdf.text(plot.id, pageW - margin, footY, { align: 'right' });
+
+    // PDF metadata
+    pdf.setProperties({
+      title:    figTitle + ' — ' + projName,
+      subject:  'FLUXOS flood-simulation figure export',
+      author:   projName,
+      keywords: 'FLUXOS, flood, simulation, ' + plot.id,
+      creator:  'FLUXOS results report',
+    });
+
+    const fileName = (_slug(projName) ? _slug(projName) + '_' : '')
+                   + _slug(plot.id || figTitle) + '.pdf';
+    pdf.save(fileName);
+  } catch (e) {
+    console.error('[pdf]', e);
+    alert('Could not export PDF: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('busy');
+               btn.innerHTML = origHTML; }
+  }
+}
 """
 
 
@@ -972,6 +1307,19 @@ def _zoom_lock_checkbox(plot_id: str, label: str = "Lock zoom") -> str:
     )
 
 
+def _pdf_button(plot_id: str) -> str:
+    """Per-figure "Download PDF" button. The JS handler (``.pdf-btn``
+    listener) lazy-loads jsPDF from a CDN on first click, then uses
+    ``Plotly.toImage`` to grab a 2× PNG of the live figure and embeds
+    it in an A4 page sized to the figure's aspect ratio."""
+    return (
+        f'<button type="button" class="pdf-btn" data-target="{plot_id}" '
+        f'title="Download this figure as a PDF file (A4, fitted). '
+        f'First click fetches jsPDF from the CDN, then it is cached.">'
+        f'&#128196; PDF</button>'
+    )
+
+
 def _graph_plot_div(plot_id: str, fig: dict | None, wide: bool = False,
                     missing_msg: str = "No data.") -> str:
     """Render a non-spatial plot (time-series, histogram, …) with a
@@ -983,7 +1331,7 @@ def _graph_plot_div(plot_id: str, fig: dict | None, wide: bool = False,
         '<div class="plot-controls">'
         '<span class="hint">Uncheck to enable scroll / drag zoom · '
         'double-click to reset</span>'
-        f'{_zoom_lock_checkbox(plot_id)}'
+        f'{_zoom_lock_checkbox(plot_id)}{_pdf_button(plot_id)}'
         '</div>'
     )
     return controls + _plot_div(plot_id, fig, wide=wide)
@@ -1021,7 +1369,7 @@ def _map_plot_div(plot_id: str, fig: dict | None, wide: bool = False) -> str:
         '<div class="plot-controls">'
         '<span class="hint">Uncheck "Lock zoom" to enable scroll / drag · '
         'double-click to reset</span>'
-        f'{basemap_cb}{results_cb}{_zoom_lock_checkbox(plot_id)}'
+        f'{basemap_cb}{results_cb}{_zoom_lock_checkbox(plot_id)}{_pdf_button(plot_id)}'
         '</div>'
     )
     return controls + _plot_div(plot_id, fig, wide=wide)
@@ -1393,6 +1741,14 @@ def generate_results_report(report_data: dict, output_path: str) -> str:
                       f"{json.dumps(sat_src)};")
     else:
         basemap_js = "window.__FLUXOS_BASEMAP = null;"
+    # Project name + generation date — the PDF-export JS reads these to
+    # stamp each exported figure with a header / file name prefix.
+    basemap_js += (
+        f"\nwindow.__FLUXOS_PROJECT_NAME = "
+        f"{json.dumps(config.get('project_name') or 'FLUXOS simulation')};"
+        f"\nwindow.__FLUXOS_GENERATED_AT = "
+        f"{json.dumps(generated_at)};"
+    )
 
     subtitle = (f"Flood statistics report — "
                 f"{stats['n_timesteps']} timesteps, {_fmt_duration(kpis['sim_duration_s'])}")
