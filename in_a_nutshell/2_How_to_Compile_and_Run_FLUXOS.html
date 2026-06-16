@@ -463,29 +463,60 @@ cd /work
                 </div>
 
                 <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
-                    1&nbsp;·&nbsp;Activate Apptainer <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(login node)</span>
+                    1&nbsp;·&nbsp;Activate Apptainer / Singularity <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(login node)</span>
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># Most HPC systems provide Apptainer as a module (or: module load singularity)</span>
+<span class="comment"># Most HPC systems provide Apptainer or Singularity as a module</span>
 module load apptainer
+<span class="comment"># or</span>
+module load singularity
+
 <span class="comment"># Sanity check</span>
 apptainer --version
-<span class="comment"># Local install (workstation): https://apptainer.org/docs/admin/main/installation.html</span></pre>
+<span class="comment"># or</span>
+singularity --version
+
+<span class="comment"># Local install (workstation):</span>
+<span class="comment"># https://apptainer.org/docs/admin/main/installation.html</span></pre>
+
+                <p style="font-size: 0.95rem; margin: 14px 0 8px; color: var(--text-light);">
+                    Assuming the FLUXOS repository has already been cloned (see <em>Clone
+                    Repositories</em>) and you are now inside <code>.../FLUXOS_cpp</code>,
+                    follow the steps below to build the Apptainer / Singularity SIF image and
+                    enter the container.
+                </p>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
-                    2&nbsp;·&nbsp;Create the .sif image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build deps)</span>
+                    2&nbsp;·&nbsp;Create the .sif image <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(installs build dependencies)</span>
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># CPU + OpenMP + MPI — run from the repo root</span>
-apptainer build --fakeroot fluxos_cpu.sif \
-    containers/fluxos_apptainer.def
+<span class="comment"># 1. Navigate to the containers/ folder</span>
+cd containers
 
-<span class="comment"># CUDA + MPI (GPU nodes) — the resulting run must use --nv to expose host GPUs</span>
-apptainer build --fakeroot fluxos_cuda.sif \
-    containers/fluxos_apptainer_cuda.def</pre>
+<span class="comment"># 2. Build the CPU + OpenMP + MPI image</span>
+<span class="comment"># Important: run this command from the containers/ folder</span>
+apptainer build ../fluxos_cpu.sif fluxos_apptainer.def
+<span class="comment"># or</span>
+singularity build ../fluxos_cpu.sif fluxos_apptainer.def
+
+<span class="comment"># Or with --fakeroot (if required by your system):</span>
+apptainer build --fakeroot ../fluxos_cpu.sif fluxos_apptainer.def
+<span class="comment"># or</span>
+singularity build --fakeroot ../fluxos_cpu.sif fluxos_apptainer.def
+
+<span class="comment"># 3. Build the CUDA + MPI image, if GPU support is required</span>
+<span class="comment"># The resulting run must use --nv to expose the host GPUs and drivers.</span>
+apptainer build ../fluxos_cuda.sif fluxos_apptainer_cuda.def
+<span class="comment"># or</span>
+singularity build ../fluxos_cuda.sif fluxos_apptainer_cuda.def
+
+<span class="comment"># Or with --fakeroot (if required by your system):</span>
+apptainer build --fakeroot ../fluxos_cuda.sif fluxos_apptainer_cuda.def
+<span class="comment"># or</span>
+singularity build --fakeroot ../fluxos_cuda.sif fluxos_apptainer_cuda.def</pre>
 
                 <div class="highlight-box info" style="margin-top: 14px; font-size: 0.9rem; padding: 10px 14px;">
-                    <strong>Next:</strong> shell into the .sif and compile FLUXOS &rarr; slide 8.
+                    <strong>Next:</strong> shell into the .sif and compile FLUXOS &rarr; slide 9.
                 </div>
             </div>
             <div class="slide-footer">
@@ -501,43 +532,67 @@ apptainer build --fakeroot fluxos_cuda.sif \
             </div>
             <div class="slide-content">
                 <p style="font-size: 1.05rem; margin-bottom: 14px; color: var(--text-light);">
-                    Apptainer .sif images are read-only, so compile into a bind-mounted host
-                    directory. The container's source tree lives at <code>/opt/fluxos</code>;
-                    point CMake at it and build into the writable mount.
+                    Apptainer / Singularity .sif images are read-only, so compile into a
+                    bind-mounted host directory. The host FLUXOS repository is mounted at
+                    <code>/src</code>; point CMake at it and the binary lands in
+                    <code>/src/bin</code> &mdash; which is your host's <code>./bin/</code>.
                 </p>
 
                 <h3 style="color: var(--primary); margin: 5px 0 8px; font-size: 1.15rem;">
                     3&nbsp;·&nbsp;Open a shell inside the container
                 </h3>
                 <pre style="font-size: 0.9rem; padding: 16px;">
-<span class="comment"># CPU shell with the current dir bind-mounted at /src (writable)</span>
-apptainer shell --bind $PWD:/src fluxos_cpu.sif
+<span class="comment"># Return to the repository root</span>
+cd ..
 
-<span class="comment"># CUDA shell — --nv exposes host GPUs + drivers</span>
-apptainer shell --nv --bind $PWD:/src fluxos_cuda.sif</pre>
+<span class="comment"># CPU shell with the current repository bind-mounted at /src (writable)</span>
+apptainer shell --bind "$PWD:/src" fluxos_cpu.sif
+<span class="comment"># or</span>
+singularity shell --bind "$PWD:/src" fluxos_cpu.sif
+
+<span class="comment"># CUDA shell</span>
+<span class="comment"># --nv exposes the host GPUs and NVIDIA drivers inside the container</span>
+apptainer shell --nv --bind "$PWD:/src" fluxos_cuda.sif
+<span class="comment"># or</span>
+singularity shell --nv --bind "$PWD:/src" fluxos_cuda.sif</pre>
 
                 <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
-                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the shell, binary lands in host's ./bin)</span>
+                    4&nbsp;·&nbsp;Compile FLUXOS <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the container)</span>
                 </h3>
                 <pre style="font-size: 0.88rem; padding: 16px;">
-<span class="comment"># You are now inside the container. Source tree is at /opt/fluxos (read-only).</span>
+<span class="comment"># You are now inside the container.</span>
+<span class="comment"># The host FLUXOS repository is mounted at /src.</span>
 cd /src
+
+<span class="comment"># Clean and create the build directory</span>
+rm -rf build
 mkdir -p build
 cd build
 
-<span class="comment"># -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin → binary appears on the host at ./bin/</span>
+<span class="comment"># Compile FLUXOS with MPI support.</span>
+<span class="comment"># The binary will be written to /src/bin, which corresponds to ./bin on the host.</span>
 cmake -DMODE_release=ON -DUSE_MPI=ON \
-      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /opt/fluxos
-make -j$(nproc)
+      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/src/bin /src
+make -j$(nproc)</pre>
 
+                <h3 style="color: var(--primary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    5&nbsp;·&nbsp;Run the working example <span style="color: var(--text-light); font-weight: 400; font-size: 0.9rem;">(inside the container)</span>
+                </h3>
+                <pre style="font-size: 0.9rem; padding: 16px;">
 <span class="comment"># Run from /src so the modset's relative paths resolve against Working_example/</span>
 cd /src
-./bin/fluxos_mpi Working_example/modset_river_30h.json
+./bin/fluxos_mpi Working_example/modset_river_30h.json</pre>
 
-<span class="comment"># Multi-process MPI: launch from the login node using `apptainer exec`</span>
-<span class="comment"># (exit the shell first)</span>
-mpirun -n 16 apptainer exec --bind $PWD:/src fluxos_cpu.sif \
-    /src/bin/fluxos_mpi /src/Working_example/modset.json</pre>
+                <h3 style="color: var(--secondary); margin: 18px 0 8px; font-size: 1.15rem;">
+                    6&nbsp;·&nbsp;Run FLUXOS with multiple MPI processes
+                </h3>
+                <pre style="font-size: 0.88rem; padding: 16px;">
+<span class="comment"># Exit the interactive container shell first.</span>
+mpirun -n 16 apptainer exec --bind "$PWD:/src" --pwd /src fluxos_cpu.sif \
+    /src/bin/fluxos_mpi Working_example/modset_river_30h.json
+<span class="comment"># or</span>
+mpirun -n 16 singularity exec --bind "$PWD:/src" --pwd /src fluxos_cpu.sif \
+    /src/bin/fluxos_mpi Working_example/modset_river_30h.json</pre>
             </div>
             <div class="slide-footer">
                 <div class="logo">FLUX<span>OS</span></div>
