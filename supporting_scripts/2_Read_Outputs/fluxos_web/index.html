@@ -195,6 +195,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <input type="range" id="sl-exag" min="0" max="200" value="100">
         <span class="val" id="v-exag">0.100x</span>
     </div>
+    <div class="ctrl-row" title="0 = pristine tropical blue lake · 1 = muddy urban flood water. Also affects sky reflection, sun highlights, and opacity.">
+        <label>Turbidity</label>
+        <input type="range" id="sl-turbidity" min="0" max="100" value="55">
+        <span class="val" id="v-turbidity">0.55</span>
+    </div>
     <div class="ctrl-row" style="justify-content:center; gap:8px; margin-top:6px;">
         <button class="btn active" id="btn-water">&#128167; Water</button>
         <button class="btn" id="btn-particles">&#10024; Particles</button>
@@ -665,6 +670,10 @@ uniform sampler2D u_velocity;
 uniform sampler2D u_velocity_next;
 uniform float u_time_frac;
 uniform vec3 u_sun_dir;
+// 0.0 = pristine tropical blue lake (default) · 1.0 = muddy urban flood.
+// Blends the shallow/deep colours toward tan-brown, kills the sky
+// reflection, dulls specular highlights, and pushes alpha toward opaque.
+uniform float u_turbidity;
 
 // ── Simplex 2D noise (Ashima Arts / Ian McEwan) ──
 vec3 mod289_3(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -731,15 +740,30 @@ void main() {
     // ── 1. Depth normalization ──
     float t = clamp(v_depth / (u_h_max * 0.5), 0.0, 1.0);
 
-    // ── 2. Flow-responsive animated normals ──
+    // ── 2. Multi-octave flow-warped surface waves ──
+    // Real water surface has detail at multiple length-scales moving with
+    // the current at different speeds. We accumulate 4 octaves of noise,
+    // each drifting in the flow direction — small ripples faster than big
+    // swells. Flow direction is stretched anisotropically (v_flow) so
+    // ripples elongate along the current — the "streaming" look.
     float flow_speed = clamp(v_speed / 2.0, 0.0, 1.0);
-    float noise_scale = 40.0;
-    float time_scale = 0.8;
-    vec2 flow_offset = v_flow * u_anim_time * 0.3;
-    vec2 p = v_uv * noise_scale;
-    float n1 = fbm(p + vec2(u_anim_time * time_scale * 0.4, 0.0) - flow_offset);
-    float n2 = fbm(p + vec2(0.0, u_anim_time * time_scale * 0.3) - flow_offset * 0.7
-                     + vec2(5.2, 1.3));
+    vec2  flow_dir   = (v_speed > 0.01) ? (v_flow / max(v_speed, 0.01))
+                                        : vec2(1.0, 0.0);
+    // Two independent noise fields (x-tilt & y-tilt) for the normal
+    float n1 = 0.0, n2 = 0.0;
+    float amp = 0.5, freq = 40.0;
+    for (int i = 0; i < 4; i++) {
+        // Each octave drifts along the flow direction; higher octaves faster
+        vec2 drift = flow_dir * u_anim_time * (0.35 + 0.20 * float(i));
+        // Anisotropic stretch: compress noise along-flow so ripples look
+        // "elongated" — mimics wind-fetched chop / streaming eddies
+        vec2 uv_aniso = v_uv * freq
+            + drift
+            - flow_dir * dot(v_uv * freq, flow_dir) * 0.35;
+        n1 += amp * snoise(uv_aniso);
+        n2 += amp * snoise(uv_aniso.yx + vec2(5.2, 1.3));
+        amp *= 0.55; freq *= 2.15;
+    }
     float amplitude = 0.15 + 0.6 * flow_speed;
     vec3 normal = normalize(vec3(n1 * amplitude, 1.0, n2 * amplitude));
 
@@ -763,16 +787,42 @@ void main() {
     vec3 specular = sun_color * mix(1.0, 2.5, t) * spec;   // HDR: can exceed 1.0
 
     // ── 6. Depth-dependent base color with subsurface scattering ──
-    vec3 shallow_col = vec3(0.20, 0.50, 0.80);
-    vec3 deep_col    = vec3(0.02, 0.06, 0.30);
-    vec3 water_col   = mix(shallow_col, deep_col, t);
+    // Blend clean-blue vs muddy-flood palettes by u_turbidity.
+    //   Clean: tropical blue, translucent, SSS glow
+    //   Muddy: tan / khaki, opaque, exponential absorption (Beer-Lambert)
+    vec3 shallow_clean = vec3(0.20, 0.50, 0.80);
+    vec3 deep_clean    = vec3(0.02, 0.06, 0.30);
+    vec3 shallow_muddy = vec3(0.55, 0.42, 0.22);   // wet sediment tan
+    vec3 deep_muddy    = vec3(0.18, 0.12, 0.06);   // dark churned mud
+    vec3 shallow_col = mix(shallow_clean, shallow_muddy, u_turbidity);
+    vec3 deep_col    = mix(deep_clean,    deep_muddy,    u_turbidity);
+    // Beer-Lambert absorption for muddy water: darker faster with depth.
+    // Clean water uses linear mix (as before); muddy uses exponential.
+    float depth_abs_muddy = 1.0 - exp(-v_depth * 3.5);
+    float depth_mix = mix(t, depth_abs_muddy, u_turbidity);
+    vec3 water_col   = mix(shallow_col, deep_col, depth_mix);
+
+    // Flow-aligned sediment STREAKS — a slow-moving low-frequency noise
+    // aligned with the current, subtly modulating brightness along the
+    // flow. Makes muddy water look "alive" (real turbid flow always has
+    // visible sediment bands / streamers along the current).
+    vec2 streak_uv = v_uv * 14.0 - flow_dir * u_anim_time * 0.30;
+    float streak = snoise(streak_uv) * 0.5 + 0.5;
+    // 3-D anisotropic elongation: compress along-flow → ellipsoidal streaks
+    float streak_along = snoise(streak_uv - flow_dir * dot(streak_uv, flow_dir) * 0.5) * 0.5 + 0.5;
+    float sediment_var = mix(0.75 + 0.25 * streak_along, 1.0, 1.0 - u_turbidity);
+    water_col *= sediment_var;
+
     float NdotL = max(dot(normal, u_sun_dir), 0.0);
     vec3 lit_water = water_col * (0.18 + 0.45 * NdotL);
 
-    // Subsurface scattering: warm glow through shallow water
+    // Subsurface scattering: warm glow through shallow water. Muddy water
+    // absorbs light, so SSS strength scales down with turbidity.
     float sss_dot = max(dot(view_dir, -u_sun_dir), 0.0);
-    float sss = pow(sss_dot, 4.0) * (1.0 - t) * 0.5;
-    vec3 sss_color = vec3(0.15, 0.45, 0.35);
+    float sss = pow(sss_dot, 4.0) * (1.0 - t) * 0.5 * (1.0 - u_turbidity);
+    vec3 sss_color = mix(vec3(0.15, 0.45, 0.35),   // clean: cool green-glow
+                         vec3(0.45, 0.30, 0.15),   // muddy: warm sediment
+                         u_turbidity);
     lit_water += sss_color * sss;
 
     // ── 7. Edge foam / white-water ──
@@ -791,16 +841,35 @@ void main() {
     float depth_gradient = length(vec2(d_here - d_right, d_here - d_up));
     float gradient_foam = smoothstep(0.20, 0.60, depth_gradient);
     float velocity_foam = smoothstep(1.2, 2.5, v_speed);
-    float foam_noise = snoise(v_uv * 80.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
-    float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_noise;
-    foam = clamp(foam, 0.0, 1.0);
-    vec3 foam_color = vec3(0.90, 0.95, 1.0);
+    // Multi-scale foam noise: big soft patches + small speckle for realism
+    float foam_big   = snoise(v_uv * 25.0 - flow_dir * u_anim_time * 0.4) * 0.5 + 0.5;
+    float foam_small = snoise(v_uv * 90.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
+    float foam_mask = mix(foam_big, foam_small, 0.55);
+    float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_mask;
+    // Soften foam edges via smoothstep — no more hard-edged specks
+    foam = smoothstep(0.15, 0.85, clamp(foam, 0.0, 1.0));
+    vec3 foam_clean = vec3(0.92, 0.96, 1.00);
+    vec3 foam_muddy = vec3(0.82, 0.72, 0.48);   // dirty flood-froth
+    vec3 foam_color_lerp = mix(foam_clean, foam_muddy, u_turbidity);
 
     // ── Composite ──
-    vec3 final_col = mix(lit_water, foam_color, foam * 0.30);
-    final_col += specular;
-    // Sky reflection blended by Fresnel
-    final_col = mix(final_col, skyReflection, fresnel * 0.55);
+    vec3 final_col = mix(lit_water, foam_color_lerp, foam * 0.35);
+
+    // Grazing-angle SPECULAR — kept ~40% even at max turbidity because
+    // real muddy water still SHINES wet at glancing angles. Only the
+    // broad hazy sun-highlight fades (opaque mud can't backscatter).
+    float spec_boost = mix(1.0, 0.40, u_turbidity);
+    final_col += specular * spec_boost;
+
+    // Sky / ambient REFLECTION. At high turbidity the sky reflection is
+    // killed (opaque water doesn't mirror), but we blend in a dimmer
+    // grey-sky AMBIENT so muddy water still looks WET at grazing angles —
+    // not the flat-matte look of the previous version. Real muddy water
+    // always has a subtle sheen from the sky's diffuse illumination.
+    vec3 sky_dim  = vec3(0.60, 0.60, 0.62);          // overcast grey
+    vec3 refl_col = mix(skyReflection, sky_dim, u_turbidity);
+    float refl_strength = mix(0.55, 0.28, u_turbidity);
+    final_col = mix(final_col, refl_col, fresnel * refl_strength);
 
     // ── Atmospheric fog (match terrain) ──
     float dist = length(v_world_pos - u_eye);
@@ -809,8 +878,11 @@ void main() {
     final_col = mix(final_col, fogColor, fogAmount * 0.35);
 
     // ── Alpha: Fresnel-modulated transparency ──
+    // Muddy water is opaque even in shallow flow — bump base alpha.
     float base_alpha = mix(0.4, 0.88, t);
-    float final_alpha = clamp(base_alpha + fresnel * 0.4 + foam * 0.10, 0.0, 0.95);
+    base_alpha = mix(base_alpha, 0.95, u_turbidity);
+    float fresnel_alpha = fresnel * 0.4 * (1.0 - u_turbidity);
+    float final_alpha = clamp(base_alpha + fresnel_alpha + foam * 0.10, 0.0, 0.98);
 
     gl_FragColor = vec4(final_col, final_alpha);
 }
@@ -1600,6 +1672,9 @@ class FloodViewer3D {
         this.playing = true;
         this.speed = 10.0;
         this.fadeOpacity = 0.88;
+        // Water shader turbidity: 0 = clean tropical blue, 1 = muddy flood.
+        // Wired from the "Turbidity" slider in the controls panel.
+        this.turbidity = 0.55;
         this.dropRate = 0.003;
         this.dropRateBump = 0.01;
         this.darkFactor = 0.25;
@@ -2647,6 +2722,8 @@ class FloodViewer3D {
             gl.uniform2f(gl.getUniformLocation(wp, 'u_vel_range_x'), m.vx_min, m.vx_max);
             gl.uniform2f(gl.getUniformLocation(wp, 'u_vel_range_y'), m.vy_min, m.vy_max);
             gl.uniform3f(gl.getUniformLocation(wp, 'u_sun_dir'), sunDir[0], sunDir[1], sunDir[2]);
+            gl.uniform1f(gl.getUniformLocation(wp, 'u_turbidity'),
+                         this.turbidity !== undefined ? this.turbidity : 0.0);
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
             gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
@@ -3104,6 +3181,10 @@ function showError(stage, detail) {
     document.getElementById('sl-trail').addEventListener('input', e => {
         viewer.fadeOpacity = parseInt(e.target.value) / 1000;
         document.getElementById('v-trail').textContent = viewer.fadeOpacity.toFixed(2);
+    });
+    document.getElementById('sl-turbidity').addEventListener('input', e => {
+        viewer.turbidity = parseInt(e.target.value) / 100;
+        document.getElementById('v-turbidity').textContent = viewer.turbidity.toFixed(2);
     });
     document.getElementById('sl-exag').addEventListener('input', e => {
         viewer.exaggeration = parseInt(e.target.value) / 1000;
