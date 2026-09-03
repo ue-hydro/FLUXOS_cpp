@@ -591,11 +591,22 @@ void main() {
     if (valid < 0.5) discard;
 
     // ── Compute terrain normal from heightmap gradient ──
-    float hL = texture2D(u_heightmap, v_uv - vec2(u_hm_texel.x, 0.0)).r;
-    float hR = texture2D(u_heightmap, v_uv + vec2(u_hm_texel.x, 0.0)).r;
-    float hD = texture2D(u_heightmap, v_uv + vec2(0.0, u_hm_texel.y)).r;
-    float hU = texture2D(u_heightmap, v_uv - vec2(0.0, u_hm_texel.y)).r;
+    //    Guard against invalid (no-data) neighbours: if a neighbour is
+    //    outside the DEM's valid region, substitute the centre height so
+    //    the gradient contribution from that side is 0 (flat). Without
+    //    this, edge-clamped garbage heights create huge fake gradients
+    //    at the DEM boundary that show up as scan-line artefacts when
+    //    the sun is low (wall-side shading kicks in for cliff-like
+    //    fake normals).
+    vec4 tL = texture2D(u_heightmap, v_uv - vec2(u_hm_texel.x, 0.0));
+    vec4 tR = texture2D(u_heightmap, v_uv + vec2(u_hm_texel.x, 0.0));
+    vec4 tD = texture2D(u_heightmap, v_uv + vec2(0.0, u_hm_texel.y));
+    vec4 tU = texture2D(u_heightmap, v_uv - vec2(0.0, u_hm_texel.y));
     float hC = texture2D(u_heightmap, v_uv).r;
+    float hL = tL.b > 0.5 ? tL.r : hC;
+    float hR = tR.b > 0.5 ? tR.r : hC;
+    float hD = tD.b > 0.5 ? tD.r : hC;
+    float hU = tU.b > 0.5 ? tU.r : hC;
     vec3 terrainNormal = normalize(vec3(
         (hL - hR) * u_exaggeration * 4.0,
         1.0,
@@ -655,8 +666,14 @@ void main() {
                      * u_hm_texel * 1.4;   // ~1.4-texel step
         for (int i = 1; i <= 8; i++) {
             vec2 s_uv = v_uv + sunUV * float(i);
-            float h_ray = texture2D(u_heightmap, s_uv).r
-                        + texture2D(u_heightmap, s_uv).g / 256.0;
+            // Skip contributions from samples outside the [0,1] UV range
+            // AND from samples whose heightmap validity flag is unset —
+            // otherwise edge-clamped no-data pixels fake tall "walls"
+            // that shadow the DEM boundary when the sun is low.
+            if (s_uv.x < 0.0 || s_uv.x > 1.0 || s_uv.y < 0.0 || s_uv.y > 1.0) continue;
+            vec4 t_ray = texture2D(u_heightmap, s_uv);
+            if (t_ray.b < 0.5) continue;
+            float h_ray = t_ray.r + t_ray.g / 256.0;
             // Sun-ray height at that horizontal distance: rises with
             // sun elevation (u_sun_dir.y). A cell that towers higher
             // than the ray at this horizontal distance is a wall
@@ -1613,40 +1630,13 @@ void main() {
     //    Result: bright shafts where the ray passes through bright
     //    scene regions (sky), blocked where dark (buildings). Rays
     //    fade with sun altitude — visible at low sun, gone at noon.
-    // ── God-rays (crepuscular shafts) ──────────────────────────────
-    //    Widened elev-fade so rays start showing much earlier in the
-    //    afternoon (not just at true sunset). Lower luminance threshold
-    //    and higher multiplier so the shafts are actually VISIBLE
-    //    against a warm-tinted low-sun scene.
-    float elev_fade = 1.0 - smoothstep(0.30, 0.85, u_sun_elev);
-    if (u_god_rays > 0.02 && elev_fade > 0.01) {
-        // Clamp sun projection to the SCREEN BOX so rays still work
-        // when the sun would otherwise be off-screen — the shafts then
-        // point toward the closest on-screen approximation of the sun
-        // instead of vanishing entirely.
-        vec2 sun_clamped = clamp(u_sun_screen, vec2(-0.5), vec2(1.5));
-        vec2 ray_dir = sun_clamped - v_tex;
-        float ray_len = length(ray_dir);
-        if (ray_len > 0.001) {
-            const int STEPS = 12;
-            vec2  step_vec = ray_dir / float(STEPS);
-            vec2  uv_r     = v_tex;
-            float rays_sum = 0.0;
-            for (int i = 0; i < STEPS; i++) {
-                uv_r += step_vec;
-                // Clamp so out-of-bounds samples don't add stray edges
-                vec3 s = texture2D(u_scene, clamp(uv_r, vec2(0.0), vec2(1.0))).rgb;
-                float lum = dot(s, vec3(0.299, 0.587, 0.114));
-                float w = 1.0 - float(i) / float(STEPS);
-                rays_sum += max(0.0, lum - 0.30) * w;   // lower threshold
-            }
-            float rays = rays_sum / float(STEPS);
-            // Stronger warm golden tint + higher multiplier so the effect
-            // reads as actual visible shafts, not a marginal warm-shift.
-            vec3 ray_col = vec3(1.15, 0.90, 0.55);
-            col += ray_col * rays * u_god_rays * elev_fade * 3.0;
-        }
-    }
+    // God-rays disabled: the screen-space light-shaft post-process was
+    // bleeding warm shading onto the sky background outside the DEM at
+    // low sun angles, creating visible banded shades. The sun-angle
+    // warm tint on the terrain + the sun disk in the sky shader still
+    // deliver the sunset feel without those artifacts.
+    // (u_god_rays / u_sun_screen / u_sun_elev uniforms remain declared
+    // so the JS binding does not error, but their values are ignored.)
 
     // Vignette
     vec2 uv = v_tex - 0.5;
@@ -3622,6 +3612,105 @@ class FloodViewer3D {
         const streakLen = 28 * dpr * (0.6 + 0.4 * amount);
         const angleX = -6 * dpr;
         const angleY = streakLen;
+        // ── DEM footprint clip ─────────────────────────────────────
+        //    Rain streaks are clipped to the DEM's projected screen
+        //    silhouette so they only appear "on the model", not out in
+        //    the sky. We sample MANY points on the DEM's bounding box
+        //    (ground + ceiling, subdivided along each edge) and take
+        //    the convex hull of their projected screen positions.
+        //    Rotating the camera then still gives a tight cover of
+        //    whatever surface the DEM actually occupies on screen.
+        ctx.save();
+        try {
+            const cam  = this.camera;
+            const cw   = this.gl.canvas.width, ch = this.gl.canvas.height;
+            const mvp  = cam.getMVP(cw / ch);
+            const a    = (this.terrainMesh && this.terrainMesh.aspect) || 1.0;
+            const ex   = this.exaggeration || 0.1;
+            // "Ceiling" — the DEM's world-space top. buildTerrainMesh maps
+            // normalised heights in [0,1] to worldY = h * exaggeration,
+            // so the maximum vertex height is `ex`. A small padding
+            // above that (× 1.05) gives a tight silhouette without
+            // enveloping the sky.
+            const hTop = 1.05 * ex;
+
+            // Build a set of 3D points around the DEM's axis-aligned
+            // bounding box. 12 samples per horizontal edge × 2 heights =
+            // 4 × 12 × 2 = 96 sample points. Enough resolution that a
+            // slightly-off-axis view still tiles the silhouette tightly.
+            const N = 12;
+            const pts3d = [];
+            for (const y of [0, hTop]) {
+                for (let i = 0; i < N; i++) {
+                    const t = i / (N - 1);
+                    pts3d.push([-0.5*a + t*a, y, -0.5]);   // south edge
+                }
+                for (let i = 0; i < N; i++) {
+                    const t = i / (N - 1);
+                    pts3d.push([0.5*a, y, -0.5 + t]);       // east edge
+                }
+                for (let i = 0; i < N; i++) {
+                    const t = i / (N - 1);
+                    pts3d.push([0.5*a - t*a, y, 0.5]);       // north edge
+                }
+                for (let i = 0; i < N; i++) {
+                    const t = i / (N - 1);
+                    pts3d.push([-0.5*a, y, 0.5 - t]);       // west edge
+                }
+            }
+
+            // Project each and keep only those in front of the camera
+            // (w > small epsilon). Convert to canvas-pixel coords.
+            const screenPts = [];
+            for (const [x, y, z] of pts3d) {
+                const m = mvp;
+                const xc = m[0]*x + m[4]*y + m[8]*z  + m[12];
+                const yc = m[1]*x + m[5]*y + m[9]*z  + m[13];
+                const wc = m[3]*x + m[7]*y + m[11]*z + m[15];
+                if (wc <= 0.01) continue;
+                const ndcX = xc / wc;
+                const ndcY = yc / wc;
+                screenPts.push({
+                    x: (ndcX * 0.5 + 0.5) * rc.width,
+                    y: (1 - (ndcY * 0.5 + 0.5)) * rc.height,
+                });
+            }
+
+            // Need at least 3 in-front points to build a polygon.
+            if (screenPts.length >= 3) {
+                // 2D convex hull (Andrew's monotone chain). Cheap for
+                // ~100 points; runs once per frame — negligible cost.
+                screenPts.sort((p, q) => p.x - q.x || p.y - q.y);
+                const cross = (o, a, b) =>
+                    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+                const lower = [];
+                for (const p of screenPts) {
+                    while (lower.length >= 2 &&
+                           cross(lower[lower.length-2], lower[lower.length-1], p) <= 0)
+                        lower.pop();
+                    lower.push(p);
+                }
+                const upper = [];
+                for (let i = screenPts.length - 1; i >= 0; i--) {
+                    const p = screenPts[i];
+                    while (upper.length >= 2 &&
+                           cross(upper[upper.length-2], upper[upper.length-1], p) <= 0)
+                        upper.pop();
+                    upper.push(p);
+                }
+                const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+
+                ctx.beginPath();
+                ctx.moveTo(hull[0].x, hull[0].y);
+                for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
+                ctx.closePath();
+                ctx.clip();
+            }
+            // else: fewer than 3 points in front — camera is inside/below
+            // the DEM box or the projection is degenerate. Fall through
+            // with no clip so rain still appears in the corner cases.
+        } catch (e) { /* ignore — no clip */ }
+
         ctx.strokeStyle = `rgba(200, 220, 245, ${0.35 + 0.35 * amount})`;
         ctx.lineWidth = 1.2 * dpr;
         ctx.beginPath();
@@ -3640,6 +3729,7 @@ class FloodViewer3D {
             ctx.lineTo(x + angleX, y + angleY);
         }
         ctx.stroke();
+        ctx.restore();   // release the DEM clip
     }
 }
 
