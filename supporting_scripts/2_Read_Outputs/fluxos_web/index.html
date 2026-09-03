@@ -20,6 +20,32 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 }
 #controls h2 { font-size: 15px; color: #e0ecff; margin-bottom: 12px;
     font-weight: 600; letter-spacing: 0.5px; }
+/* Drawer-style collapse: the panel translates DOWN when collapsed so
+   only its top handle (~34 px) stays peeking above the viewport bottom.
+   Click the handle to toggle expand / collapse, or drag it UP to reveal
+   the panel gradually. */
+#controls { transition: transform 0.28s ease-out; will-change: transform; }
+#controls[data-collapsed="true"] { transform: translateY(calc(100% - 34px)); }
+#controls-handle {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin: -16px -20px 8px;    /* absorb panel padding */
+    padding: 6px 16px 8px; cursor: grab; user-select: none;
+    border-top-left-radius: 10px; border-top-right-radius: 10px;
+    border-bottom: 1px solid rgba(60,90,140,0.25);
+    color: #8899bb; font-size: 12px; letter-spacing: 0.5px;
+    transition: background .15s, color .15s;
+}
+#controls-handle:hover { background: rgba(60,90,140,0.35); color: #e0ecff; }
+#controls-handle.dragging { cursor: grabbing; }
+#controls-handle .grip {
+    color: #6a7a99; letter-spacing: 2px; font-size: 14px;
+    line-height: 0; padding: 4px 0;
+}
+#controls[data-collapsed="true"] #controls-handle {
+    border-bottom-color: transparent;
+    border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
+}
+#controls-title { flex: 1; }
 .ctrl-row { margin-bottom: 8px; display: flex; align-items: center;
     justify-content: space-between; }
 .ctrl-row label { flex: 0 0 100px; color: #8899bb; }
@@ -128,8 +154,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     <div class="load-pct" id="load-pct">0%</div>
 </div>
 
-<div id="controls" style="display:none;">
-    <h2>FLUXOS Flood Simulation</h2>
+<div id="controls" style="display:none;" data-collapsed="false">
+    <div id="controls-handle"
+         title="Click to collapse • Drag up / down to move • H toggles">
+        <span class="grip">☰</span>
+        <span id="controls-title">FLUXOS Flood Simulation</span>
+        <span class="grip">☰</span>
+    </div>
+    <h2 style="display:none;">FLUXOS Flood Simulation</h2>
     <div class="ctrl-row">
         <label>Time</label>
         <input type="range" id="sl-time" min="0" max="100" value="0">
@@ -177,6 +209,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <button class="btn-sm" id="cam-low">Low</button>
         <button class="btn-sm" id="cam-3d">3D</button>
         <button class="btn-sm active" id="cam-fly">Cinematic</button>
+        <button class="btn-sm" id="cam-drop"
+            title="Click anywhere on the terrain to swoop the camera down and focus on that point.">📍 Drop</button>
+        <button class="btn-sm" id="cam-fly"
+            title="Fly-path recorder — click points on the map to add waypoints, then Play to auto-fly through them cinematically.">🎬 Fly Path</button>
     </div>
 </div>
 
@@ -185,8 +221,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
     <div><span class="hl" id="i-fps">--</span> fps</div>
     <div><span class="hl" id="i-particles">--</span> particles</div>
     <div style="margin-top:6px; font-size:10px; color:#667799;">
-        Drag: rotate | Scroll: zoom<br>
-        Shift+drag: pan
+        Drag: rotate · Scroll: zoom<br>
+        Shift+drag: pan (fwd / strafe) · Alt+drag: height<br>
+        WASD / arrows: move · Q/E: down/up · Shift: run
     </div>
 </div>
 
@@ -514,6 +551,7 @@ uniform float u_z_range;
 uniform float u_exaggeration;
 uniform vec2 u_vel_range_x;         // vx_min, vx_max (northing from R)
 uniform vec2 u_vel_range_y;         // vy_min, vy_max (easting from G)
+uniform vec2 u_texel_size;          // 1/gridW, 1/gridH — for neighbour sampling
 
 varying vec2 v_uv;
 varying float v_depth;
@@ -550,12 +588,59 @@ void main() {
     // Compute water surface height = terrain + depth (both in normalized units)
     float terrain_y = z_norm * u_exaggeration * valid;
     float water_offset = depth / u_z_range * u_exaggeration;
-
-    // Add small constant bump so thin water layers are visibly above terrain
     float bump = step(0.001, depth) * 0.002;
 
+    // ── Anti-wall-climb: when this vertex is DRY but adjacent to wet
+    // cells (typical at building edges), the terrain jumps 20 m up to
+    // the building top, so the water quad from wet→dry corner spans
+    // that whole cliff as a "vertical triangle wedge" up the wall.
+    // Fix: snap the water surface at dry-adjacent-to-wet vertices DOWN
+    // to the max water surface of any wet 4-neighbor. Result: the
+    // water quad stays flat across the building boundary instead of
+    // climbing the cliff. Costs 4 extra texture fetches per water
+    // vertex; water pass isn't a bottleneck.
+    float wall_ws = -1.0e6;
+    if (depth < 1e-4) {
+        // Scan all 8 neighbours (N,S,E,W + diagonals). The diagonal case
+        // matters: for a wet cell surrounded by dry building cells, the
+        // diagonally-opposite mesh vertex has NO wet 4-neighbour but IS
+        // a diagonal neighbour of the wet cell — without the diagonal
+        // scan that vertex would stay at building-top elevation and the
+        // mesh triangle wet→edge→diagonal would still climb the wall.
+        for (int i = 0; i < 8; i++) {
+            vec2 o = vec2(0.0);
+            if (i == 0) o = vec2( u_texel_size.x,             0.0);
+            if (i == 1) o = vec2(-u_texel_size.x,             0.0);
+            if (i == 2) o = vec2(            0.0,  u_texel_size.y);
+            if (i == 3) o = vec2(            0.0, -u_texel_size.y);
+            if (i == 4) o = vec2( u_texel_size.x,  u_texel_size.y);
+            if (i == 5) o = vec2( u_texel_size.x, -u_texel_size.y);
+            if (i == 6) o = vec2(-u_texel_size.x,  u_texel_size.y);
+            if (i == 7) o = vec2(-u_texel_size.x, -u_texel_size.y);
+            vec4 nv0 = texture2D(u_velocity,      a_texcoord + o);
+            vec4 nv1 = texture2D(u_velocity_next, a_texcoord + o);
+            float nw = mix(step(0.5, nv0.a), step(0.5, nv1.a), u_time_frac);
+            if (nw > 0.0) {
+                vec4 nhm = texture2D(u_heightmap, a_texcoord + o);
+                float n_znorm = nhm.r + nhm.g / 256.0;
+                float n_valid = step(0.5, nhm.b);
+                float nd = mix(nv0.b, nv1.b, u_time_frac) * u_h_max;
+                float n_ws = n_znorm * u_exaggeration * n_valid
+                           + nd / u_z_range * u_exaggeration;
+                wall_ws = max(wall_ws, n_ws);
+            }
+        }
+    }
+
     vec3 pos = a_position;
-    pos.y = terrain_y + water_offset + bump;
+    if (wall_ws > -1.0e5) {
+        // We're a dry vertex next to at least one wet neighbour — flatten
+        // the water surface to the wet neighbour's, plus a small bump so
+        // the water is visibly above the terrain rather than z-fighting.
+        pos.y = wall_ws + bump + 0.002;
+    } else {
+        pos.y = terrain_y + water_offset + bump;
+    }
     v_world_pos = pos;
 
     gl_Position = u_mvp * vec4(pos, 1.0);
@@ -636,6 +721,12 @@ vec3 getSkyColor(vec3 ray) {
 
 void main() {
     if (v_depth < 0.001) discard;
+
+    // ── 0. Kill sub-mm water fragments — cures the "vertical wedge"
+    //       water artefact at building edges. Even after the wet-neighbour
+    //       vertex snap flattens the quad, the fragment interpolator would
+    //       otherwise stretch a fading water sheet across the dry cell.
+    if (v_depth < 0.005) discard;
 
     // ── 1. Depth normalization ──
     float t = clamp(v_depth / (u_h_max * 0.5), 0.0, 1.0);
@@ -1070,8 +1161,13 @@ class OrbitCamera {
         this.far = 100;
         this._dragging = false;
         this._panning = false;
+        this._heighting = false;    // alt+drag → target[1] adjust
         this._lastX = 0;
         this._lastY = 0;
+        // Per-key pan state — updated by the global key handler in the
+        // init IIFE; consumed by updateKeyPan() each frame.
+        this._keyPan = { fwd:false, back:false, left:false, right:false,
+                         up:false, down:false, shift:false };
         this._anim = null;
     }
 
@@ -1112,6 +1208,28 @@ class OrbitCamera {
         if (elapsed >= a.duration) this._anim = null;
     }
 
+    // Keyboard-driven pan (WASD / arrow keys / Q-E). Called once per frame
+    // by the render loop with the frame's dt in seconds. Reads the per-key
+    // flags on this._keyPan (set by the global keydown/keyup listener).
+    updateKeyPan(dt) {
+        const k = this._keyPan;
+        if (!k) return;
+        const anyKey = k.fwd || k.back || k.left || k.right || k.up || k.down;
+        if (!anyKey) return;
+        const st = Math.sin(this.theta), ct = Math.cos(this.theta);
+        // Speed scales with distance so panning FEELS the same at any zoom.
+        // The Shift key gives a 3× turbo. 0.6 world-units/s baseline.
+        const speed = this.distance * (k.shift ? 1.8 : 0.6) * dt;
+        // Forward (into the scene, XZ only) = −(sin θ, 0, cos θ)
+        // Right (of view, XZ)                = (cos θ, 0, −sin θ)
+        const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
+        const rgt = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+        this.target[0] += (-st * fwd + ct * rgt) * speed;
+        this.target[2] += (-ct * fwd - st * rgt) * speed;
+        // Vertical (Q down / E up)
+        this.target[1] += ((k.up ? 1 : 0) - (k.down ? 1 : 0)) * speed;
+    }
+
     getEye() {
         const ct = Math.cos(this.theta), st = Math.sin(this.theta);
         const cp = Math.cos(this.phi), sp = Math.sin(this.phi);
@@ -1138,20 +1256,26 @@ class OrbitCamera {
     }
 
     attach(canvas) {
+        // Modifier-key legend (matches the tooltip in the top-right info box):
+        //   default drag      → orbit rotate (theta, phi)
+        //   SHIFT + drag      → PAN on the horizontal plane
+        //                       • dx: strafe left/right
+        //                       • dy: forward / back  (view direction, XZ only)
+        //                       target Y is LOCKED — no unwanted altitude drift
+        //   ALT / OPT + drag  → adjust height only (target[1])
+        //   scroll            → zoom (distance from target)
         canvas.addEventListener('mousedown', e => {
-            this._anim = null; // cancel animation on user interaction
-            if (e.shiftKey) {
-                this._panning = true;
-            } else {
-                this._dragging = true;
-            }
+            this._anim = null;
+            if (e.altKey)       { this._heighting = true; }
+            else if (e.shiftKey){ this._panning   = true; }
+            else                { this._dragging  = true; }
             this._lastX = e.clientX;
             this._lastY = e.clientY;
             e.preventDefault();
         });
 
         canvas.addEventListener('mousemove', e => {
-            if (!this._dragging && !this._panning) return;
+            if (!this._dragging && !this._panning && !this._heighting) return;
             const dx = e.clientX - this._lastX;
             const dy = e.clientY - this._lastY;
             this._lastX = e.clientX;
@@ -1162,14 +1286,30 @@ class OrbitCamera {
                 this.phi = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01,
                     this.phi + dy * 0.005));
             } else if (this._panning) {
-                // Pan in view plane
-                const ct = Math.cos(this.theta), st = Math.sin(this.theta);
-                const scale = this.distance * 0.001;
-                // Right vector (horizontal)
-                this.target[0] -= dx * scale * ct;
-                this.target[2] += dx * scale * st;
-                // Up (just Y)
-                this.target[1] += dy * scale;
+                // Horizontal-plane pan — target Y stays constant so the
+                // camera height above ground doesn't drift as you push
+                // the view forward / sideways.
+                //   forward vector (view direction, horizontal, unit):
+                //     eye = target + distance · (cp·sin θ, sin φ, cp·cos θ)
+                //     look direction (target→eye), XZ projection:
+                //     (sin θ, cos θ)     — points FROM target TO camera in XZ
+                //   right vector = forward × world_up = (cos θ, 0, −sin θ)
+                //
+                //   dx > 0 (mouse right)  → drag scene right → target − right·k
+                //   dy > 0 (mouse down)   → drag scene toward camera → target + toward·k
+                const st = Math.sin(this.theta), ct = Math.cos(this.theta);
+                const scale = this.distance * 0.0012;
+                // Toward-camera (horizontal): (sin θ, 0, cos θ)
+                // Right of view: (cos θ, 0, −sin θ)
+                this.target[0] -= dx * ct * scale;
+                this.target[2] += dx * st * scale;
+                this.target[0] += dy * st * scale;
+                this.target[2] += dy * ct * scale;
+                // target[1] intentionally UNCHANGED
+            } else if (this._heighting) {
+                // Alt+drag: pure altitude change (target Y). Mouse DOWN
+                // lowers the camera-focus point.
+                this.target[1] -= dy * this.distance * 0.001;
             }
             e.preventDefault();
         });
@@ -1177,6 +1317,7 @@ class OrbitCamera {
         window.addEventListener('mouseup', () => {
             this._dragging = false;
             this._panning = false;
+            this._heighting = false;
         });
 
         canvas.addEventListener('wheel', e => {
@@ -1449,6 +1590,9 @@ class FloodViewer3D {
         this.canvas = canvas;
         this.camera = new OrbitCamera();
         this.camera.attach(canvas);
+        this._clickDropArmed = false;     // true while user is picking a drop point
+        this._flyWaypoints = [];          // array of {theta, phi, distance, target}
+        this._flyPlaying = false;         // true while animating through waypoints
 
         this.meta = null;
         this.currentFrame = 0;
@@ -2070,14 +2214,164 @@ class FloodViewer3D {
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.terrainMesh.indices, gl.STATIC_DRAW);
     }
 
+    // Sample terrain worldY at (worldX, worldZ) via the same bilinear
+    // decode the mesh builder uses. Returns null if outside the DEM.
+    // Used by raycastTerrain (which powers Drop and Fly-Path picking).
+    sampleTerrainAtWorld(worldX, worldZ) {
+        if (!this.terrainMesh || !this.heightData || !this.meta) return null;
+        const aspect = this.terrainMesh.aspect || 1.0;
+        // Inverse of buildTerrainMesh: worldX = (u - 0.5) * aspect, worldZ = v - 0.5
+        const u = (worldX / aspect) + 0.5;
+        const v = worldZ + 0.5;
+        if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+        const s = sampleHeight(this.heightData, this.meta.width, this.meta.height, u, v);
+        if (!s.valid) return null;
+        return s.z * this.exaggeration;
+    }
+
+    // Screen (px, py) → world XZ hit on the terrain. Iteratively steps
+    // a ray from the near plane forward, sampling terrain height at each
+    // step until the ray goes below the terrain surface. Used by the
+    // "Drop here" click-to-teleport UI.
+    raycastTerrain(px, py) {
+        const cvs = this.canvas;
+        const rect = cvs.getBoundingClientRect();
+        const nx = ((px - rect.left) / rect.width) * 2 - 1;
+        const ny = 1 - ((py - rect.top) / rect.height) * 2;
+        const aspect = cvs.width / cvs.height;
+        const mvp = this.camera.getMVP(aspect);
+        const inv = Mat4.create();
+        Mat4.invert(inv, mvp);
+        // Two clip-space points along the ray
+        function unproject(x, y, z) {
+            const p = [x, y, z, 1.0];
+            const r = [
+                inv[0]*p[0] + inv[4]*p[1] + inv[8]*p[2]  + inv[12]*p[3],
+                inv[1]*p[0] + inv[5]*p[1] + inv[9]*p[2]  + inv[13]*p[3],
+                inv[2]*p[0] + inv[6]*p[1] + inv[10]*p[2] + inv[14]*p[3],
+                inv[3]*p[0] + inv[7]*p[1] + inv[11]*p[2] + inv[15]*p[3],
+            ];
+            return [r[0]/r[3], r[1]/r[3], r[2]/r[3]];
+        }
+        const near = unproject(nx, ny, -1);
+        const far  = unproject(nx, ny, +1);
+        const dir  = [far[0]-near[0], far[1]-near[1], far[2]-near[2]];
+        const dlen = Math.hypot(dir[0], dir[1], dir[2]);
+        dir[0]/=dlen; dir[1]/=dlen; dir[2]/=dlen;
+        // March along the ray; watch for the surface transition
+        const step = 0.002;   // ~0.2 % of the world span per step
+        let prev_above = null;
+        let hit = null;
+        for (let t = 0; t < 3.0; t += step) {
+            const x = near[0] + dir[0]*t;
+            const y = near[1] + dir[1]*t;
+            const z = near[2] + dir[2]*t;
+            const g = this.sampleTerrainAtWorld(x, z);
+            if (g === null) { prev_above = null; continue; }
+            const above = y - g;
+            if (prev_above !== null && prev_above > 0 && above <= 0) {
+                // Crossed the surface — interpolate for smoother hit
+                const f = prev_above / (prev_above - above);
+                const px = x - dir[0]*step*(1-f);
+                const pz = z - dir[2]*step*(1-f);
+                hit = [px, g, pz];
+                break;
+            }
+            prev_above = above;
+        }
+        return hit;
+    }
+
+    // ─── Fly-path spline evaluator ─────────────────────────────────
+    // Given the waypoint list, evaluate camera pose at global parametric
+    // time `elapsed` (seconds). Uses uniform Catmull-Rom (tension 0.5) on
+    // theta / phi / distance / target[3] independently. C¹ continuous
+    // through interior waypoints — smooth camera motion, no discontinuity.
+    _flyEvalPose(elapsed) {
+        const wp = this._flyWaypoints;
+        const n = wp.length;
+        if (n === 0) return null;
+        if (n === 1) return wp[0];
+        const seg = this._flySegDur;
+        let g = elapsed / seg;                     // global "segments" parameter
+        if (this._flyLoop) g = ((g % n) + n) % n;  // wrap for loop mode
+        else g = Math.max(0, Math.min(n - 1 - 1e-6, g));
+        const i = Math.floor(g);
+        const t = g - i;
+        // Clamp / wrap endpoints for the 4-point stencil
+        const idx = (k) => {
+            if (this._flyLoop) return ((k % n) + n) % n;
+            return Math.max(0, Math.min(n - 1, k));
+        };
+        const p0 = wp[idx(i - 1)], p1 = wp[idx(i)],
+              p2 = wp[idx(i + 1)], p3 = wp[idx(i + 2)];
+        // Catmull-Rom (uniform, tension 0.5)
+        const crm = (a, b, c, d, t) => {
+            const t2 = t * t, t3 = t2 * t;
+            return 0.5 * ((2 * b)
+                + (-a + c) * t
+                + (2 * a - 5 * b + 4 * c - d) * t2
+                + (-a + 3 * b - 3 * c + d) * t3);
+        };
+        // Unwrap theta values around p1 for shortest-angular-path motion.
+        const unwrap = (a, ref) => {
+            let r = a;
+            while (r - ref > Math.PI)  r -= 2 * Math.PI;
+            while (r - ref < -Math.PI) r += 2 * Math.PI;
+            return r;
+        };
+        const th1 = p1.theta;
+        const th0 = unwrap(p0.theta, th1);
+        const th2 = unwrap(p2.theta, th1);
+        const th3 = unwrap(p3.theta, th2);
+        return {
+            theta:    crm(th0,        th1,        th2,        th3,        t),
+            phi:      crm(p0.phi,     p1.phi,     p2.phi,     p3.phi,     t),
+            distance: crm(p0.distance,p1.distance,p2.distance,p3.distance,t),
+            target: [
+                crm(p0.target[0], p1.target[0], p2.target[0], p3.target[0], t),
+                crm(p0.target[1], p1.target[1], p2.target[1], p3.target[1], t),
+                crm(p0.target[2], p1.target[2], p2.target[2], p3.target[2], t),
+            ],
+        };
+    }
+
     // ── Render loop ──
     render() {
         const now = performance.now();
         const dt = (now - this._lastT) / 1000;
         this._lastT = now;
 
-        // Smooth camera animation
-        this.camera.updateAnimation();
+        // Fly-path playback overrides orbit-camera animation. Advances
+        // parametric time along the spline and writes camera pose directly
+        // (bypassing camera.updateAnimation which handles single-shot
+        // animateTo() interpolations). Auto-stops at path end unless Loop.
+        if (this._flyPlaying && this._flyWaypoints.length >= 1) {
+            this._flyElapsed = (this._flyElapsed || 0) + dt;
+            const totalDur = this._flySegDur * (this._flyWaypoints.length - 1);
+            const done = !this._flyLoop && this._flyElapsed >= totalDur;
+            const pose = this._flyEvalPose(this._flyElapsed);
+            if (pose) {
+                this.camera._anim = null;   // cancel any lingering animateTo
+                this.camera.theta = pose.theta;
+                this.camera.phi = pose.phi;
+                this.camera.distance = pose.distance;
+                this.camera.target[0] = pose.target[0];
+                this.camera.target[1] = pose.target[1];
+                this.camera.target[2] = pose.target[2];
+            }
+            if (done) {
+                this._flyPlaying = false;
+                const btn = document.getElementById('fly-play');
+                if (btn) btn.textContent = '▶ Play';
+            }
+        } else {
+            // Standard orbit-camera animation for single-shot animateTo() calls
+            this.camera.updateAnimation();
+            // Keyboard-driven pan (WASD / arrows / Q-E) — updates target
+            // each frame while keys are held.
+            this.camera.updateKeyPan(dt);
+        }
 
         // FPS
         this._fpsFrames++;
@@ -2855,14 +3149,293 @@ function showError(stage, detail) {
     const camBtns = document.querySelectorAll('[id^="cam-"]');
     camBtns.forEach(btn => {
         btn.addEventListener('click', () => {
+            // "Drop" button arms a one-shot click-to-teleport on the terrain
+            if (btn.id === 'cam-drop') {
+                viewer._clickDropArmed = !viewer._clickDropArmed;
+                btn.classList.toggle('active', viewer._clickDropArmed);
+                canvas.style.cursor = viewer._clickDropArmed ? 'crosshair' : '';
+                return;
+            }
+            // "Fly Path" button just toggles the fly-path panel. Waypoints
+            // are added ONLY via the "+ Capture current view" button so
+            // the user can freely rotate / pan / zoom to compose each
+            // shot without accidentally dropping waypoints on random clicks.
+            if (btn.id === 'cam-fly') {
+                const showing = !flyPanel.hidden;
+                flyPanel.hidden = showing;
+                btn.classList.toggle('active', !showing);
+                return;
+            }
             const preset = camPresets[btn.id];
             if (!preset) return;
             viewer.camera.animateTo(preset, 600);
-            // Update active state
-            camBtns.forEach(b => b.classList.remove('active'));
+            // Update active state (excluding cam-drop / cam-fly toggles)
+            camBtns.forEach(b => {
+                if (b.id !== 'cam-drop' && b.id !== 'cam-fly')
+                    b.classList.remove('active');
+            });
             btn.classList.add('active');
         });
     });
+
+    // ─── Drawer-style collapse for the controls panel ──────────────
+    // The panel translates DOWN when collapsed, leaving only its top
+    // handle (~34 px) visible. Click the handle to toggle; drag it up
+    // or down to open/close gradually; 'H' also toggles.
+    const ctrlPanel = document.getElementById('controls');
+    const ctrlHandle = document.getElementById('controls-handle');
+    const HANDLE_H = 34;                // px kept visible when collapsed
+
+    function setCollapsed(collapsed) {
+        ctrlPanel.dataset.collapsed = collapsed ? 'true' : 'false';
+        ctrlPanel.style.transform = '';   // let CSS take over the transition
+    }
+
+    // Click on the handle toggles — but ONLY if there was no meaningful
+    // drag distance. A real drag lands in the drop-based state below.
+    let drag = null;   // { startY, startCollapsed, panelH, moved }
+    function onDown(e) {
+        const y = (e.touches ? e.touches[0].clientY : e.clientY);
+        drag = {
+            startY: y,
+            startCollapsed: ctrlPanel.dataset.collapsed === 'true',
+            panelH: ctrlPanel.offsetHeight,
+            moved: 0,
+        };
+        ctrlPanel.style.transition = 'none';     // no easing while dragging
+        ctrlHandle.classList.add('dragging');
+        e.preventDefault();
+    }
+    function onMove(e) {
+        if (!drag) return;
+        const y = (e.touches ? e.touches[0].clientY : e.clientY);
+        const dy = y - drag.startY;   // dy > 0 → dragging DOWN → collapse
+        drag.moved = Math.max(drag.moved, Math.abs(dy));
+        const closedOffset = drag.panelH - HANDLE_H;   // px when collapsed
+        // Start offset (how much the panel is already translated down)
+        const startOff = drag.startCollapsed ? closedOffset : 0;
+        const off = Math.max(0, Math.min(closedOffset, startOff + dy));
+        ctrlPanel.style.transform = `translateY(${off}px)`;
+    }
+    function onUp() {
+        if (!drag) return;
+        const { moved, panelH, startCollapsed } = drag;
+        const closedOffset = panelH - HANDLE_H;
+        drag = null;
+        ctrlPanel.style.transition = '';               // restore easing
+        ctrlHandle.classList.remove('dragging');
+        // If the pointer barely moved → treat as click → toggle
+        if (moved < 5) {
+            setCollapsed(!startCollapsed);
+            return;
+        }
+        // Real drag → snap to the nearer end (past the midpoint = collapsed)
+        const current = parseFloat(
+            (ctrlPanel.style.transform.match(/translateY\((-?\d+\.?\d*)px\)/) || [])[1] || 0);
+        setCollapsed(current > closedOffset / 2);
+    }
+    ctrlHandle.addEventListener('mousedown', onDown);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    ctrlHandle.addEventListener('touchstart', onDown, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+    // Keyboard 'H' still toggles
+    document.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' ||
+                         e.target.tagName === 'TEXTAREA')) return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        if ((e.code === 'KeyH') || (e.key && e.key.toLowerCase() === 'h')) {
+            setCollapsed(ctrlPanel.dataset.collapsed !== 'true');
+            e.preventDefault();
+        }
+    }, { capture: true });
+
+    // ─── Click-to-drop handler (fly-path uses the "+ Capture" button
+    //     instead — so accidental clicks while composing a view don't
+    //     drop stray waypoints).
+    canvas.addEventListener('click', (e) => {
+        if (!viewer._clickDropArmed) return;
+        const hit = viewer.raycastTerrain(e.clientX, e.clientY);
+        if (!hit) {
+            console.warn('[click] no terrain under cursor'); return;
+        }
+        const [wx, wy, wz] = hit;
+        viewer.camera.animateTo({
+            theta: viewer.camera.theta,
+            phi:   0.18,
+            distance: 0.20,
+            target: [wx, wy + 0.005, wz],
+        }, 700);
+        viewer._clickDropArmed = false;
+        canvas.style.cursor = '';
+        document.getElementById('cam-drop').classList.remove('active');
+    });
+
+    // ─── Fly-path panel ─────────────────────────────────────────────
+    // A small draggable-position overlay bottom-right of the canvas. Shows
+    // the waypoint list + Play / Clear controls + segment-duration slider.
+    const flyPanel = document.createElement('div');
+    flyPanel.id = 'fly-panel';
+    flyPanel.hidden = true;
+    flyPanel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10;'
+        + 'background:rgba(5,8,20,0.85);color:#b0c4de;padding:12px 14px;'
+        + 'border-radius:10px;font:12px/1.35 "SF Mono","Fira Code",monospace;'
+        + 'border:1px solid rgba(60,90,140,0.4);backdrop-filter:blur(8px);'
+        + '-webkit-backdrop-filter:blur(8px);min-width:230px;max-width:280px;';
+    flyPanel.innerHTML = `
+        <div style="font-weight:600;color:#e0ecff;margin-bottom:6px">🎬 Fly Path</div>
+        <div style="color:#8899bb;font-size:11px;margin-bottom:6px">
+            <b>1.</b> Freely compose the view — drag / scroll / shift-drag / WASD.<br>
+            <b>2.</b> Click <b>+ Capture current view</b> to lock it as a waypoint.<br>
+            <b>3.</b> Repeat, then Play — Catmull-Rom spline gives smooth motion.
+        </div>
+        <div id="fly-list" style="max-height:150px;overflow-y:auto;
+            margin:6px 0;font-size:11px;color:#ccddef"></div>
+        <button class="btn" id="fly-add-view" style="width:100%;margin:4px 0 6px">
+            + Capture current view
+        </button>
+        <div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px">
+            <label style="flex:0 0 auto;color:#8899bb">Seg s</label>
+            <input id="fly-duration" type="range" min="1" max="15" step="1" value="4"
+                   style="flex:1">
+            <span id="fly-duration-val" style="flex:0 0 24px;text-align:right;color:#e0ecff">4</span>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;color:#8899bb;
+            font-size:11px;margin-bottom:8px">
+            <input id="fly-loop" type="checkbox"> Loop
+        </label>
+        <div style="display:flex;gap:6px">
+            <button class="btn" id="fly-play" style="flex:1">▶ Play</button>
+            <button class="btn" id="fly-clear" style="flex:0 0 auto">Clear</button>
+        </div>
+    `;
+    document.body.appendChild(flyPanel);
+
+    function renderFlyPanel() {
+        const list = document.getElementById('fly-list');
+        if (!viewer._flyWaypoints.length) {
+            list.innerHTML = '<em style="color:#667a99">no waypoints yet</em>';
+            return;
+        }
+        list.innerHTML = viewer._flyWaypoints.map((w, i) =>
+            `<div style="padding:2px 0;display:flex;justify-content:space-between">
+                <span>#${i + 1}</span>
+                <span style="color:#8899bb">
+                    (${w.target[0].toFixed(2)}, ${w.target[2].toFixed(2)})
+                </span>
+                <button data-wp="${i}" style="background:none;border:0;
+                    color:#c78;cursor:pointer;padding:0 4px;font-size:12px"
+                    title="Remove">×</button>
+             </div>`).join('');
+        // Wire remove buttons
+        list.querySelectorAll('button[data-wp]').forEach(b => {
+            b.addEventListener('click', () => {
+                viewer._flyWaypoints.splice(parseInt(b.dataset.wp, 10), 1);
+                renderFlyPanel();
+            });
+        });
+    }
+    renderFlyPanel();
+
+    document.getElementById('fly-duration').addEventListener('input', (e) => {
+        document.getElementById('fly-duration-val').textContent = e.target.value;
+    });
+    document.getElementById('fly-clear').addEventListener('click', () => {
+        viewer._flyWaypoints.length = 0;
+        renderFlyPanel();
+    });
+
+    // Capture current orbit-camera pose as a waypoint. No terrain click
+    // needed — the user just composes the exact view they want (drag,
+    // scroll, shift-drag) and hits this to snapshot theta/phi/distance/target.
+    document.getElementById('fly-add-view').addEventListener('click', () => {
+        viewer._flyWaypoints.push({
+            theta:    viewer.camera.theta,
+            phi:      viewer.camera.phi,
+            distance: viewer.camera.distance,
+            target:   viewer.camera.target.slice(),
+        });
+        console.log(`[fly] +waypoint #${viewer._flyWaypoints.length} (captured view)`);
+        renderFlyPanel();
+    });
+
+    // Play: spline-driven playback. Kicks off the render-loop evaluator
+    // by setting _flyPlaying=true; the render loop then advances _flyElapsed
+    // and writes camera pose from a Catmull-Rom curve through all waypoints.
+    document.getElementById('fly-play').addEventListener('click', () => {
+        const playBtn = document.getElementById('fly-play');
+        if (viewer._flyPlaying) {
+            viewer._flyPlaying = false;
+            playBtn.textContent = '▶ Play';
+            return;
+        }
+        if (viewer._flyWaypoints.length < 2) {
+            alert('Add at least 2 waypoints — click terrain or use "+ Capture current view".');
+            return;
+        }
+        viewer._flySegDur = parseInt(document.getElementById('fly-duration').value, 10);
+        viewer._flyLoop   = document.getElementById('fly-loop').checked;
+        viewer._flyElapsed = 0;
+        viewer._flyPlaying = true;
+        playBtn.textContent = '⏹ Stop';
+    });
+
+    // Any user input to the canvas (mousedown / wheel) while flying cancels
+    // playback so the user regains control smoothly.
+    ['mousedown', 'wheel', 'touchstart'].forEach(ev => {
+        canvas.addEventListener(ev, () => {
+            if (viewer._flyPlaying) {
+                viewer._flyPlaying = false;
+                const btn = document.getElementById('fly-play');
+                if (btn) btn.textContent = '▶ Play';
+            }
+        }, { capture: true });
+    });
+
+    // ─── Keyboard nav: WASD / arrow keys / Q-E move the orbit target ─
+    // Uses e.code (physical-key, layout-independent) so W/A/S/D fire on
+    // any keyboard layout. Silently ignored while typing in inputs.
+    canvas.tabIndex = 0;   // canvas can receive keyboard focus
+    function panKey(e, down) {
+        if (e.target && (e.target.tagName === 'INPUT' ||
+                         e.target.tagName === 'TEXTAREA')) return;
+        // Cancel a fly-path playback if the user hits movement keys
+        if (down && viewer._flyPlaying) {
+            const wasFly = viewer._flyPlaying;
+            viewer._flyPlaying = false;
+            const btn = document.getElementById('fly-play');
+            if (btn) btn.textContent = '▶ Play';
+            if (wasFly) return;   // treat this keypress as a Stop, not a move
+        }
+        const k = viewer.camera._keyPan;
+        const code = e.code || '';
+        let handled = true;
+        switch (code) {
+            case 'KeyW': case 'ArrowUp':    k.fwd   = down; break;
+            case 'KeyS': case 'ArrowDown':  k.back  = down; break;
+            case 'KeyA': case 'ArrowLeft':  k.left  = down; break;
+            case 'KeyD': case 'ArrowRight': k.right = down; break;
+            case 'KeyE': case 'PageUp':     k.up    = down; break;
+            case 'KeyQ': case 'PageDown':   k.down  = down; break;
+            case 'ShiftLeft': case 'ShiftRight': k.shift = down; break;
+            default:
+                const kk = (e.key || '').toLowerCase();
+                if      (kk === 'w') k.fwd   = down;
+                else if (kk === 's') k.back  = down;
+                else if (kk === 'a') k.left  = down;
+                else if (kk === 'd') k.right = down;
+                else if (kk === 'e') k.up    = down;
+                else if (kk === 'q') k.down  = down;
+                else if (e.key === 'Shift') k.shift = down;
+                else handled = false;
+        }
+        // Cancel any lingering animateTo when the user takes over
+        if (down && handled) viewer.camera._anim = null;
+        if (handled) e.preventDefault();
+    }
+    document.addEventListener('keydown', e => panKey(e, true),  { capture: true });
+    document.addEventListener('keyup',   e => panKey(e, false), { capture: true });
 })();
 </script>
 </body>

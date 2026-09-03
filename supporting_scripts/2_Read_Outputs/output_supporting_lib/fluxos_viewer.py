@@ -2374,7 +2374,7 @@ def export_video_advected(dem, meta, results, mesh_type, variable, clim,
 
 def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
                         img_w, img_h, output_path,
-                        basin_mask=None):
+                        basin_mask=None, sat_zoom_boost=0):
     """Download satellite imagery from Esri World Imagery and reproject to
     match a DEM grid.
 
@@ -2390,13 +2390,26 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
     import urllib.request
     import io
 
-    # Choose zoom level: aim for ~1 pixel per DEM cell
+    # Choose zoom level: aim for ~1 pixel per DEM cell. `sat_zoom_boost`
+    # oversamples the source by 2^N (fetches 4^N more tiles) AND enlarges
+    # the warped output by the same factor so the WebGL texture stays
+    # crisp when the user zooms in on street details. Boost 2 ≈ zoom 19
+    # with 4× linear resolution.
     lat_mid = (sw_lat + ne_lat) / 2.0
     lon_span = ne_lon - sw_lon
     meters_per_pixel_z0 = 156543.03392 * math.cos(math.radians(lat_mid))
     target_mpp = (lon_span * 111320 * math.cos(math.radians(lat_mid))) / img_w
-    zoom = max(1, min(18, int(round(math.log2(meters_per_pixel_z0 / target_mpp)))))
-    print(f"  Satellite: zoom level {zoom}")
+    boost_scale = max(1, 2 ** int(sat_zoom_boost))
+    if sat_zoom_boost:
+        target_mpp = target_mpp / boost_scale
+        img_w = int(img_w * boost_scale)
+        img_h = int(img_h * boost_scale)
+    zoom = max(1, min(19, int(round(math.log2(meters_per_pixel_z0 / target_mpp)))))
+    if sat_zoom_boost:
+        print(f"  Satellite: zoom level {zoom} "
+              f"(boosted by {sat_zoom_boost}, output {img_w}×{img_h})")
+    else:
+        print(f"  Satellite: zoom level {zoom}")
 
     def lat_lon_to_tile(lat, lon, z):
         n = 2 ** z
@@ -2605,10 +2618,20 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
 
     # ── Clip to basin (darken outside valid DEM cells) ─────────
     if basin_mask is not None:
-        # Darken pixels outside the basin
-        outside = ~basin_mask
-        out[outside] = (out[outside].astype(np.float32) * 0.25).astype(
-            np.uint8)
+        # After sat_zoom_boost the output is larger than the caller-supplied
+        # basin_mask — nearest-neighbor up-sample the mask to match `out`.
+        if basin_mask.shape != out.shape[:2]:
+            sy = max(1, out.shape[0] // basin_mask.shape[0])
+            sx = max(1, out.shape[1] // basin_mask.shape[1])
+            if sy > 1 or sx > 1:
+                basin_mask = np.repeat(np.repeat(basin_mask, sy, axis=0),
+                                       sx, axis=1)
+            # Trim any 1-2px rounding overshoot
+            basin_mask = basin_mask[:out.shape[0], :out.shape[1]]
+        if basin_mask.shape == out.shape[:2]:
+            outside = ~basin_mask
+            out[outside] = (out[outside].astype(np.float32) * 0.25).astype(
+                np.uint8)
 
     # ── Save ───────────────────────────────────────────────────
     try:
@@ -2634,7 +2657,8 @@ def _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
 
 def export_webgl(dem, meta, results, mesh_type, variable, clim,
                  output_dir="fluxos_web", h_min=0.001, step=5,
-                 n_particles=65536, utm_to_ll=None, sat_resolution=5):
+                 n_particles=65536, utm_to_ll=None, sat_resolution=5,
+                 sat_zoom_boost=0):
     """Export FLUXOS results as an interactive WebGL particle viewer.
 
     Creates a directory with index.html + data files that can be served
@@ -2852,7 +2876,8 @@ def export_webgl(dem, meta, results, mesh_type, variable, clim,
               f"({sat_resolution}x DEM)")
         _download_satellite(sw_lat, sw_lon, ne_lat, ne_lon,
                             sat_w, sat_h, sat_path,
-                            basin_mask=sat_mask)
+                            basin_mask=sat_mask,
+                            sat_zoom_boost=sat_zoom_boost)
 
     # ── Export metadata JSON ──────────────────────────────────
     metadata = {
@@ -5790,6 +5815,14 @@ Output:
         help="Number of particles per frame. Default: 2000",
     )
     parser.add_argument(
+        "--sat-zoom-boost", type=int, default=0,
+        help="Fetch the satellite basemap at N additional zoom levels above the "
+             "auto-picked value AND upsize the warped output by 2^N. Sharpens "
+             "the WebGL viewer's texture when the user zooms in on streets / "
+             "buildings. Costs 4^N more tiles and larger cache. Try 2 for "
+             "urban-street demos on small (<500 m) areas.",
+    )
+    parser.add_argument(
         "--particle-tail", type=int, default=None,
         help="Particle streak length (integration steps). Default: 8",
     )
@@ -5973,6 +6006,7 @@ Output:
             output_dir=args.webgl_output, h_min=args.h_min,
             step=args.webgl_step, n_particles=args.webgl_particles,
             utm_to_ll=utm_to_ll, sat_resolution=args.sat_resolution,
+            sat_zoom_boost=args.sat_zoom_boost,
         )
 
         # Auto-serve + open in browser (opt-out via --webgl-no-serve).
