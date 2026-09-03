@@ -144,6 +144,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
 </head>
 <body>
 <canvas id="gl"></canvas>
+<!-- Rain overlay: canvas 2D drawn on top of the WebGL scene.
+     Positioned exactly like #gl but pointer-events:none so it never
+     eats clicks. Only rendered when viewer.rainAmount > 0. -->
+<canvas id="rain" style="position:fixed; inset:0; width:100%; height:100%;
+        pointer-events:none; z-index:5; display:none;"></canvas>
 
 <div id="loading-overlay">
     <div class="load-title">FLUXOS Flood Simulation</div>
@@ -195,10 +200,25 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <input type="range" id="sl-exag" min="0" max="200" value="100">
         <span class="val" id="v-exag">0.100x</span>
     </div>
+    <div class="ctrl-row" title="Water-surface wave amplitude: 0 = perfectly flat mirror, 0.5 = subtle default, 1 = full historical waves, 2 = choppy.">
+        <label>Waves</label>
+        <input type="range" id="sl-waves" min="0" max="200" value="50">
+        <span class="val" id="v-waves">0.50</span>
+    </div>
     <div class="ctrl-row" title="0 = pristine tropical blue lake · 1 = muddy urban flood water. Also affects sky reflection, sun highlights, and opacity.">
         <label>Turbidity</label>
         <input type="range" id="sl-turbidity" min="0" max="100" value="55">
         <span class="val" id="v-turbidity">0.55</span>
+    </div>
+    <div class="ctrl-row" title="Time of day: 0 = sunrise, 0.5 = noon (sun overhead), 1 = sunset. Low sun angles produce warm rim lighting on walls and dramatic reflections on the water.">
+        <label>Sun</label>
+        <input type="range" id="sl-suntime" min="5" max="95" value="62">
+        <span class="val" id="v-suntime">14:53</span>
+    </div>
+    <div class="ctrl-row" title="Rain intensity: overlay of falling rain streaks. 0 = clear sky, 1 = heavy downpour.">
+        <label>Rain</label>
+        <input type="range" id="sl-rain" min="0" max="100" value="0">
+        <span class="val" id="v-rain">0.00</span>
     </div>
     <div class="ctrl-row" style="justify-content:center; gap:8px; margin-top:6px;">
         <button class="btn active" id="btn-water">&#128167; Water</button>
@@ -345,6 +365,15 @@ uniform vec2 u_vel_range_x;
 uniform vec2 u_vel_range_y;
 uniform float u_point_size;
 varying float v_speed_t;
+// Trail-space particle draw doesn't render debris (trails look better
+// with only water particles), but v_debris / v_rot_c / v_rot_s must be
+// declared for the fragment shader (draw-fs) to link — otherwise WebGL
+// rejects the program with a "FRAGMENT varying ... does not match
+// VERTEX varying" error. Always set to sensible constants here so trail
+// particles take the plain color-ramp branch of the fragment shader.
+varying float v_debris;
+varying float v_rot_c;
+varying float v_rot_s;
 
 void main() {
     float col = mod(a_index, u_particles_res);
@@ -365,6 +394,9 @@ void main() {
     v_speed_t = clamp(spd / mx, 0.0, 1.0);
 
     float wet = step(0.5, vt.a);
+    v_debris = 0.0;
+    v_rot_c = 1.0;
+    v_rot_s = 0.0;
     gl_PointSize = u_point_size * wet;
     // Position in UV-space clip coords (same mapping as quad-vs)
     gl_Position = vec4(2.0 * pos.x - 1.0, 1.0 - 2.0 * pos.y, 0.0, 1.0);
@@ -390,7 +422,11 @@ uniform float u_exaggeration;
 uniform float u_aspect;      // width/height of terrain in world units
 uniform float u_h_max;       // max water depth (for decoding velocity B channel)
 uniform mat4 u_mvp;
+uniform float u_anim_time;
 varying float v_speed_t;
+varying float v_debris;
+varying float v_rot_c;   // cos of debris rotation
+varying float v_rot_s;   // sin of debris rotation
 
 void main() {
     float col = mod(a_index, u_particles_res);
@@ -433,7 +469,22 @@ void main() {
         -(pos.y - 0.5)
     );
 
-    gl_PointSize = u_point_size * wet * 2.0;
+    // Debris flag: ~12 % of particles are "debris" — larger, darker,
+    // no color-ramp tint. Pseudo-random per-particle based on its index,
+    // stable across frames so a given particle stays debris its whole life.
+    float debris = step(0.72, fract(sin(a_index * 12.9898) * 43758.5453));
+    // Size: normal particles 2×; debris 5-8× and slightly modulated by
+    // pseudo-random per-particle scale (variety of "logs" vs "leaves").
+    float debris_scale = 5.0 + fract(sin(a_index * 78.233) * 43758.5453) * 3.0;
+    gl_PointSize = u_point_size * wet * mix(2.0, debris_scale, debris);
+    v_debris = debris;
+    // Per-debris rotation — each debris sprite spins slowly, at a rate
+    // that varies per-particle (like leaves / logs tumbling in the current).
+    float phase = fract(sin(a_index * 45.671) * 43758.5453) * 6.2832;
+    float spin  = 0.15 + fract(sin(a_index * 91.129) * 43758.5453) * 0.6;
+    float angle = phase + u_anim_time * spin;
+    v_rot_c = cos(angle);
+    v_rot_s = sin(angle);
     gl_Position = u_mvp * vec4(worldPos, 1.0);
 }
 </script>
@@ -442,8 +493,29 @@ void main() {
 precision mediump float;
 uniform sampler2D u_color_ramp;
 varying float v_speed_t;
+varying float v_debris;
+varying float v_rot_c;
+varying float v_rot_s;
 void main() {
-    gl_FragColor = texture2D(u_color_ramp, vec2(v_speed_t, 0.5));
+    if (v_debris > 0.5) {
+        // Rotate the sprite coordinate around its center so the log/leaf
+        // shape visibly spins as it flows. Elongated ellipse (0.28 × 0.5)
+        // reads clearly as an oriented "log" rather than a circle.
+        vec2 c = gl_PointCoord - 0.5;
+        vec2 cr = vec2(v_rot_c * c.x - v_rot_s * c.y,
+                       v_rot_s * c.x + v_rot_c * c.y);
+        // Distance-in-ellipse:  (cr.x / a)² + (cr.y / b)²  ≤ 1  → inside
+        float e = sqrt((cr.x / 0.50) * (cr.x / 0.50)
+                     + (cr.y / 0.22) * (cr.y / 0.22));
+        if (e > 1.0) discard;
+        float alpha = 1.0 - smoothstep(0.65, 1.0, e);
+        // Slight color variation by rotation (fake "wet log" specular)
+        vec3 log_col = vec3(0.32, 0.22, 0.11)
+                     + vec3(0.08, 0.06, 0.04) * (0.5 + 0.5 * v_rot_c);
+        gl_FragColor = vec4(log_col * alpha, alpha);
+    } else {
+        gl_FragColor = texture2D(u_color_ramp, vec2(v_speed_t, 0.5));
+    }
 }
 </script>
 
@@ -484,15 +556,35 @@ uniform sampler2D u_hillshade;
 uniform sampler2D u_satellite;
 uniform sampler2D u_trails;
 uniform sampler2D u_heightmap;
+uniform sampler2D u_velocity;   // current-frame water depth (B channel) — for wet-halo
 uniform float u_dark;
 uniform float u_use_satellite;
 uniform vec3 u_sun_dir;
 uniform vec3 u_eye;
 uniform vec2 u_hm_texel;        // 1/width, 1/height for heightmap gradient
 uniform float u_exaggeration;
+uniform float u_anim_time;      // for slowly-drifting cloud shadows
+uniform sampler2D u_hwm;        // per-cell high-water-mark (peak depth across sim)
+uniform float u_h_max;          // metres corresponding to velocity/hwm .b = 1.0
+uniform float u_show_hwm;       // 0..1 fade-in of the HWM stain + line
 varying vec2 v_uv;
 varying float v_height;
 varying vec3 v_world_pos;
+
+// Simple 2-D value noise (fast; used only for procedural cloud shadows).
+// Classic sin-dot hash — numerically stable under mediump precision.
+float hash21(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
 
 void main() {
     float valid = texture2D(u_heightmap, v_uv).b;
@@ -522,19 +614,157 @@ void main() {
     }
 
     // ── Dynamic directional lighting ──
+    // "Wall-side shading": near-vertical faces (building sides) get a
+    // shallow sky-ambient boost + stronger directional shading. Makes
+    // building sides look like real 3D walls instead of extruded prisms.
+    float wall_factor = 1.0 - abs(terrainNormal.y);   // 0 = flat, 1 = vertical
+    vec3  wall_side_col = mix(vec3(1.0), vec3(0.55, 0.52, 0.48), wall_factor);
     float NdotL = max(dot(terrainNormal, u_sun_dir), 0.0);
-    vec3 ambient = vec3(0.18, 0.18, 0.22);   // neutral shadow fill
-    vec3 sunCol  = vec3(1.0, 0.95, 0.85);    // warm sunlight
-    vec3 lit = base * (ambient + sunCol * NdotL * 0.85) * ao;
+    // Steeper faces read the sun harder — mimics a fresnel-ish rim-shading.
+    float dir_boost = mix(0.85, 2.2, wall_factor);
+    // ── Sky-dome ambient: horizontal/upward-facing surfaces receive
+    //    diffuse blue fill from the sky, upward-facing more strongly.
+    //    Vertical wall sides get less sky-fill (they see less sky).
+    //    This is the single most important cheap trick to sell "outdoor
+    //    daylight" — real terrain photos always have blue sky-fill.
+    float sky_up = clamp(terrainNormal.y, 0.0, 1.0);   // 1 = up, 0 = side
+    vec3  sky_col = vec3(0.42, 0.56, 0.80);            // Rayleigh blue
+    vec3  ambient = vec3(0.18, 0.18, 0.22) + sky_col * sky_up * 0.18;
+    // Sun-colour warm-shift at low sun angles (golden hour). At noon
+    // (u_sun_dir.y ≈ 1) the sun is neutral-warm white; near the horizon
+    // (u_sun_dir.y → 0) it shifts to a saturated orange/red as short
+    // wavelengths get scattered out by the long air path.
+    float sun_elev = clamp(u_sun_dir.y, 0.0, 1.0);
+    vec3  sun_noon    = vec3(1.00, 0.95, 0.85);
+    vec3  sun_horizon = vec3(1.00, 0.55, 0.28);
+    vec3  sunCol = mix(sun_horizon, sun_noon, smoothstep(0.05, 0.45, sun_elev));
+    // Intensity also drops near horizon (sun looks dimmer at low angle)
+    float sun_intensity = mix(0.55, 1.0, smoothstep(0.02, 0.35, sun_elev));
+    vec3  lit = base * wall_side_col * (ambient + sunCol * NdotL * dir_boost * sun_intensity) * ao;
+
+    // ── Building drop shadows on terrain ──────────────────────────
+    //    March a short ray from this fragment TOWARD the sun in UV
+    //    space, sampling the heightmap. If any sample along the ray
+    //    is significantly taller than this fragment's height (i.e., a
+    //    wall blocks the sun), darken this fragment. 8 taps ≈ 8-cell
+    //    shadow range — enough for a 20 m tall building to cast a
+    //    convincing ~5–10 m long shadow depending on sun elevation.
+    {
+        float shadow = 0.0;
+        vec2 sunUV = -normalize(vec2(u_sun_dir.x, u_sun_dir.z))
+                     * u_hm_texel * 1.4;   // ~1.4-texel step
+        for (int i = 1; i <= 8; i++) {
+            vec2 s_uv = v_uv + sunUV * float(i);
+            float h_ray = texture2D(u_heightmap, s_uv).r
+                        + texture2D(u_heightmap, s_uv).g / 256.0;
+            // Sun-ray height at that horizontal distance: rises with
+            // sun elevation (u_sun_dir.y). A cell that towers higher
+            // than the ray at this horizontal distance is a wall
+            // occluding the sun.
+            float ray_h = hC + hC * 0.0 + float(i) * u_sun_dir.y * 0.6
+                             / max(u_exaggeration, 0.01) * 0.01;
+            // simple: shadow if ray-height gets above this fragment's
+            float wall = smoothstep(0.005, 0.03, h_ray - hC - float(i) * 0.002);
+            shadow = max(shadow, wall);
+        }
+        // Soft shadow — never fully black, blends with existing ao
+        lit *= mix(1.0, 0.55, shadow);
+    }
+
+    // ── Wet-edge halo on ground bordering water ─────────────────────
+    //    Sample water depth (velocity texture's B channel) at the current
+    //    cell AND at 4 neighbours. If ANY neighbour has water while this
+    //    cell is dry, this is a "wet edge" — darken slightly (like damp
+    //    asphalt just outside the water line). Cheap and reads clearly.
+    {
+        float d_self  = texture2D(u_velocity, v_uv).b;
+        if (d_self < 0.02) {   // only if THIS cell is dry
+            float d_r = texture2D(u_velocity, v_uv + vec2(u_hm_texel.x, 0.0)).b;
+            float d_l = texture2D(u_velocity, v_uv - vec2(u_hm_texel.x, 0.0)).b;
+            float d_u = texture2D(u_velocity, v_uv - vec2(0.0, u_hm_texel.y)).b;
+            float d_d = texture2D(u_velocity, v_uv + vec2(0.0, u_hm_texel.y)).b;
+            float near_wet = max(max(d_r, d_l), max(d_u, d_d));
+            float halo = smoothstep(0.02, 0.08, near_wet);
+            lit *= mix(1.0, 0.72, halo);
+        }
+    }
 
     // ── Trail overlay ──
     vec3 tr = texture2D(u_trails, vec2(v_uv.x, 1.0 - v_uv.y)).rgb;
     lit = min(vec3(1.0), lit + tr);
 
-    // ── Atmospheric fog ──
+    // ── Golden-hour rim on grazing surfaces ─────────────────────────
+    //    Where the surface faces AWAY from the sun (backlit / grazing),
+    //    tint the terrain warm — mimics low-sun-angle rim lighting that
+    //    makes any scene look photographic. Peaks at surfaces near-
+    //    perpendicular to the sun→camera line.
+    {
+        vec3 view_dir = normalize(u_eye - v_world_pos);
+        float rim = pow(1.0 - max(dot(terrainNormal, view_dir), 0.0), 3.0);
+        rim *= (1.0 - NdotL);   // only where the sun ISN'T hitting directly
+        vec3 warm_rim = vec3(1.0, 0.72, 0.42);   // low-sun amber
+        lit += warm_rim * rim * 0.12;
+    }
+
+    // ── Current-water-line wet stain on submerged surfaces ────────
+    //    Sample the CURRENT-frame depth at this UV. Any terrain
+    //    fragment that is under the local water level should be
+    //    darker/wetter — as if the surface is soaked and stained.
+    //    Reads on wall sides because 4 wall-side fragments SHARE the
+    //    heightmap-cell centre where the water lives, so the wall
+    //    beneath the water surface gets darkened.
+    {
+        float d_now = texture2D(u_velocity, v_uv).b * u_h_max;
+        if (d_now > 0.01) {
+            // Wet-stain darkens toward soaked-earth brown; scales with depth
+            float wetness = smoothstep(0.02, 0.30, d_now);
+            vec3 wet_col = vec3(0.35, 0.30, 0.22);   // soaked substrate
+            // Walls submerged now → darken strongly.
+            lit = mix(lit, lit * wet_col * 2.5, wetness * 0.35);
+        }
+    }
+
+    // ── High-water-mark line + faded stain ────────────────────────
+    //    Sample the persistent HWM texture (per-cell peak depth seen
+    //    across every frame loaded so far). Draw:
+    //      1. A soft muddy STAIN below the HWM surface (like a bathtub
+    //         ring of residue) — dimmer than current-water stain.
+    //      2. A SHARP thin dark LINE right at the HWM surface itself.
+    //    Uses u_show_hwm as a fade so users can toggle it in the UI.
+    if (u_show_hwm > 0.01) {
+        float hwm = texture2D(u_hwm, v_uv).r * u_h_max;
+        if (hwm > 0.05) {
+            // Persistent stain — subtler than the live wet-stain above
+            float stain = smoothstep(0.05, 0.30, hwm) * 0.15;
+            vec3 stain_col = vec3(0.60, 0.50, 0.35);   // dried-mud beige-brown
+            lit = mix(lit, lit * stain_col * 2.0, stain * u_show_hwm);
+            // Sharp horizontal line at the exact HWM height — only visible
+            // on walls (needs vertical face). Approximated by darkening a
+            // NARROW BAND of terrain fragments whose height is near the
+            // HWM in adjacent cells (via heightmap sample delta).
+            float hwm_r = texture2D(u_hwm, v_uv + vec2(u_hm_texel.x, 0.0)).r * u_h_max;
+            float hwm_l = texture2D(u_hwm, v_uv - vec2(u_hm_texel.x, 0.0)).r * u_h_max;
+            float hwm_neighbour = max(hwm_r, hwm_l);
+            // Line thickness ~0.25 m — fragments whose absolute height
+            // sits within that band around the HWM surface level are darkened.
+            float h_frag = v_height;   // terrain height at this fragment (metres)
+            // Approximate the water surface height in the neighbouring
+            // wet cell: use hC (heightmap centre) + hwm_neighbour.
+            // hC is v_height (top surface of the fragment).
+            float line_amt = 1.0 - smoothstep(0.0, 0.20, abs(hwm_neighbour - 0.10));
+            line_amt *= step(0.02, hwm_neighbour);
+            line_amt *= u_show_hwm;
+            lit = mix(lit, vec3(0.25, 0.18, 0.10), line_amt * 0.35);
+        }
+    }
+
+    // ── Atmospheric depth (blue-shifted haze on distant terrain) ────
+    //    Original strength (0.35, falloff 0.8). Distant terrain haze.
     float dist = length(v_world_pos - u_eye);
     float fogAmount = 1.0 - exp(-dist * dist * 0.8);
-    vec3 fogColor = vec3(0.62, 0.63, 0.68);   // warm neutral haze
+    vec3 fogNear = vec3(0.62, 0.63, 0.68);       // warm neutral (close)
+    vec3 fogFar  = vec3(0.55, 0.66, 0.82);       // Rayleigh-blue (distant)
+    vec3 fogColor = mix(fogNear, fogFar, clamp(dist * 0.9, 0.0, 1.0));
     lit = mix(lit, fogColor, fogAmount * 0.35);
 
     gl_FragColor = vec4(lit, 1.0);
@@ -668,12 +898,24 @@ uniform vec3 u_eye;
 uniform vec2 u_texel_size;
 uniform sampler2D u_velocity;
 uniform sampler2D u_velocity_next;
+uniform sampler2D u_heightmap;      // for wet-line AO at building edges
+uniform sampler2D u_satellite;      // for see-through refraction (ground below)
+uniform sampler2D u_hillshade;      // fallback when satellite unavailable
+uniform float u_use_satellite;      // 1 if satellite texture is valid, else 0
 uniform float u_time_frac;
 uniform vec3 u_sun_dir;
 // 0.0 = pristine tropical blue lake (default) · 1.0 = muddy urban flood.
 // Blends the shallow/deep colours toward tan-brown, kills the sky
 // reflection, dulls specular highlights, and pushes alpha toward opaque.
 uniform float u_turbidity;
+// 0.0 = mirror-still calm pools · 1.0 (default) = normal wind chop · higher = choppier.
+// Only modulates the "wind ripples in calm pools" term; fast-moving water
+// keeps its natural flow-driven surface texture.
+uniform float u_wind;
+// Overall surface-wave amplitude scaler. 0 = perfectly flat surface,
+// 0.5 = subtle default, 1 = full historical amplitude, 2 = choppy.
+// Scales the multi-octave fBm normal perturbation.
+uniform float u_waves;
 
 // ── Simplex 2D noise (Ashima Arts / Ian McEwan) ──
 vec3 mod289_3(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -712,19 +954,28 @@ float fbm(vec2 p) {
     return f;
 }
 
-// ── Procedural sky color (matches sky-fs) ──
+// ── Procedural sky color (matches sky-fs) with a real sun disk ──
 vec3 getSkyColor(vec3 ray) {
     float y = ray.y;
     vec3 zenith  = vec3(0.18, 0.30, 0.65);
     vec3 horizon = vec3(0.55, 0.60, 0.72);
     float skyMix = smoothstep(-0.02, 0.45, y);
     vec3 col = mix(horizon, zenith, skyMix);
-    // Horizon glow
+    // Warm horizon glow — subtle sunset colour at the base of the sky
     float hGlow = exp(-abs(y) * 8.0);
     col = mix(col, vec3(0.75, 0.55, 0.35), hGlow * 0.35);
-    // Sun glow in reflection
+    // ── Proper sun in the reflection ──
+    //   • sunDisk (pow N high) — the tight bright disk
+    //   • sunHalo (pow N mid)  — the soft glow AROUND the disk
+    //   • sunFlare (pow N low) — the huge diffuse aura across the sky
+    // Together they read as a real reflected sun, not just a highlight.
     float sunDot = max(dot(ray, u_sun_dir), 0.0);
-    col += vec3(1.0, 0.95, 0.8) * pow(sunDot, 32.0) * 0.3;
+    float sunDisk  = smoothstep(0.9990, 0.9997, sunDot);   // sharp disk
+    float sunHalo  = pow(sunDot, 220.0);                    // small hot halo
+    float sunFlare = pow(sunDot, 12.0);                     // wide warm flare
+    col += vec3(1.6, 1.45, 1.10) * sunDisk;                 // bright hot centre
+    col += vec3(1.0, 0.95, 0.80) * sunHalo * 0.9;
+    col += vec3(1.0, 0.80, 0.55) * sunFlare * 0.30;
     return col;
 }
 
@@ -764,7 +1015,58 @@ void main() {
         n2 += amp * snoise(uv_aniso.yx + vec2(5.2, 1.3));
         amp *= 0.55; freq *= 2.15;
     }
-    float amplitude = 0.15 + 0.6 * flow_speed;
+    // ── Rain-drop ripples ───────────────────────────────────────────
+    //    Occasional expanding concentric rings appearing at random UV
+    //    positions across the water surface — perturb the wave normal
+    //    at the ring's leading edge. Adds a "raining on the water"
+    //    look without a full particle system.
+    //
+    //    Method: sample a coarse cell grid. Each cell has a pseudo-
+    //    random drop center + drop time. Compute distance from
+    //    fragment to drop center; if `dist ≈ time_since_drop * speed`,
+    //    add a ripple. Rings fade over ~1s. ~6 drops visible / frame.
+    float rain_amp = 0.35;   // ripple strength — dial down for lighter rain
+    {
+        vec2 cell_grid_uv = v_uv * 12.0;
+        vec2 cell_id = floor(cell_grid_uv);
+        vec2 cell_pos = fract(cell_grid_uv);
+        // Per-cell random drop position within the cell + phase offset
+        vec2 drop_off = vec2(fract(sin(dot(cell_id, vec2(12.9898, 78.233))) * 43758.5453),
+                             fract(sin(dot(cell_id, vec2(93.9898, 27.233))) * 43758.5453));
+        float drop_phase = fract(sin(dot(cell_id, vec2(45.7, 11.3))) * 43758.5453);
+        // Total period of ~2 s; drop fires within first 1 s of each period
+        float period = 2.0;
+        float t_local = mod(u_anim_time * 0.9 + drop_phase * period, period);
+        float t_drop = clamp(t_local, 0.0, 1.0);
+        float r_expected = t_drop * 0.45;                      // ring radius grows
+        float r_actual = length(cell_pos - drop_off);
+        float ring = exp(-abs(r_actual - r_expected) * 60.0);   // thin ring
+        float fade = 1.0 - t_drop;                              // fades over 1 s
+        float ripple = ring * fade;
+        // Perturb normal at the ring — ripple tilts outward from drop center
+        vec2 to_center = normalize(cell_pos - drop_off + 1e-4);
+        n1 += to_center.x * ripple * rain_amp;
+        n2 += to_center.y * ripple * rain_amp;
+    }
+
+    // ── Wind ripples in calm pools ─────────────────────────────────
+    //    Even where flow_speed ≈ 0, real water isn't glassy — there's
+    //    always some wind chop. Add a small isotropic ripple field
+    //    drifting in a fixed pretend-wind direction. Only meaningful
+    //    when flow is near zero (fast water already has strong waves).
+    vec2  wind_dir = vec2(0.6, 0.8);   // arbitrary fixed wind heading
+    vec2  wind_uv  = v_uv * 85.0 - wind_dir * u_anim_time * 0.9;
+    float wind_n1  = snoise(wind_uv)                          * 0.5 + 0.5;
+    float wind_n2  = snoise(wind_uv * 1.8 + vec2(3.7, 2.1))   * 0.5 + 0.5;
+    float calm     = 1.0 - flow_speed;              // 1 in still pools, 0 in rapids
+    float wind_amp = 0.06 * calm * u_wind;           // subtle × user wind knob
+    n1 += (wind_n1 - 0.5) * wind_amp;
+    n2 += (wind_n2 - 0.5) * wind_amp;
+
+    // Wave amplitude scaled by u_waves (user slider). Default 1.0 in
+    // shader; the viewer defaults u_waves to 0.5 for a subtler look
+    // than the raw formula, which read as "too marked".
+    float amplitude = (0.15 + 0.6 * flow_speed) * u_waves;
     vec3 normal = normalize(vec3(n1 * amplitude, 1.0, n2 * amplitude));
 
     // ── 3. View direction and Fresnel ──
@@ -841,19 +1143,64 @@ void main() {
     float depth_gradient = length(vec2(d_here - d_right, d_here - d_up));
     float gradient_foam = smoothstep(0.20, 0.60, depth_gradient);
     float velocity_foam = smoothstep(1.2, 2.5, v_speed);
+    // ── Waterfall foam: bright veils where the BED drops sharply in the
+    //    flow direction. Sample terrain 2 texels ahead and behind along
+    //    the flow; a large negative delta ⇒ water is falling. Multiply
+    //    by v_speed so a slack backwater over a drop doesn't fake it.
+    //    Heightmap red channel is stored 0..1 scaled to u_h_max range,
+    //    which is fine for a relative comparison here.
+    float t_ahead  = texture2D(u_heightmap, v_uv + flow_dir * u_texel_size * 2.0).r;
+    float t_behind = texture2D(u_heightmap, v_uv - flow_dir * u_texel_size * 2.0).r;
+    float bed_drop = (t_behind - t_ahead) * u_h_max;   // metres of drop in 2 texels
+    // Streaky texture along the fall — a low-freq noise aligned with flow
+    vec2 fall_uv = v_uv * 55.0 - flow_dir * u_anim_time * 4.0;
+    float fall_streaks = snoise(fall_uv) * 0.5 + 0.5;
+    float fall_streaks_sharp = smoothstep(0.35, 0.85, fall_streaks);
+    float waterfall_foam = smoothstep(0.4, 1.5, bed_drop)
+                         * smoothstep(0.6, 2.0, v_speed)
+                         * fall_streaks_sharp;
+    // ── Wave-crest whitecaps: bright thin bands PERPENDICULAR to flow
+    //    at high speed, mimicking the crest lines you see on rapid
+    //    urban flood flow (water piling up as it hits an obstacle).
+    //    Aligns with the surface normal's x/z projection along flow.
+    vec2 crest_uv = v_uv * 90.0
+        - flow_dir * u_anim_time * 3.5
+        - flow_dir * dot(v_uv * 90.0, flow_dir) * 0.75;
+    float crest_n = snoise(crest_uv) * 0.5 + 0.5;
+    float crest_amt = smoothstep(1.0, 3.0, v_speed) * pow(crest_n, 3.5);
     // Multi-scale foam noise: big soft patches + small speckle for realism
     float foam_big   = snoise(v_uv * 25.0 - flow_dir * u_anim_time * 0.4) * 0.5 + 0.5;
     float foam_small = snoise(v_uv * 90.0 + u_anim_time * vec2(1.2, 0.8)) * 0.5 + 0.5;
     float foam_mask = mix(foam_big, foam_small, 0.55);
-    float foam = max(max(depth_edge, gradient_foam), velocity_foam) * foam_mask;
+    float foam = max(max(max(max(depth_edge, gradient_foam), velocity_foam), crest_amt),
+                     waterfall_foam) * foam_mask;
+    // Waterfall foam gets an extra un-masked boost — falls are BRIGHT even
+    // where the noise-mask would darken them.
+    foam = max(foam, waterfall_foam * 0.7);
     // Soften foam edges via smoothstep — no more hard-edged specks
     foam = smoothstep(0.15, 0.85, clamp(foam, 0.0, 1.0));
     vec3 foam_clean = vec3(0.92, 0.96, 1.00);
     vec3 foam_muddy = vec3(0.82, 0.72, 0.48);   // dirty flood-froth
     vec3 foam_color_lerp = mix(foam_clean, foam_muddy, u_turbidity);
 
+    // ── Debris streaks on fast water ───────────────────────────────
+    //    Thin dark bands STRETCHED along the flow direction, mimicking
+    //    the trails of leaves / sediment / trash that get pulled along
+    //    by a strong current. Anisotropic noise (0.05× along flow,
+    //    3.0× across) makes the pattern read as "streaks" not "spots".
+    //    Only appears above 1.2 m/s, ramps up to full at 3 m/s.
+    vec2 flow_perp = vec2(-flow_dir.y, flow_dir.x);
+    vec2 debris_uv_local = v_uv - flow_dir * u_anim_time * 0.35;
+    vec2 debris_uv = vec2(dot(debris_uv_local, flow_dir)  * 20.0,   // slow along flow
+                          dot(debris_uv_local, flow_perp) * 120.0); // fine across
+    float debris_n = snoise(debris_uv) * 0.5 + 0.5;
+    float debris_amt = smoothstep(1.2, 3.0, v_speed) * smoothstep(0.55, 0.90, debris_n);
+    // Debris darkens toward a muddy-brown tint; blend on top of lit_water
+    vec3 debris_col = vec3(0.22, 0.16, 0.09);
+    vec3 lit_water_debrised = mix(lit_water, debris_col, debris_amt * 0.35);
+
     // ── Composite ──
-    vec3 final_col = mix(lit_water, foam_color_lerp, foam * 0.35);
+    vec3 final_col = mix(lit_water_debrised, foam_color_lerp, foam * 0.35);
 
     // Grazing-angle SPECULAR — kept ~40% even at max turbidity because
     // real muddy water still SHINES wet at glancing angles. Only the
@@ -869,9 +1216,148 @@ void main() {
     vec3 sky_dim  = vec3(0.60, 0.60, 0.62);          // overcast grey
     vec3 refl_col = mix(skyReflection, sky_dim, u_turbidity);
     float refl_strength = mix(0.55, 0.28, u_turbidity);
-    final_col = mix(final_col, refl_col, fresnel * refl_strength);
+    // ── Puddle-mirror boost ────────────────────────────────────────
+    //    Very shallow, slack water reflects the sky like a mirror —
+    //    the classic wet-pavement look after rain. Kicks in only when
+    //    depth < ~15 cm AND speed is low; scales down with turbidity
+    //    since opaque mud can't mirror. Uses the SAME reflection colour
+    //    (skyReflection) at boosted strength.
+    float puddle_calm  = 1.0 - smoothstep(0.05, 0.60, v_speed);        // still water
+    float puddle_shal  = 1.0 - smoothstep(0.05, 0.15, v_depth);        // <15 cm
+    float puddle_amt   = puddle_calm * puddle_shal * (1.0 - u_turbidity);
+    float refl_strength_final = refl_strength + puddle_amt * 0.45;     // up to +0.45
+    final_col = mix(final_col, refl_col, fresnel * refl_strength_final);
 
-    // ── Atmospheric fog (match terrain) ──
+    // ── See-through refraction ────────────────────────────────────
+    //    Shallow / clean water is transparent enough that you see the
+    //    GROUND underneath, warped by surface ripples. Sample the same
+    //    satellite/hillshade texture the terrain uses, offset by the
+    //    surface normal's xz components — that's a cheap fake refraction.
+    //    Strong at h<10 cm, gone by h>60 cm. Killed by turbidity.
+    {
+        // Refraction offset scales with normal-tilt AND water depth
+        // (deeper water bends light more). Small — a few UV-texels max.
+        vec2 refract_uv = v_uv + vec2(normal.x, normal.z) * 0.008
+                                 * clamp(v_depth * 8.0, 0.0, 1.0);
+        vec3 belowCol;
+        if (u_use_satellite > 0.5) {
+            belowCol = texture2D(u_satellite, refract_uv).rgb;
+        } else {
+            belowCol = texture2D(u_hillshade, refract_uv).rgb;
+        }
+        // ── Wave shadows on the seabed ─────────────────────────────
+        //    Water waves refract sunlight, focusing it into bright
+        //    caustic lines AND darkening the bands between. Modulate
+        //    the seabed colour with a slow-moving noise (matches the
+        //    caustic scale below) to add these shadow bands.
+        vec2 ws_uv = v_uv * 40.0 - flow_dir * u_anim_time * 0.45;
+        float ws_n = snoise(ws_uv) * 0.5 + 0.5;
+        float wave_shadow = smoothstep(0.35, 0.75, ws_n);  // 0..1 shadow depth
+        belowCol *= (1.0 - wave_shadow * 0.35);            // dim up to 35%
+        // Blend the ground colour with the water colour by transparency:
+        //   very shallow  → mostly ground
+        //   medium depth  → water tint dominates
+        //   deep OR muddy → ground totally hidden
+        float see_through = (1.0 - smoothstep(0.05, 0.60, v_depth))
+                          * (1.0 - u_turbidity);
+        lit_water = mix(lit_water, belowCol * (0.5 + 0.4 * water_col), see_through * 0.85);
+    }
+
+    // ── Caustics — procedural shimmer visible on shallow / clean water.
+    //    Not physically-refracted (that would need a screen-space
+    //    projection pass); rather a light-bisector shimmer keyed off
+    //    the same surface noise field. Peaks read as bright caustic
+    //    lines. Fades in muddy water (light absorbed).
+    {
+        vec2 c_uv = v_uv * 55.0 - flow_dir * u_anim_time * 0.55;
+        float c1 = snoise(c_uv                              ) * 0.5 + 0.5;
+        float c2 = snoise(c_uv * 1.73 + vec2(3.1, 5.2)      ) * 0.5 + 0.5;
+        float caustic = pow(c1 * c2, 2.5);   // was pow 3.0 — softer/brighter peaks
+        // smoothstep must have edge0 < edge1 (spec) — use 1.0 - form to invert
+        float depth_gate = 1.0 - smoothstep(0.0, 0.5, t);   // widen shallow band
+        float turb_gate  = 1.0 - u_turbidity * 0.6;
+        final_col += vec3(1.4, 1.3, 1.0) * caustic * depth_gate * turb_gate * 1.6;
+    }
+
+    // ── Wet-line ambient occlusion at building edges.
+    //    When a water fragment is next to a cell whose terrain jumps up
+    //    (wall), darken it — reads as the "shadow line where water
+    //    meets the wall". Ground the water visually against structures.
+    {
+        float t_here = texture2D(u_heightmap, v_uv).r;
+        float t_r = texture2D(u_heightmap, v_uv + vec2(u_texel_size.x, 0.0)).r;
+        float t_l = texture2D(u_heightmap, v_uv - vec2(u_texel_size.x, 0.0)).r;
+        float t_u = texture2D(u_heightmap, v_uv - vec2(0.0, u_texel_size.y)).r;
+        float t_d = texture2D(u_heightmap, v_uv + vec2(0.0, u_texel_size.y)).r;
+        float wall_grad = max(max(t_r, t_l), max(t_u, t_d)) - t_here;
+        float wall_ao   = smoothstep(0.005, 0.04, wall_grad);
+        final_col *= mix(1.0, 0.30, wall_ao);
+    }
+
+    // ── Motion blur on fast-flowing water ──────────────────────────
+    //    Cheap directional blur: sample the depth-tint at 3 offsets
+    //    ALONG the flow direction and blend. Reads as "streaks of
+    //    speed" — real fast water always shows motion smearing.
+    {
+        float mblur_amt = smoothstep(1.0, 3.0, v_speed);
+        if (mblur_amt > 0.02) {
+            vec2 blur_step = flow_dir * u_texel_size * 1.5;
+            float d_a = mix(texture2D(u_velocity,      v_uv + blur_step).b,
+                            texture2D(u_velocity_next, v_uv + blur_step).b,
+                            u_time_frac) * u_h_max;
+            float d_b = mix(texture2D(u_velocity,      v_uv - blur_step).b,
+                            texture2D(u_velocity_next, v_uv - blur_step).b,
+                            u_time_frac) * u_h_max;
+            float d_avg = (d_a + d_b) * 0.5;
+            float t_avg = clamp(d_avg / (u_h_max * 0.5), 0.0, 1.0);
+            vec3 col_a = mix(shallow_col, deep_col, t_avg);
+            final_col = mix(final_col, mix(final_col, col_a, 0.5), mblur_amt);
+        }
+    }
+
+    // ── Volumetric mist / spray over fast-flowing water.
+    //    Real flood fronts throw up a fine white haze — approximated
+    //    with a scrolling noise field that only kicks in above ~1.5 m/s.
+    {
+        float mist_amt = smoothstep(0.8, 2.5, v_speed);
+        float mist_n   = snoise(v_uv * 22.0 + u_anim_time * vec2(0.4, 0.3)) * 0.5 + 0.5;
+        vec3  mist_col = mix(vec3(1.0, 1.0, 1.05), vec3(0.90, 0.85, 0.70), u_turbidity);
+        final_col = mix(final_col, mist_col, mist_amt * mist_n * 0.65);
+    }
+
+    // ── Splash front where water is arriving fast ──────────────────
+    //    Compare current-frame depth (v_cur.b) to next-frame depth
+    //    (v_nxt.b) at the same cell — a POSITIVE delta between the
+    //    two snapshots means depth is rapidly growing here (the flood
+    //    front is entering this cell RIGHT NOW). Add a bright bloom-y
+    //    splash for a moment. Reads as "splash where the water first
+    //    hits the ground". Zero cost — we already sampled v_cur/v_nxt.
+    {
+        float d_now  = v_cur.b * u_h_max;
+        float d_next = v_nxt.b * u_h_max;
+        float d_rise = max(0.0, d_next - d_now);
+        // "Fast" arrival = > 5 cm growth between snapshots. Very shallow
+        // water only (splashes fade once depth builds up).
+        float arrive_amt = smoothstep(0.03, 0.15, d_rise)
+                         * (1.0 - smoothstep(0.10, 0.40, v_depth));
+        float splash_n = snoise(v_uv * 45.0 + u_anim_time * vec2(2.0, 1.7)) * 0.5 + 0.5;
+        vec3  splash_col = mix(vec3(1.0, 1.0, 1.0), vec3(0.9, 0.8, 0.6), u_turbidity);
+        final_col += splash_col * arrive_amt * splash_n * 0.6;
+
+        // ── Splash PLUME: a broader bright veil that reads as spray
+        //    lofting up from the arrival point. Uses a coarser noise so
+        //    each plume patch is bigger than the fine splash bubbles
+        //    above. Directional smear along -flow (spray blows back
+        //    from the leading edge). Fades over ~1 s of steady arrival.
+        vec2 plume_uv = v_uv * 12.0 - flow_dir * u_anim_time * 3.5;
+        float plume_n1 = snoise(plume_uv)                        * 0.5 + 0.5;
+        float plume_n2 = snoise(plume_uv * 0.55 + vec2(2.3, 5.7)) * 0.5 + 0.5;
+        float plume_mask = pow(plume_n1 * plume_n2, 1.6);
+        vec3  plume_col  = mix(vec3(1.05, 1.05, 1.10), vec3(0.85, 0.70, 0.50), u_turbidity);
+        final_col += plume_col * arrive_amt * plume_mask * 1.1;
+    }
+
+    // ── Atmospheric fog (match terrain, original 0.35 strength) ──
     float dist = length(v_world_pos - u_eye);
     float fogAmount = 1.0 - exp(-dist * dist * 0.8);
     vec3 fogColor = vec3(0.62, 0.63, 0.68);
@@ -1078,6 +1564,13 @@ uniform sampler2D u_scene;
 uniform sampler2D u_bloom;
 uniform vec2 u_texel;       // 1.0/width, 1.0/height
 uniform float u_bloom_strength;
+// God-rays: radial-blur the SCENE brightness outward from the sun's
+// projected screen-space position, weighted by scene luminance so
+// bright regions (sky, water highlights) throw the rays and dark
+// (buildings, foreground) block them.
+uniform vec2  u_sun_screen;      // sun position in v_tex space (0..1); off-screen when negative
+uniform float u_god_rays;        // 0..1 intensity
+uniform float u_sun_elev;        // 0..1 sun elevation → rays fade at noon
 varying vec2 v_tex;
 
 vec3 ACESFilm(vec3 x) {
@@ -1111,6 +1604,48 @@ void main() {
     if (lumRange > max(0.0312, lumMax * 0.125)) {
         vec3 avg = ACESFilm((rgbN + rgbS + rgbE + rgbW) * 0.25 + bloom * u_bloom_strength);
         col = mix(col, avg, 0.5);
+    }
+
+    // ── God-rays / crepuscular rays ──────────────────────────────────
+    //    Sum scene luminance along a ray from THIS pixel back toward
+    //    the sun's screen position. Each step-back samples the scene
+    //    (already tonemapped) and adds a warm-tinted contribution.
+    //    Result: bright shafts where the ray passes through bright
+    //    scene regions (sky), blocked where dark (buildings). Rays
+    //    fade with sun altitude — visible at low sun, gone at noon.
+    // ── God-rays (crepuscular shafts) ──────────────────────────────
+    //    Widened elev-fade so rays start showing much earlier in the
+    //    afternoon (not just at true sunset). Lower luminance threshold
+    //    and higher multiplier so the shafts are actually VISIBLE
+    //    against a warm-tinted low-sun scene.
+    float elev_fade = 1.0 - smoothstep(0.30, 0.85, u_sun_elev);
+    if (u_god_rays > 0.02 && elev_fade > 0.01) {
+        // Clamp sun projection to the SCREEN BOX so rays still work
+        // when the sun would otherwise be off-screen — the shafts then
+        // point toward the closest on-screen approximation of the sun
+        // instead of vanishing entirely.
+        vec2 sun_clamped = clamp(u_sun_screen, vec2(-0.5), vec2(1.5));
+        vec2 ray_dir = sun_clamped - v_tex;
+        float ray_len = length(ray_dir);
+        if (ray_len > 0.001) {
+            const int STEPS = 12;
+            vec2  step_vec = ray_dir / float(STEPS);
+            vec2  uv_r     = v_tex;
+            float rays_sum = 0.0;
+            for (int i = 0; i < STEPS; i++) {
+                uv_r += step_vec;
+                // Clamp so out-of-bounds samples don't add stray edges
+                vec3 s = texture2D(u_scene, clamp(uv_r, vec2(0.0), vec2(1.0))).rgb;
+                float lum = dot(s, vec3(0.299, 0.587, 0.114));
+                float w = 1.0 - float(i) / float(STEPS);
+                rays_sum += max(0.0, lum - 0.30) * w;   // lower threshold
+            }
+            float rays = rays_sum / float(STEPS);
+            // Stronger warm golden tint + higher multiplier so the effect
+            // reads as actual visible shafts, not a marginal warm-shift.
+            vec3 ray_col = vec3(1.15, 0.90, 0.55);
+            col += ray_col * rays * u_god_rays * elev_fade * 3.0;
+        }
     }
 
     // Vignette
@@ -1675,6 +2210,21 @@ class FloodViewer3D {
         // Water shader turbidity: 0 = clean tropical blue, 1 = muddy flood.
         // Wired from the "Turbidity" slider in the controls panel.
         this.turbidity = 0.55;
+        // Wind strength (multiplies the "wind ripples in calm pools" term).
+        // 0 = mirror still, 1 = normal, 2 = choppy. Slider is 0..200 → 0..2.
+        this.wind = 1.0;
+        // Overall surface-wave amplitude. Default 0.5 = half of the raw
+        // shader amplitude, since the prior 1.0 looked too marked. Slider
+        // 0..200 → 0..2 (0 = flat, 0.5 = default subtle, 2 = choppy).
+        this.waves = 0.5;
+        // Time-of-day: 0 = sunrise (east horizon), 0.5 = noon (overhead),
+        // 1 = sunset (west horizon). Default 0.62 = mid-afternoon (slight
+        // west-of-noon so the reflection has some direction).
+        this.sunTime = 0.62;
+        // Toggles for HWM stain/line, rain overlay, and god-rays post-fx.
+        this.showHwm    = 1.0;
+        this.rainAmount = 0.0;   // 0 = off, 1 = heavy rain
+        this.godRays    = 1.0;   // 0 = off, 1 = strong
         this.dropRate = 0.003;
         this.dropRateBump = 0.01;
         this.darkFactor = 0.25;
@@ -2188,6 +2738,40 @@ class FloodViewer3D {
         ctx.drawImage(img, 0, 0);
         const pixels = ctx.getImageData(0, 0, img.width, img.height).data;
 
+        // ── High-water-mark accumulation ─────────────────────────────
+        //    Blue channel is normalised depth in [0,1] (× u_h_max in
+        //    metres). Track the per-pixel MAX across every frame we
+        //    load — the terrain shader samples this to draw a stain
+        //    where the flood reached at any point in the simulation.
+        //    Lazy-init the buffer + texture on first frame.
+        const nPx = img.width * img.height;
+        if (!this.hwmData || this.hwmData.length !== nPx) {
+            this.hwmData = new Uint8Array(nPx);
+            this.hwmW = img.width;
+            this.hwmH = img.height;
+            // Store as an R-channel-only-like RGBA texture (all channels
+            // filled with the same HWM value for filter simplicity).
+            this.hwmRGBA = new Uint8Array(nPx * 4);
+            this.hwmTex = createTex(gl, gl.LINEAR, this.hwmRGBA, img.width, img.height);
+        }
+        let hwmChanged = false;
+        for (let i = 0; i < nPx; i++) {
+            const b = pixels[i * 4 + 2];   // blue channel = normalised depth
+            if (b > this.hwmData[i]) {
+                this.hwmData[i] = b;
+                this.hwmRGBA[i * 4]     = b;
+                this.hwmRGBA[i * 4 + 1] = b;
+                this.hwmRGBA[i * 4 + 2] = b;
+                this.hwmRGBA[i * 4 + 3] = 255;
+                hwmChanged = true;
+            }
+        }
+        if (hwmChanged) {
+            gl.bindTexture(gl.TEXTURE_2D, this.hwmTex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.hwmW, this.hwmH, 0,
+                          gl.RGBA, gl.UNSIGNED_BYTE, this.hwmRGBA);
+        }
+
         const wetPositions = [];
         const step = Math.max(1, Math.floor(img.width * img.height / 50000));
         for (let i = 0; i < img.width * img.height; i += step) {
@@ -2435,10 +3019,31 @@ class FloodViewer3D {
                 this.camera.target[1] = pose.target[1];
                 this.camera.target[2] = pose.target[2];
             }
+            // Sim-time sync: fly progress 0..1 → simulation frame 0..n-1.
+            // Overrides the normal time-advance path so the flood animation
+            // is driven entirely by the fly path's pace.
+            if (this._flySyncTime && this.meta) {
+                const rawT = totalDur > 0 ? (this._flyElapsed / totalDur) : 0;
+                const t = this._flyLoop ? (rawT - Math.floor(rawT)) : Math.min(rawT, 1.0);
+                const nFrames = this.meta.n_timesteps;
+                const globalIdx = t * (nFrames - 1);
+                this.currentFrame = Math.min(nFrames - 2, Math.floor(globalIdx));
+                this.timeFrac     = globalIdx - Math.floor(globalIdx);
+                // Update the top-bar Time slider so it visually tracks the sync.
+                const timeSlider = document.getElementById('sl-time');
+                if (timeSlider) timeSlider.value = Math.round(t * 100);
+            }
             if (done) {
                 this._flyPlaying = false;
                 const btn = document.getElementById('fly-play');
                 if (btn) btn.textContent = '▶ Play';
+                // Restore viewer.playing UNLESS a recording is in progress —
+                // in that case the recorder will restore it when it stops.
+                const recActive = this.recorder && this.recorder.recording;
+                if (this._flySyncTime && this._flySavedPlaying !== undefined && !recActive) {
+                    this.playing = this._flySavedPlaying;
+                    this._flySavedPlaying = undefined;
+                }
             }
         } else {
             // Standard orbit-camera animation for single-shot animateTo() calls
@@ -2587,6 +3192,7 @@ class FloodViewer3D {
         gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_x'), m.vx_min, m.vx_max);
         gl.uniform2f(gl.getUniformLocation(dp, 'u_vel_range_y'), m.vy_min, m.vy_max);
         gl.uniform1f(gl.getUniformLocation(dp, 'u_point_size'), this.pointSize);
+        gl.uniform1f(gl.getUniformLocation(dp, 'u_anim_time'), performance.now() / 1000.0);
 
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, this.colorRampTex);
@@ -2603,7 +3209,16 @@ class FloodViewer3D {
         // Shared state for all scene passes
         // ============================================================
         const cw = gl.canvas.width, ch = gl.canvas.height;
-        const sunDir = [0.42, 0.78, 0.32];
+        // Time-of-day: this.sunTime ∈ [0, 1] where 0 = sunrise (east low),
+        // 0.5 = noon (overhead), 1 = sunset (west low). Sun tracks an arc
+        // in the x-y plane; z stays fixed at 0.32 so the light direction
+        // in xz still projects to a natural NE reading in the reflection.
+        const st = (this.sunTime !== undefined) ? this.sunTime : 0.62;
+        const sunTheta = st * Math.PI;                 // 0..π (east to west)
+        const sunX = Math.cos(sunTheta);               // +1 at sunrise, -1 at sunset
+        const sunY = Math.max(0.05, Math.sin(sunTheta)); // never 0 (avoids full black)
+        const sunZ = 0.32;
+        const sunDir = [sunX, sunY, sunZ];
         const sunLen = Math.sqrt(sunDir[0]*sunDir[0]+sunDir[1]*sunDir[1]+sunDir[2]*sunDir[2]);
         sunDir[0]/=sunLen; sunDir[1]/=sunLen; sunDir[2]/=sunLen;
         const eye = this.camera.getEye();
@@ -2663,6 +3278,27 @@ class FloodViewer3D {
         gl.bindTexture(gl.TEXTURE_2D, this.heightmapTex);
         gl.uniform1i(gl.getUniformLocation(tp, 'u_heightmap'), 3);
 
+        // u_velocity — bound to the CURRENT-frame velocity texture so
+        // the terrain shader's wet-edge halo can peek at which cells
+        // are currently wet. `curEntry.velTex` was already computed
+        // above in the render loop (used by the water pass).
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D,
+            (typeof velTex !== 'undefined') ? velTex : this.heightmapTex);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_velocity'), 4);
+
+        // u_hwm — persistent per-cell high-water-mark texture, updated
+        // as frames stream in during loadVelFrame(). Fall back to the
+        // heightmap texture if the HWM hasn't been built yet, so the
+        // shader still runs (u_show_hwm=0 will suppress its output).
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, this.hwmTex || this.heightmapTex);
+        gl.uniform1i(gl.getUniformLocation(tp, 'u_hwm'), 5);
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_h_max'), m.h_max || 5.0);
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_show_hwm'),
+            (this.showHwm !== undefined ? this.showHwm : 1.0)
+            * (this.hwmTex ? 1.0 : 0.0));
+
         gl.uniform1f(gl.getUniformLocation(tp, 'u_dark'), this.darkFactor);
         gl.uniform1f(gl.getUniformLocation(tp, 'u_use_satellite'),
             this.useSatellite && this.satelliteTex ? 1.0 : 0.0);
@@ -2670,6 +3306,7 @@ class FloodViewer3D {
         gl.uniform3f(gl.getUniformLocation(tp, 'u_eye'), eye[0], eye[1], eye[2]);
         gl.uniform2f(gl.getUniformLocation(tp, 'u_hm_texel'), 1.0 / m.width, 1.0 / m.height);
         gl.uniform1f(gl.getUniformLocation(tp, 'u_exaggeration'), this.exaggeration);
+        gl.uniform1f(gl.getUniformLocation(tp, 'u_anim_time'), performance.now() / 1000.0);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
         const indexType = this.terrainMesh.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
@@ -2724,6 +3361,22 @@ class FloodViewer3D {
             gl.uniform3f(gl.getUniformLocation(wp, 'u_sun_dir'), sunDir[0], sunDir[1], sunDir[2]);
             gl.uniform1f(gl.getUniformLocation(wp, 'u_turbidity'),
                          this.turbidity !== undefined ? this.turbidity : 0.0);
+            gl.uniform1f(gl.getUniformLocation(wp, 'u_wind'),
+                         this.wind !== undefined ? this.wind : 1.0);
+            gl.uniform1f(gl.getUniformLocation(wp, 'u_waves'),
+                         this.waves !== undefined ? this.waves : 0.5);
+            // See-through refraction — bind the satellite + hillshade textures
+            // to units 3 and 4 so the water fragment shader can sample the
+            // ground BELOW the water for shallow-water transparency.
+            gl.activeTexture(gl.TEXTURE3);
+            gl.bindTexture(gl.TEXTURE_2D,
+                this.satelliteTex ? this.satelliteTex : this.hillshadeTex);
+            gl.uniform1i(gl.getUniformLocation(wp, 'u_satellite'), 3);
+            gl.activeTexture(gl.TEXTURE4);
+            gl.bindTexture(gl.TEXTURE_2D, this.hillshadeTex);
+            gl.uniform1i(gl.getUniformLocation(wp, 'u_hillshade'), 4);
+            gl.uniform1f(gl.getUniformLocation(wp, 'u_use_satellite'),
+                         (this.useSatellite && this.satelliteTex) ? 1.0 : 0.0);
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIBO);
             gl.drawElements(gl.TRIANGLES, this.terrainMesh.nIndices, indexType, 0);
@@ -2906,13 +3559,87 @@ class FloodViewer3D {
         gl.uniform2f(gl.getUniformLocation(comp, 'u_texel'), 1.0 / cw, 1.0 / ch);
         gl.uniform1f(gl.getUniformLocation(comp, 'u_bloom_strength'), 0.35);
 
+        // ── God-rays uniforms: project the sun's world direction from the
+        //    camera through MVP to get its screen-space (0..1) position.
+        //    Sun direction is treated as a direction FROM the origin, so
+        //    we project a point far along that direction from the eye.
+        {
+            const sunFar = [
+                eye[0] + sunDir[0] * 5000.0,
+                eye[1] + sunDir[1] * 5000.0,
+                eye[2] + sunDir[2] * 5000.0,
+            ];
+            // Multiply mvp * [sunFar, 1]
+            const m = mvp;
+            const x = m[0]*sunFar[0] + m[4]*sunFar[1] + m[8]*sunFar[2]  + m[12];
+            const y = m[1]*sunFar[0] + m[5]*sunFar[1] + m[9]*sunFar[2]  + m[13];
+            const w = m[3]*sunFar[0] + m[7]*sunFar[1] + m[11]*sunFar[2] + m[15];
+            let sx = -2, sy = -2;   // default off-screen
+            if (w > 0.0) {
+                sx = (x / w) * 0.5 + 0.5;
+                sy = (y / w) * 0.5 + 0.5;
+            }
+            gl.uniform2f(gl.getUniformLocation(comp, 'u_sun_screen'), sx, sy);
+            gl.uniform1f(gl.getUniformLocation(comp, 'u_god_rays'),
+                         (this.godRays !== undefined ? this.godRays : 1.0));
+            gl.uniform1f(gl.getUniformLocation(comp, 'u_sun_elev'), sunDir[1]);
+        }
+
         gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // ── Rain overlay pass (canvas 2D, drawn OVER the WebGL scene) ──
+        this._drawRain();
 
         // Video recorder hook — captures the composited canvas if a
         // recording is in progress. No-op the rest of the time.
         if (this.recorder) this.recorder.captureIfRecording();
 
         requestAnimationFrame(() => this.render());
+    }
+
+    // Draw a screen-space overlay of falling rain streaks using a 2D
+    // canvas laid on top of the WebGL canvas. Density + streak length
+    // scale with viewer.rainAmount ∈ [0, 1]. Cheap: ~400 short lines
+    // per frame at full intensity, no per-particle state (positions are
+    // hashed from time).
+    _drawRain() {
+        const rc = document.getElementById('rain');
+        if (!rc) return;
+        const amount = this.rainAmount || 0.0;
+        if (amount < 0.01) { rc.style.display = 'none'; return; }
+        rc.style.display = 'block';
+        const dpr = window.devicePixelRatio || 1;
+        const wantW = Math.round(window.innerWidth * dpr);
+        const wantH = Math.round(window.innerHeight * dpr);
+        if (rc.width !== wantW || rc.height !== wantH) {
+            rc.width = wantW; rc.height = wantH;
+        }
+        const ctx = rc.getContext('2d');
+        ctx.clearRect(0, 0, rc.width, rc.height);
+        const nDrops = Math.round(400 * amount);
+        const t = performance.now() * 0.001;
+        // Angled sheet (down + slightly left). Streak length ~28 px @ 1x.
+        const streakLen = 28 * dpr * (0.6 + 0.4 * amount);
+        const angleX = -6 * dpr;
+        const angleY = streakLen;
+        ctx.strokeStyle = `rgba(200, 220, 245, ${0.35 + 0.35 * amount})`;
+        ctx.lineWidth = 1.2 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < nDrops; i++) {
+            // Deterministic pseudo-random positions from index + time.
+            const seedX = Math.sin(i * 12.9898) * 43758.5453;
+            const seedY = Math.sin(i * 78.233 ) * 43758.5453;
+            const fx = (seedX - Math.floor(seedX));
+            const fy = (seedY - Math.floor(seedY));
+            // Drop-speed varies per streak so it doesn't look mechanical.
+            const speedScale = 0.7 + 0.6 * fx;
+            const yOff = ((t * 1400 * speedScale * dpr) + fy * rc.height) % (rc.height + 200);
+            const x = fx * rc.width;
+            const y = yOff - 100;
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + angleX, y + angleY);
+        }
+        ctx.stroke();
     }
 }
 
@@ -3030,7 +3757,16 @@ class VideoRecorder {
         if (!this.recording) return;
         this.framesSeen++;
         const cf = this.viewer.currentFrame;
-        if (this.framesSeen > 1 && cf < this.prevSimFrame) {
+        // Fly-path-driven recording: stop as soon as the fly playback ends
+        // (either the last waypoint was reached or the user cancelled). The
+        // sim doesn't "wrap" in this mode, so we can't rely on cf < prev.
+        if (this._flyBound && !this.viewer._flyPlaying) {
+            this._flyBound = false;
+            this.stop();
+            return;
+        }
+        // Non-fly recording: stop after one full sim cycle (wrap n-1 → 0).
+        if (!this._flyBound && this.framesSeen > 1 && cf < this.prevSimFrame) {
             this.stop();
             return;
         }
@@ -3182,9 +3918,29 @@ function showError(stage, detail) {
         viewer.fadeOpacity = parseInt(e.target.value) / 1000;
         document.getElementById('v-trail').textContent = viewer.fadeOpacity.toFixed(2);
     });
+    document.getElementById('sl-waves').addEventListener('input', e => {
+        // Slider 0..200 maps to 0..2 so the user can push waves harder than default.
+        viewer.waves = parseInt(e.target.value) / 100;
+        document.getElementById('v-waves').textContent = viewer.waves.toFixed(2);
+    });
     document.getElementById('sl-turbidity').addEventListener('input', e => {
         viewer.turbidity = parseInt(e.target.value) / 100;
         document.getElementById('v-turbidity').textContent = viewer.turbidity.toFixed(2);
+    });
+    document.getElementById('sl-rain').addEventListener('input', e => {
+        viewer.rainAmount = parseInt(e.target.value) / 100;
+        document.getElementById('v-rain').textContent = viewer.rainAmount.toFixed(2);
+    });
+    document.getElementById('sl-suntime').addEventListener('input', e => {
+        // Slider 5..95 → sunTime 0.05..0.95 (avoids the sun being exactly at
+        // horizon, which would black the scene). Map linearly to a human-
+        // readable time: 0.05 = 06:00, 0.5 = 12:00, 0.95 = 18:00.
+        viewer.sunTime = parseInt(e.target.value) / 100;
+        const hoursDecimal = 6.0 + (viewer.sunTime - 0.05) * (12.0 / 0.90);
+        const hh = Math.floor(hoursDecimal);
+        const mm = Math.round((hoursDecimal - hh) * 60);
+        document.getElementById('v-suntime').textContent =
+            String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
     });
     document.getElementById('sl-exag').addEventListener('input', e => {
         viewer.exaggeration = parseInt(e.target.value) / 1000;
@@ -3383,13 +4139,22 @@ function showError(stage, detail) {
             <span id="fly-duration-val" style="flex:0 0 24px;text-align:right;color:#e0ecff">4</span>
         </div>
         <label style="display:flex;align-items:center;gap:6px;color:#8899bb;
-            font-size:11px;margin-bottom:8px">
+            font-size:11px;margin-bottom:4px">
             <input id="fly-loop" type="checkbox"> Loop
         </label>
-        <div style="display:flex;gap:6px">
+        <label style="display:flex;align-items:center;gap:6px;color:#8899bb;
+            font-size:11px;margin-bottom:8px"
+            title="Sync the simulation time to the fly-path progress: the flood animation plays from t=0 at the first waypoint to t=end at the last, at whatever pace the fly-path takes. Also used by the Record button to time-sync the video.">
+            <input id="fly-sync-time" type="checkbox"> Sync sim time
+        </label>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
             <button class="btn" id="fly-play" style="flex:1">▶ Play</button>
             <button class="btn" id="fly-clear" style="flex:0 0 auto">Clear</button>
         </div>
+        <button class="btn" id="fly-record" style="width:100%;background:rgba(200,80,80,0.28);border-color:rgba(220,120,120,0.5)"
+            title="Play the fly-path once from start to end, sync the sim time to it, and record the whole thing as a WebM video.">
+            &#9210; Record fly path
+        </button>
     `;
     document.body.appendChild(flyPanel);
 
@@ -3444,10 +4209,19 @@ function showError(stage, detail) {
     // Play: spline-driven playback. Kicks off the render-loop evaluator
     // by setting _flyPlaying=true; the render loop then advances _flyElapsed
     // and writes camera pose from a Catmull-Rom curve through all waypoints.
+    // Restore viewer.playing if a fly-with-time-sync run set it to false.
+    // Idempotent: safe to call whenever fly playback stops for any reason.
+    function _restorePlayingAfterFly() {
+        if (viewer._flySyncTime && viewer._flySavedPlaying !== undefined) {
+            viewer.playing = viewer._flySavedPlaying;
+            viewer._flySavedPlaying = undefined;
+        }
+    }
     document.getElementById('fly-play').addEventListener('click', () => {
         const playBtn = document.getElementById('fly-play');
         if (viewer._flyPlaying) {
             viewer._flyPlaying = false;
+            _restorePlayingAfterFly();
             playBtn.textContent = '▶ Play';
             return;
         }
@@ -3457,9 +4231,50 @@ function showError(stage, detail) {
         }
         viewer._flySegDur = parseInt(document.getElementById('fly-duration').value, 10);
         viewer._flyLoop   = document.getElementById('fly-loop').checked;
+        viewer._flySyncTime = document.getElementById('fly-sync-time').checked;
         viewer._flyElapsed = 0;
         viewer._flyPlaying = true;
+        // If time-sync requested, rewind the sim to t=0 so the fly path
+        // starts at the beginning of the flood and reaches the end at
+        // the last waypoint.
+        if (viewer._flySyncTime) {
+            viewer._flySavedPlaying = viewer.playing;
+            viewer.playing = false;         // sim advance is driven manually below
+            viewer.currentFrame = 0;
+            viewer.timeFrac = 0;
+        }
         playBtn.textContent = '⏹ Stop';
+    });
+
+    // Record the fly path with sim-time sync forced ON, regardless of the
+    // "Sync sim time" checkbox (that would defeat the purpose of the
+    // dedicated Record button). Kicks off both fly playback and the video
+    // recorder — the recorder's captureIfRecording() auto-stops when the
+    // fly ends.
+    document.getElementById('fly-record').addEventListener('click', () => {
+        if (viewer._flyWaypoints.length < 2) {
+            alert('Add at least 2 waypoints first (use "+ Capture current view").');
+            return;
+        }
+        // Set up fly playback with sync ON, then start the recorder,
+        // which reads the fly state to know when to auto-stop.
+        viewer._flySegDur   = parseInt(document.getElementById('fly-duration').value, 10);
+        viewer._flyLoop     = false;                     // one-shot for recording
+        viewer._flySyncTime = true;
+        viewer._flyElapsed  = 0;
+        viewer._flySavedPlaying = viewer.playing;
+        viewer.playing      = false;
+        viewer.currentFrame = 0;
+        viewer.timeFrac     = 0;
+        viewer._flyPlaying  = true;
+        document.getElementById('fly-play').textContent = '⏹ Stop';
+        // Toggle the top-bar Record button — it uses the same VideoRecorder
+        // and its captureIfRecording() picks up the fly-driven stop.
+        const topRec = document.getElementById('btn-record');
+        if (topRec) topRec.click();
+        // Mark the recorder as fly-bound so its stop condition switches
+        // from "sim wrapped" to "fly playback ended".
+        if (viewer.recorder) viewer.recorder._flyBound = true;
     });
 
     // Any user input to the canvas (mousedown / wheel) while flying cancels
@@ -3468,6 +4283,7 @@ function showError(stage, detail) {
         canvas.addEventListener(ev, () => {
             if (viewer._flyPlaying) {
                 viewer._flyPlaying = false;
+                _restorePlayingAfterFly();
                 const btn = document.getElementById('fly-play');
                 if (btn) btn.textContent = '▶ Play';
             }
@@ -3485,6 +4301,7 @@ function showError(stage, detail) {
         if (down && viewer._flyPlaying) {
             const wasFly = viewer._flyPlaying;
             viewer._flyPlaying = false;
+            _restorePlayingAfterFly();
             const btn = document.getElementById('fly-play');
             if (btn) btn.textContent = '▶ Play';
             if (wasFly) return;   // treat this keypress as a Stop, not a move
