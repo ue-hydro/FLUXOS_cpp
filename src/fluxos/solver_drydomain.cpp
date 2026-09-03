@@ -41,6 +41,13 @@
 #include "GlobVar.h"
 #include "solver_drydomain.h"
 
+// Same KP desingularisation as solver_wetdomain.cpp — kept file-local
+// so the two solvers stay independently modifiable.
+static inline double desing_inv(double h, double h_reg) {
+    const double h2 = h * h, hr2 = h_reg * h_reg;
+    return 2.0 * h / (h2 + std::fmax(h2, hr2));
+}
+
 void solver_dry(
     GlobVar& ds,
     unsigned int irow,
@@ -154,7 +161,9 @@ void solver_dry(
                 hme = 0.444 * dze;                          // at cell side
                 volrat = dxy * he / dtl;                    // available volume rate per m of cell E
                 qme = -std::fmin(qme, volrat);
-                double ume = qme / hme;                     // from cell center
+                // Desingularised u (KP-2007) — same regularisation length
+                // as the wet-domain solver so the two are consistent.
+                double ume = qme * desing_inv(hme, 8.0 * hdryl);
                 fe1 = qme;
                 fe2 = qme * ume + 0.5 * gaccl * hme * hme;
                 fe3 = 0.0;
