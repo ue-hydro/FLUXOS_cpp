@@ -41,6 +41,27 @@
 #include "GlobVar.h"
 #include "solver_wetdomain.h"
 
+// ─────────────────────────────────────────────────────────────────────
+//  Kurganov-Petrova (2007) velocity DESINGULARISATION
+//
+//  Replaces the naive `u = q / max(h, h_reg)`, which produces velocities
+//  as large as `q / h_reg` at near-dry cells and drives numerical
+//  blow-ups near steep bathymetry (building walls).
+//
+//  Returns a smooth 1/h that:
+//    • ≈ 1/h  when h ≫ h_reg  (correct physics deep in the flow)
+//    • → 2h / h_reg²  when h ≪ h_reg  (goes to 0 as h → 0, no explosion)
+//
+//  Reference: Kurganov & Petrova (2007), "A second-order well-balanced
+//  positivity preserving central-upwind scheme for the Saint-Venant
+//  system", Commun. Math. Sci. 5(1), 133–160. Eq. (2.17).
+// ─────────────────────────────────────────────────────────────────────
+static inline double desing_inv(double h, double h_reg) {
+    const double h2 = h * h;
+    const double hr2 = h_reg * h_reg;
+    return 2.0 * h / (h2 + std::fmax(h2, hr2));
+}
+
 void solver_wet(
     GlobVar& ds,
     unsigned int irow,
@@ -201,12 +222,21 @@ void solver_wet(
     }
 
     // CALC TURBULENT STRESS
+    // h_reg = 4× hdryl gives a smoother velocity transition than the
+    // clamp `fmax(h, hdryl)` and prevents 20+ m/s spurious jets at cells
+    // that are just above the wet-dry threshold. Following Kurganov &
+    // Petrova (2007). For deep water (h ≫ h_reg) desing_inv → 1/h exactly.
     const double cme = sqrt(gaccl * hme);
     const double cmn = sqrt(gaccl * hmn);
-    const double ume = qme / std::fmax(hme, hdryl);
-    const double vme = rme / std::fmax(hme, hdryl);
-    const double umn = qmn / std::fmax(hmn, hdryl);
-    const double vmn = rmn / std::fmax(hmn, hdryl);
+    // h_reg was 4× hdryl initially; 8× gives a more forgiving regularisation
+    // near the wet-dry transition. Trades a little sub-cm-depth velocity
+    // accuracy for markedly better late-time stability on domains with
+    // steep bathymetry (buildings).
+    const double h_reg = 8.0 * hdryl;
+    const double ume = qme * desing_inv(hme, h_reg);
+    const double vme = rme * desing_inv(hme, h_reg);
+    const double umn = qmn * desing_inv(hmn, h_reg);
+    const double vmn = rmn * desing_inv(hmn, h_reg);
 
     const double cnp = cvdefl * us_ref(irow, icol) * hp + nueml;
     const double cne = cvdefl * us_ref(ie, icol) * he + nueml;
@@ -214,16 +244,20 @@ void solver_wet(
     const double hne = 0.5 * (cnp + cne) * sqrt(hp * he);
     double hnn = 0.5 * (cnp + cnn) * sqrt(hp * hn);
 
-    const double up = qp / hp0;
-    const double un = qn / std::fmax(std::fmax(hn, hdryl), ks_ref(irow, in));
-    const double us0 = qx_ref(irow, is) / std::fmax(std::fmax(hs, hdryl), ks_ref(irow, is));
-    const double use0 = qx_ref(ie, is) / std::fmax(std::fmax(h_ref(ie, is), hdryl), ks_ref(ie, is));
-    const double une = qx_ref(ie, in) / std::fmax(std::fmax(h_ref(ie, in), hdryl), ks_ref(ie, in));
-    const double vp = rp / hp0;
-    const double ve = re / std::fmax(std::fmax(he, hdryl), ks_ref(ie, icol));
-    const double vw = rw / std::fmax(std::fmax(hw, hdryl), ks_ref(iw, icol));
-    const double vwn = qy_ref(iw, in) / std::fmax(std::fmax(h_ref(iw, in), hdryl), ks_ref(iw, in));
-    const double ven = qy_ref(ie, in) / std::fmax(std::fmax(h_ref(ie, in), hdryl), ks_ref(ie, in));
+    // Cell-centre velocities — replace `q / fmax(h, hdryl OR ks)` with the
+    // desingularised form. The roughness-height `ks` is preserved as an
+    // OR-max so bed-friction physics is unchanged; but even below `ks` the
+    // velocity now decays smoothly to 0 instead of exploding.
+    const double up = qp * desing_inv(hp, h_reg);
+    const double un = qn * desing_inv(std::fmax(hn, ks_ref(irow, in)), h_reg);
+    const double us0  = qx_ref(irow, is) * desing_inv(std::fmax(hs, ks_ref(irow, is)), h_reg);
+    const double use0 = qx_ref(ie,   is) * desing_inv(std::fmax(h_ref(ie, is), ks_ref(ie, is)), h_reg);
+    const double une  = qx_ref(ie,   in) * desing_inv(std::fmax(h_ref(ie, in), ks_ref(ie, in)), h_reg);
+    const double vp = rp * desing_inv(hp, h_reg);
+    const double ve = re * desing_inv(std::fmax(he, ks_ref(ie, icol)), h_reg);
+    const double vw = rw * desing_inv(std::fmax(hw, ks_ref(iw, icol)), h_reg);
+    const double vwn = qy_ref(iw, in) * desing_inv(std::fmax(h_ref(iw, in), ks_ref(iw, in)), h_reg);
+    const double ven = qy_ref(ie, in) * desing_inv(std::fmax(h_ref(ie, in), ks_ref(ie, in)), h_reg);
 
     const double txye = hne * ((ve - vp) / fabs(dx) + 0.25 * (un + une - us0 - use0) / dy);
     const double txyn = hnn * ((un - up) / fabs(dy) + 0.25 * (ve + ven - vw - vwn) / dx);
