@@ -494,6 +494,22 @@ _JS = r"""
   apply();
 })();
 
+// Run-clean toggle: swap the Step-4 run command between the plain version
+// and the "rm -rf output_folder && …" variant. Same pattern as viz-toggle.
+(function(){
+  const cb = document.getElementById('run-clean-toggle');
+  if (!cb) return;
+  const normalBlock = document.querySelector('.run-cmd-normal');
+  const cleanBlock  = document.querySelector('.run-cmd-clean');
+  if (!normalBlock || !cleanBlock) return;
+  const apply = () => {
+    normalBlock.style.display = cb.checked ? 'none' : 'block';
+    cleanBlock.style.display  = cb.checked ? 'block' : 'none';
+  };
+  cb.addEventListener('change', apply);
+  apply();
+})();
+
 // Viewer time-stride slider: rewrite the --webgl-step value in both viz snippets
 (function(){
   const slider = document.getElementById('viz-stride-slider');
@@ -1327,6 +1343,19 @@ def _next_steps_section(data: dict) -> str:
         f'    bash -lc "cd /work && {run_core}"'
     )
 
+    # --clean variant: wipes the OUTPUT_FOLDER before FLUXOS starts, so
+    # you don't confuse leftovers from a previous (possibly-blown-up) run
+    # with the current one. `rm -rf <folder>` + `mkdir -p` guarantees an
+    # empty target folder. The folder path is relative to /work in the
+    # container (same as the executable path above).
+    output_folder_container = output_folder_rel.replace("\\", "/")
+    clean_prefix = (f'rm -rf {output_folder_container} && '
+                    f'mkdir -p {output_folder_container} && ')
+    run_cmd_clean = (
+        f'docker compose -f "{compose_file}" run --rm fluxos \\\n'
+        f'    bash -lc "cd /work && {clean_prefix}{run_core}"'
+    )
+
     check_cmd = f'ls -la "{results_dir}"\n{_open_outputs_cmd(os_key, results_dir)}'
 
     # Venv-activation snippet for step 7 — the visualisation scripts are
@@ -1500,7 +1529,16 @@ def _next_steps_section(data: dict) -> str:
           outputs land in the folder named by the modset's
           <code>OUTPUT.OUTPUT_FOLDER</code>, on the host.
         </p>
-        {_code_block_full(run_cmd)}
+        <div class="viz-toggle-card">
+          <label class="viz-toggle-label">
+            <input type="checkbox" id="run-clean-toggle">
+            <strong>Delete existing results before running (--clean)</strong>
+            &mdash; wipes <code>{_esc(output_folder_container)}/</code>
+            so a previous (possibly blown-up) run doesn't mix with this one.
+          </label>
+          <div class="run-cmd-normal">{_code_block_full(run_cmd)}</div>
+          <div class="run-cmd-clean" style="display:none">{_code_block_full(run_cmd_clean)}</div>
+        </div>
 
         <h3>5. Check outputs</h3>
         {_code_block_full(check_cmd)}
