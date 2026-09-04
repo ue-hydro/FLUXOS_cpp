@@ -17,6 +17,7 @@ canvas#gl { width: 100%; height: 100%; display: block; }
     border: 1px solid rgba(60,90,140,0.3);
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     user-select: none;
+    z-index: 20;   /* above #rain (z=5) and #fly-panel (z=10) — precipitation renders behind the controls */
 }
 #controls h2 { font-size: 15px; color: #e0ecff; margin-bottom: 12px;
     font-weight: 600; letter-spacing: 0.5px; }
@@ -72,7 +73,8 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 #info { position: fixed; top: 16px; right: 16px;
     background: rgba(5,8,20,0.7); color: #8899bb; padding: 10px 14px;
     border-radius: 8px; font-family: 'SF Mono', monospace; font-size: 11px;
-    border: 1px solid rgba(60,90,140,0.2); pointer-events: none; }
+    border: 1px solid rgba(60,90,140,0.2); pointer-events: none;
+    z-index: 20;   /* above #rain (z=5) so precipitation renders behind the HUD */ }
 #info div { margin-bottom: 3px; }
 #info .hl { color: #ccddef; }
 #colorbar-wrap { position: fixed; bottom: 20px; right: 16px;
@@ -144,11 +146,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
 </head>
 <body>
 <canvas id="gl"></canvas>
-<!-- Rain overlay: canvas 2D drawn on top of the WebGL scene.
-     Positioned exactly like #gl but pointer-events:none so it never
-     eats clicks. Only rendered when viewer.rainAmount > 0. -->
-<canvas id="rain" style="position:fixed; inset:0; width:100%; height:100%;
-        pointer-events:none; z-index:5; display:none;"></canvas>
 
 <div id="loading-overlay">
     <div class="load-title">FLUXOS Flood Simulation</div>
@@ -1537,6 +1534,51 @@ void main() {
 }
 </script>
 
+<!-- Rain vertex shader — 3D streaks living INSIDE the DEM's world-space
+     volume (x ∈ [-aspect/2, aspect/2], z ∈ [-0.5, 0.5], y ∈ [0, ceiling]).
+     Each drop is a gl.LINES segment: head (w=0) and tail (w=1) share a
+     seed; the tail is displaced back up along the fall direction by the
+     streak length. Projected with the SAME u_mvp as the terrain, and
+     depth-tested against it, so drops rotate/zoom with the scene, never
+     exist beside the domain, and are hidden by the ground once they land. -->
+<script id="rain-vs" type="x-shader/x-vertex">
+precision mediump float;
+attribute vec4 a_seed;        // x: seedX 0..1, y: seedZ 0..1, z: phase 0..1, w: 0=head 1=tail
+uniform mat4  u_mvp;
+uniform float u_time;
+uniform float u_aspect;       // DEM world width (world depth is 1.0)
+uniform float u_ceiling;      // top of the rain column (world units)
+uniform float u_streak;       // streak length (world units)
+uniform float u_wind;         // sideways drift per unit of fall
+varying float v_tail;
+
+void main() {
+    // Per-drop speed variation so the sheet doesn't look mechanical
+    float speed = 0.30 + 0.25 * fract(a_seed.x * 7.31 + a_seed.y * 3.17);
+    float fall  = fract(a_seed.z + u_time * speed / u_ceiling);   // 0 top → 1 ground
+    float y     = u_ceiling * (1.0 - fall);
+    // Wind drift accumulates as the drop falls; wrap so drops stay inside the DEM
+    float x0    = (a_seed.x - 0.5) * u_aspect + u_wind * (u_ceiling - y);
+    float x     = mod(x0 + 0.5 * u_aspect, u_aspect) - 0.5 * u_aspect;
+    float z     = a_seed.y - 0.5;
+    vec3 dir    = normalize(vec3(u_wind, -1.0, 0.0));
+    vec3 pos    = vec3(x, y, z) - dir * u_streak * a_seed.w;    // tail trails behind the head
+    v_tail      = a_seed.w;
+    gl_Position = u_mvp * vec4(pos, 1.0);
+}
+</script>
+
+<script id="rain-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform float u_alpha;
+varying float v_tail;
+void main() {
+    // Bright at the head, fading toward the tail (motion-blur look)
+    float a = u_alpha * (1.0 - 0.75 * v_tail);
+    gl_FragColor = vec4(0.82, 0.90, 1.0, a);
+}
+</script>
+
 <!-- Bright extraction fragment shader (for bloom) -->
 <script id="extract-bright-fs" type="x-shader/x-fragment">
 precision mediump float;
@@ -2530,6 +2572,7 @@ class FloodViewer3D {
         // Post-processing pipeline (uses post-vs: no Y-flip, unlike quad-vs)
         const postVS = mkVS('post-vs');
         this.skyProg = createProgram(gl, mkVS('sky-vs'), mkFS('sky-fs'));
+        this.rainProg = createProgram(gl, mkVS('rain-vs'), mkFS('rain-fs'));
         this.extractBrightProg = createProgram(gl, postVS, mkFS('extract-bright-fs'));
         this.blurProg = createProgram(gl, postVS, mkFS('blur-fs'));
         this.compositeProg = createProgram(gl, postVS, mkFS('composite-fs'));
@@ -2540,6 +2583,25 @@ class FloodViewer3D {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
         gl.bufferData(gl.ARRAY_BUFFER,
             new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
+
+        // Rain seeds: N drops × 2 vertices (head, tail) × vec4. Static —
+        // all motion is computed in the vertex shader from u_time, so the
+        // buffer never needs re-uploading. Deterministic hash so the
+        // sheet is stable frame-to-frame.
+        this.rainMaxDrops = 6000;
+        const seeds = new Float32Array(this.rainMaxDrops * 2 * 4);
+        const h = i => { const s = Math.sin(i) * 43758.5453; return s - Math.floor(s); };
+        for (let i = 0; i < this.rainMaxDrops; i++) {
+            const sx = h(i * 12.9898 + 1.0);
+            const sz = h(i * 78.233  + 2.0);
+            const ph = h(i * 37.719  + 3.0);
+            const o = i * 8;
+            seeds[o + 0] = sx; seeds[o + 1] = sz; seeds[o + 2] = ph; seeds[o + 3] = 0.0;  // head
+            seeds[o + 4] = sx; seeds[o + 5] = sz; seeds[o + 6] = ph; seeds[o + 7] = 1.0;  // tail
+        }
+        this.rainBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.rainBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
 
         this.indexBuf = gl.createBuffer();
         const idx = new Float32Array(this.numParticles);
@@ -3482,6 +3544,40 @@ class FloodViewer3D {
         gl.depthMask(true);
         } // end if (showParticles)
 
+        // ── PASS RAIN 3D ──
+        //    World-space streaks inside the DEM volume, depth-tested
+        //    against the terrain/water already in the depth buffer:
+        //    drops that have fallen below the surface are occluded by
+        //    it, so rain visibly "lands" on the ground and can never
+        //    appear beneath or beside the domain from any camera angle.
+        {
+            const rainAmt = this.rainAmount || 0.0;
+            if (rainAmt > 0.01 && this.rainProg) {
+                const nDrops = Math.max(1, Math.floor(this.rainMaxDrops * rainAmt));
+                gl.enable(gl.DEPTH_TEST);
+                gl.depthMask(false);
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                const rp = this.rainProg;
+                gl.useProgram(rp);
+                bindAttr(gl, this.rainBuf, gl.getAttribLocation(rp, 'a_seed'), 4);
+                gl.uniformMatrix4fv(gl.getUniformLocation(rp, 'u_mvp'), false, mvp);
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_time'), performance.now() / 1000.0);
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_aspect'), this.terrainAspect);
+                // Column top: a little above the tallest terrain vertex
+                // (worldY max = exaggeration) plus a sky allowance so the
+                // sheet reads as rain falling from above, not spawning at
+                // rooftop height.
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_ceiling'), this.exaggeration + 0.45);
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_streak'), 0.025 * (0.7 + 0.6 * rainAmt));
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_wind'), 0.08);
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_alpha'), 0.35 + 0.35 * rainAmt);
+                gl.drawArrays(gl.LINES, 0, nDrops * 2);
+                gl.disable(gl.BLEND);
+                gl.depthMask(true);
+            }
+        }
+
         // ============================================================
         // POST-PROCESSING PIPELINE
         // ============================================================
@@ -3577,9 +3673,6 @@ class FloodViewer3D {
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        // ── Rain overlay pass (canvas 2D, drawn OVER the WebGL scene) ──
-        this._drawRain();
-
         // Video recorder hook — captures the composited canvas if a
         // recording is in progress. No-op the rest of the time.
         if (this.recorder) this.recorder.captureIfRecording();
@@ -3587,150 +3680,6 @@ class FloodViewer3D {
         requestAnimationFrame(() => this.render());
     }
 
-    // Draw a screen-space overlay of falling rain streaks using a 2D
-    // canvas laid on top of the WebGL canvas. Density + streak length
-    // scale with viewer.rainAmount ∈ [0, 1]. Cheap: ~400 short lines
-    // per frame at full intensity, no per-particle state (positions are
-    // hashed from time).
-    _drawRain() {
-        const rc = document.getElementById('rain');
-        if (!rc) return;
-        const amount = this.rainAmount || 0.0;
-        if (amount < 0.01) { rc.style.display = 'none'; return; }
-        rc.style.display = 'block';
-        const dpr = window.devicePixelRatio || 1;
-        const wantW = Math.round(window.innerWidth * dpr);
-        const wantH = Math.round(window.innerHeight * dpr);
-        if (rc.width !== wantW || rc.height !== wantH) {
-            rc.width = wantW; rc.height = wantH;
-        }
-        const ctx = rc.getContext('2d');
-        ctx.clearRect(0, 0, rc.width, rc.height);
-        const nDrops = Math.round(400 * amount);
-        const t = performance.now() * 0.001;
-        // Angled sheet (down + slightly left). Streak length ~28 px @ 1x.
-        const streakLen = 28 * dpr * (0.6 + 0.4 * amount);
-        const angleX = -6 * dpr;
-        const angleY = streakLen;
-        // ── DEM footprint clip ─────────────────────────────────────
-        //    Rain streaks are clipped to the DEM's projected screen
-        //    silhouette so they only appear "on the model", not out in
-        //    the sky. We sample MANY points on the DEM's bounding box
-        //    (ground + ceiling, subdivided along each edge) and take
-        //    the convex hull of their projected screen positions.
-        //    Rotating the camera then still gives a tight cover of
-        //    whatever surface the DEM actually occupies on screen.
-        ctx.save();
-        try {
-            const cam  = this.camera;
-            const cw   = this.gl.canvas.width, ch = this.gl.canvas.height;
-            const mvp  = cam.getMVP(cw / ch);
-            const a    = (this.terrainMesh && this.terrainMesh.aspect) || 1.0;
-            const ex   = this.exaggeration || 0.1;
-            // "Ceiling" — the DEM's world-space top. buildTerrainMesh maps
-            // normalised heights in [0,1] to worldY = h * exaggeration,
-            // so the maximum vertex height is `ex`. A small padding
-            // above that (× 1.05) gives a tight silhouette without
-            // enveloping the sky.
-            const hTop = 1.05 * ex;
-
-            // Build a set of 3D points around the DEM's axis-aligned
-            // bounding box. 12 samples per horizontal edge × 2 heights =
-            // 4 × 12 × 2 = 96 sample points. Enough resolution that a
-            // slightly-off-axis view still tiles the silhouette tightly.
-            const N = 12;
-            const pts3d = [];
-            for (const y of [0, hTop]) {
-                for (let i = 0; i < N; i++) {
-                    const t = i / (N - 1);
-                    pts3d.push([-0.5*a + t*a, y, -0.5]);   // south edge
-                }
-                for (let i = 0; i < N; i++) {
-                    const t = i / (N - 1);
-                    pts3d.push([0.5*a, y, -0.5 + t]);       // east edge
-                }
-                for (let i = 0; i < N; i++) {
-                    const t = i / (N - 1);
-                    pts3d.push([0.5*a - t*a, y, 0.5]);       // north edge
-                }
-                for (let i = 0; i < N; i++) {
-                    const t = i / (N - 1);
-                    pts3d.push([-0.5*a, y, 0.5 - t]);       // west edge
-                }
-            }
-
-            // Project each and keep only those in front of the camera
-            // (w > small epsilon). Convert to canvas-pixel coords.
-            const screenPts = [];
-            for (const [x, y, z] of pts3d) {
-                const m = mvp;
-                const xc = m[0]*x + m[4]*y + m[8]*z  + m[12];
-                const yc = m[1]*x + m[5]*y + m[9]*z  + m[13];
-                const wc = m[3]*x + m[7]*y + m[11]*z + m[15];
-                if (wc <= 0.01) continue;
-                const ndcX = xc / wc;
-                const ndcY = yc / wc;
-                screenPts.push({
-                    x: (ndcX * 0.5 + 0.5) * rc.width,
-                    y: (1 - (ndcY * 0.5 + 0.5)) * rc.height,
-                });
-            }
-
-            // Need at least 3 in-front points to build a polygon.
-            if (screenPts.length >= 3) {
-                // 2D convex hull (Andrew's monotone chain). Cheap for
-                // ~100 points; runs once per frame — negligible cost.
-                screenPts.sort((p, q) => p.x - q.x || p.y - q.y);
-                const cross = (o, a, b) =>
-                    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-                const lower = [];
-                for (const p of screenPts) {
-                    while (lower.length >= 2 &&
-                           cross(lower[lower.length-2], lower[lower.length-1], p) <= 0)
-                        lower.pop();
-                    lower.push(p);
-                }
-                const upper = [];
-                for (let i = screenPts.length - 1; i >= 0; i--) {
-                    const p = screenPts[i];
-                    while (upper.length >= 2 &&
-                           cross(upper[upper.length-2], upper[upper.length-1], p) <= 0)
-                        upper.pop();
-                    upper.push(p);
-                }
-                const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
-
-                ctx.beginPath();
-                ctx.moveTo(hull[0].x, hull[0].y);
-                for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
-                ctx.closePath();
-                ctx.clip();
-            }
-            // else: fewer than 3 points in front — camera is inside/below
-            // the DEM box or the projection is degenerate. Fall through
-            // with no clip so rain still appears in the corner cases.
-        } catch (e) { /* ignore — no clip */ }
-
-        ctx.strokeStyle = `rgba(200, 220, 245, ${0.35 + 0.35 * amount})`;
-        ctx.lineWidth = 1.2 * dpr;
-        ctx.beginPath();
-        for (let i = 0; i < nDrops; i++) {
-            // Deterministic pseudo-random positions from index + time.
-            const seedX = Math.sin(i * 12.9898) * 43758.5453;
-            const seedY = Math.sin(i * 78.233 ) * 43758.5453;
-            const fx = (seedX - Math.floor(seedX));
-            const fy = (seedY - Math.floor(seedY));
-            // Drop-speed varies per streak so it doesn't look mechanical.
-            const speedScale = 0.7 + 0.6 * fx;
-            const yOff = ((t * 1400 * speedScale * dpr) + fy * rc.height) % (rc.height + 200);
-            const x = fx * rc.width;
-            const y = yOff - 100;
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + angleX, y + angleY);
-        }
-        ctx.stroke();
-        ctx.restore();   // release the DEM clip
-    }
 }
 
 function fmtTime(s) {
