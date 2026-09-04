@@ -39,6 +39,8 @@ canvas#gl { width: 100%; height: 100%; display: block; }
     box-shadow: 0 4px 16px rgba(0,0,0,0.35);
     transition: background .15s, color .15s, transform .15s;
 }
+/* Author `display:flex` above would otherwise beat the UA's [hidden] rule */
+#controls-tab[hidden] { display: none; }
 #controls-tab:hover { background: rgba(60,90,140,0.45); color: #e0ecff; transform: translateY(-1px); }
 #controls-tab .caret { color: #6a7a99; font-size: 11px; }
 #controls-handle {
@@ -211,10 +213,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <input type="range" id="sl-exag" min="0" max="200" value="100">
         <span class="val" id="v-exag">0.100x</span>
     </div>
-    <div class="ctrl-row" title="Water-surface wave amplitude: 0 = perfectly flat mirror, 0.5 = subtle default, 1 = full historical waves, 2 = choppy.">
-        <label>Waves</label>
-        <input type="range" id="sl-waves" min="0" max="200" value="50">
-        <span class="val" id="v-waves">0.50</span>
+    <div class="ctrl-row" title="White flicker on the water — foam at the edges, whitecaps, waterfall veils, caustic sparkle, splash and mist at the flood front, sun glint. 0 = none, 0.5 = default, 1 = full, 2 = exaggerated.">
+        <label>Foam</label>
+        <input type="range" id="sl-foam" min="0" max="200" value="50">
+        <span class="val" id="v-foam">0.50</span>
     </div>
     <div class="ctrl-row" title="0 = pristine tropical blue lake · 1 = muddy urban flood water. Also affects sky reflection, sun highlights, and opacity.">
         <label>Turbidity</label>
@@ -956,10 +958,11 @@ uniform float u_turbidity;
 // Only modulates the "wind ripples in calm pools" term; fast-moving water
 // keeps its natural flow-driven surface texture.
 uniform float u_wind;
-// Overall surface-wave amplitude scaler. 0 = perfectly flat surface,
-// 0.5 = subtle default, 1 = full historical amplitude, 2 = choppy.
-// Scales the multi-octave fBm normal perturbation.
-uniform float u_waves;
+// "Foam" knob: scales every WHITE-flicker term on the water — edge foam,
+// whitecap crests, waterfall veils, caustic sparkle, splash/plume at the
+// flood front, mist over fast water, and the sun glint. 0 = none,
+// 0.5 = default, 1 = full historical look, 2 = exaggerated.
+uniform float u_foam;
 
 // ── Simplex 2D noise (Ashima Arts / Ian McEwan) ──
 vec3 mod289_3(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -1116,10 +1119,9 @@ void main() {
     n1 += (wind_n1 - 0.5) * wind_amp;
     n2 += (wind_n2 - 0.5) * wind_amp;
 
-    // Wave amplitude scaled by u_waves (user slider). Default 1.0 in
-    // shader; the viewer defaults u_waves to 0.5 for a subtler look
-    // than the raw formula, which read as "too marked".
-    float amplitude = (0.15 + 0.6 * flow_speed) * u_waves;
+    // Wave amplitude: half the raw formula — the full value read as
+    // "too marked" (formerly a Waves slider; 0.5 was the chosen default).
+    float amplitude = (0.15 + 0.6 * flow_speed) * 0.5;
     vec3 normal = normalize(vec3(n1 * amplitude, 1.0, n2 * amplitude));
 
     // ── 3. View direction and Fresnel ──
@@ -1231,7 +1233,7 @@ void main() {
     // where the noise-mask would darken them.
     foam = max(foam, waterfall_foam * 0.7);
     // Soften foam edges via smoothstep — no more hard-edged specks
-    foam = smoothstep(0.15, 0.85, clamp(foam, 0.0, 1.0));
+    foam = min(1.0, smoothstep(0.15, 0.85, clamp(foam, 0.0, 1.0)) * u_foam);
     vec3 foam_clean = vec3(0.92, 0.96, 1.00);
     vec3 foam_muddy = vec3(0.82, 0.72, 0.48);   // dirty flood-froth
     vec3 foam_color_lerp = mix(foam_clean, foam_muddy, u_turbidity);
@@ -1259,7 +1261,7 @@ void main() {
     // real muddy water still SHINES wet at glancing angles. Only the
     // broad hazy sun-highlight fades (opaque mud can't backscatter).
     float spec_boost = mix(1.0, 0.40, u_turbidity);
-    final_col += specular * spec_boost;
+    final_col += specular * spec_boost * 0.7 * u_foam;   // sun glint is white flicker too → Foam knob
 
     // Sky / ambient REFLECTION. At high turbidity the sky reflection is
     // killed (opaque water doesn't mirror), but we blend in a dimmer
@@ -1279,7 +1281,10 @@ void main() {
     float puddle_shal  = 1.0 - smoothstep(0.05, 0.15, v_depth);        // <15 cm
     float puddle_amt   = puddle_calm * puddle_shal * (1.0 - u_turbidity);
     float refl_strength_final = refl_strength + puddle_amt * 0.45;     // up to +0.45
-    final_col = mix(final_col, refl_col, fresnel * refl_strength_final);
+    // Sky-mirror blend at 0.7 of the historical strength (formerly a
+    // Reflect slider; 0.7 was the chosen default). Clamped so mix() stays sane.
+    float refl_mix = clamp(fresnel * refl_strength_final * 0.7, 0.0, 1.0);
+    final_col = mix(final_col, refl_col, refl_mix);
 
     // ── See-through refraction ────────────────────────────────────
     //    Shallow / clean water is transparent enough that you see the
@@ -1329,7 +1334,7 @@ void main() {
         // smoothstep must have edge0 < edge1 (spec) — use 1.0 - form to invert
         float depth_gate = 1.0 - smoothstep(0.0, 0.5, t);   // widen shallow band
         float turb_gate  = 1.0 - u_turbidity * 0.6;
-        final_col += vec3(1.4, 1.3, 1.0) * caustic * depth_gate * turb_gate * 1.6;
+        final_col += vec3(1.4, 1.3, 1.0) * caustic * depth_gate * turb_gate * 1.6 * u_foam;
     }
 
     // ── Wet-line ambient occlusion at building edges.
@@ -1375,7 +1380,7 @@ void main() {
         float mist_amt = smoothstep(0.8, 2.5, v_speed);
         float mist_n   = snoise(v_uv * 22.0 + u_anim_time * vec2(0.4, 0.3)) * 0.5 + 0.5;
         vec3  mist_col = mix(vec3(1.0, 1.0, 1.05), vec3(0.90, 0.85, 0.70), u_turbidity);
-        final_col = mix(final_col, mist_col, mist_amt * mist_n * 0.65);
+        final_col = mix(final_col, mist_col, min(1.0, mist_amt * mist_n * 0.65 * u_foam));
     }
 
     // ── Splash front where water is arriving fast ──────────────────
@@ -1395,7 +1400,7 @@ void main() {
                          * (1.0 - smoothstep(0.10, 0.40, v_depth));
         float splash_n = snoise(v_uv * 45.0 + u_anim_time * vec2(2.0, 1.7)) * 0.5 + 0.5;
         vec3  splash_col = mix(vec3(1.0, 1.0, 1.0), vec3(0.9, 0.8, 0.6), u_turbidity);
-        final_col += splash_col * arrive_amt * splash_n * 0.6;
+        final_col += splash_col * arrive_amt * splash_n * 0.6 * u_foam;
 
         // ── Splash PLUME: a broader bright veil that reads as spray
         //    lofting up from the arrival point. Uses a coarser noise so
@@ -1407,7 +1412,7 @@ void main() {
         float plume_n2 = snoise(plume_uv * 0.55 + vec2(2.3, 5.7)) * 0.5 + 0.5;
         float plume_mask = pow(plume_n1 * plume_n2, 1.6);
         vec3  plume_col  = mix(vec3(1.05, 1.05, 1.10), vec3(0.85, 0.70, 0.50), u_turbidity);
-        final_col += plume_col * arrive_amt * plume_mask * 1.1;
+        final_col += plume_col * arrive_amt * plume_mask * 1.1 * u_foam;
     }
 
     // ── Night: fade the water shade toward a dim moonlit level as the sun
@@ -2315,10 +2320,11 @@ class FloodViewer3D {
         // Wind strength (multiplies the "wind ripples in calm pools" term).
         // 0 = mirror still, 1 = normal, 2 = choppy. Slider is 0..200 → 0..2.
         this.wind = 1.0;
-        // Overall surface-wave amplitude. Default 0.5 = half of the raw
-        // shader amplitude, since the prior 1.0 looked too marked. Slider
-        // 0..200 → 0..2 (0 = flat, 0.5 = default subtle, 2 = choppy).
-        this.waves = 0.5;
+        // "Foam" — intensity of every white-flicker term on the water (edge
+        // foam, whitecaps, waterfall veils, caustics, splash/plume, mist,
+        // sun glint). 0 = none, 0.5 = default, 1 = historical look, 2 = max.
+        // Slider 0..200 → 0..2.
+        this.foam = 0.5;
         // Time-of-day as a fraction of 24 h: 0 = midnight, 0.25 = sunrise,
         // 0.5 = noon, 0.75 = sunset, 1 = midnight. Default 0.57 ≈ 13:41 —
         // early afternoon, slightly west of noon so reflections have a
@@ -3653,8 +3659,8 @@ class FloodViewer3D {
                          this.turbidity !== undefined ? this.turbidity : 0.0);
             gl.uniform1f(gl.getUniformLocation(wp, 'u_wind'),
                          this.wind !== undefined ? this.wind : 1.0);
-            gl.uniform1f(gl.getUniformLocation(wp, 'u_waves'),
-                         this.waves !== undefined ? this.waves : 0.5);
+            gl.uniform1f(gl.getUniformLocation(wp, 'u_foam'),
+                         this.foam !== undefined ? this.foam : 0.5);
             // See-through refraction — bind the satellite + hillshade textures
             // to units 3 and 4 so the water fragment shader can sample the
             // ground BELOW the water for shallow-water transparency.
@@ -4204,10 +4210,10 @@ function showError(stage, detail) {
         viewer.fadeOpacity = parseInt(e.target.value) / 1000;
         document.getElementById('v-trail').textContent = viewer.fadeOpacity.toFixed(2);
     });
-    document.getElementById('sl-waves').addEventListener('input', e => {
-        // Slider 0..200 maps to 0..2 so the user can push waves harder than default.
-        viewer.waves = parseInt(e.target.value) / 100;
-        document.getElementById('v-waves').textContent = viewer.waves.toFixed(2);
+    document.getElementById('sl-foam').addEventListener('input', e => {
+        // Slider 0..200 → 0..2: 0 none, 0.5 default, 1 historical look, 2 max.
+        viewer.foam = parseInt(e.target.value) / 100;
+        document.getElementById('v-foam').textContent = viewer.foam.toFixed(2);
     });
     document.getElementById('sl-turbidity').addEventListener('input', e => {
         viewer.turbidity = parseInt(e.target.value) / 100;
@@ -4427,7 +4433,7 @@ function showError(stage, detail) {
     const flyPanel = document.createElement('div');
     flyPanel.id = 'fly-panel';
     flyPanel.hidden = true;
-    flyPanel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10;'
+    flyPanel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:21;'   /* above #controls (20) when they overlap */
         + 'background:rgba(5,8,20,0.85);color:#b0c4de;padding:12px 14px;'
         + 'border-radius:10px;font:12px/1.35 "SF Mono","Fira Code",monospace;'
         + 'border:1px solid rgba(60,90,140,0.4);backdrop-filter:blur(8px);'
@@ -4437,9 +4443,13 @@ function showError(stage, detail) {
         <div style="color:#8899bb;font-size:11px;margin-bottom:6px">
             <b>1.</b> Freely compose the view — drag / scroll / shift-drag / WASD.<br>
             <b>2.</b> Click <b>+ Capture current view</b> to lock it as a waypoint.<br>
-            <b>3.</b> Repeat, then Play — Catmull-Rom spline gives smooth motion.
+            <b>3.</b> Repeat, then Play — Catmull-Rom spline gives smooth motion.<br>
+            <b>4.</b> Click a waypoint to jump to it ·
+            <span style="color:#9cf">&#10227;</span> overwrite it with the current view ·
+            <span style="color:#8e8">&#65291;</span> insert a new one after it ·
+            <span style="color:#c78">&times;</span> remove.
         </div>
-        <div id="fly-list" style="max-height:150px;overflow-y:auto;
+        <div id="fly-list" style="max-height:190px;overflow-y:auto;
             margin:6px 0;font-size:11px;color:#ccddef"></div>
         <button class="btn" id="fly-add-view" style="width:100%;margin:4px 0 6px">
             + Capture current view
@@ -4470,26 +4480,79 @@ function showError(stage, detail) {
     `;
     document.body.appendChild(flyPanel);
 
+    function captureView() {
+        return {
+            theta:    viewer.camera.theta,
+            phi:      viewer.camera.phi,
+            distance: viewer.camera.distance,
+            target:   viewer.camera.target.slice(),
+        };
+    }
+    // Jump the camera to a waypoint (smooth 500 ms glide) and select it.
+    function goToWaypoint(i) {
+        const w = viewer._flyWaypoints[i]; if (!w) return;
+        if (viewer._flyPlaying) {            // a preview jump cancels playback
+            viewer._flyPlaying = false;
+            _restorePlayingAfterFly();
+            const pb = document.getElementById('fly-play'); if (pb) pb.textContent = '▶ Play';
+        }
+        viewer.camera.animateTo({ theta: w.theta, phi: w.phi, distance: w.distance,
+                                  target: w.target.slice() }, 500);
+        viewer._flySelected = i;
+        renderFlyPanel();
+    }
     function renderFlyPanel() {
         const list = document.getElementById('fly-list');
-        if (!viewer._flyWaypoints.length) {
+        const wps = viewer._flyWaypoints;
+        if (!wps.length) {
             list.innerHTML = '<em style="color:#667a99">no waypoints yet</em>';
+            viewer._flySelected = undefined;
             return;
         }
-        list.innerHTML = viewer._flyWaypoints.map((w, i) =>
-            `<div style="padding:2px 0;display:flex;justify-content:space-between">
-                <span>#${i + 1}</span>
-                <span style="color:#8899bb">
-                    (${w.target[0].toFixed(2)}, ${w.target[2].toFixed(2)})
-                </span>
-                <button data-wp="${i}" style="background:none;border:0;
-                    color:#c78;cursor:pointer;padding:0 4px;font-size:12px"
-                    title="Remove">×</button>
-             </div>`).join('');
-        // Wire remove buttons
-        list.querySelectorAll('button[data-wp]').forEach(b => {
-            b.addEventListener('click', () => {
-                viewer._flyWaypoints.splice(parseInt(b.dataset.wp, 10), 1);
+        if (viewer._flySelected !== undefined && viewer._flySelected >= wps.length)
+            viewer._flySelected = wps.length - 1;
+        const btn = (act, i, glyph, title, color) =>
+            `<button data-act="${act}" data-wp="${i}" title="${title}" ` +
+            `style="background:none;border:0;color:${color};cursor:pointer;` +
+            `padding:0 4px;font-size:13px;line-height:1">${glyph}</button>`;
+        list.innerHTML = wps.map((w, i) => {
+            const sel = i === viewer._flySelected;
+            return `<div class="fly-wp" data-wp="${i}" title="Click to jump the camera to this waypoint"
+                style="padding:3px 4px;display:flex;align-items:center;gap:6px;cursor:pointer;border-radius:4px;
+                       ${sel ? 'background:rgba(80,140,220,0.25);outline:1px solid rgba(120,170,240,0.5);' : ''}">
+                <span style="flex:0 0 26px;color:${sel ? '#e0ecff' : '#ccddef'}">#${i + 1}</span>
+                <span style="flex:1;color:#8899bb">(${w.target[0].toFixed(2)}, ${w.target[2].toFixed(2)}) · d ${w.distance.toFixed(2)}</span>
+                ${btn('update', i, '&#10227;', 'Overwrite this waypoint with the current view', '#9cf')}
+                ${btn('insert', i, '&#65291;', 'Insert a new waypoint AFTER this one (captures the current view)', '#8e8')}
+                ${btn('remove', i, '&times;', 'Remove this waypoint', '#c78')}
+             </div>`;
+        }).join('');
+        // Row click → jump to that waypoint (buttons handle themselves)
+        list.querySelectorAll('.fly-wp').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                goToWaypoint(parseInt(row.dataset.wp, 10));
+            });
+        });
+        // Per-row actions: overwrite ("fix") · insert after · remove
+        list.querySelectorAll('button[data-act]').forEach(b => {
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const i = parseInt(b.dataset.wp, 10);
+                const act = b.dataset.act;
+                if (act === 'remove') {
+                    wps.splice(i, 1);
+                    if (viewer._flySelected === i) viewer._flySelected = undefined;
+                    else if (viewer._flySelected > i) viewer._flySelected--;
+                } else if (act === 'update') {
+                    wps[i] = captureView();
+                    viewer._flySelected = i;
+                    console.log(`[fly] waypoint #${i + 1} overwritten with current view`);
+                } else if (act === 'insert') {
+                    wps.splice(i + 1, 0, captureView());
+                    viewer._flySelected = i + 1;
+                    console.log(`[fly] inserted waypoint after #${i + 1} (now #${i + 2})`);
+                }
                 renderFlyPanel();
             });
         });
@@ -4508,12 +4571,8 @@ function showError(stage, detail) {
     // needed — the user just composes the exact view they want (drag,
     // scroll, shift-drag) and hits this to snapshot theta/phi/distance/target.
     document.getElementById('fly-add-view').addEventListener('click', () => {
-        viewer._flyWaypoints.push({
-            theta:    viewer.camera.theta,
-            phi:      viewer.camera.phi,
-            distance: viewer.camera.distance,
-            target:   viewer.camera.target.slice(),
-        });
+        viewer._flyWaypoints.push(captureView());
+        viewer._flySelected = viewer._flyWaypoints.length - 1;
         console.log(`[fly] +waypoint #${viewer._flyWaypoints.length} (captured view)`);
         renderFlyPanel();
     });
