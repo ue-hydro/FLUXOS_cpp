@@ -21,12 +21,26 @@ canvas#gl { width: 100%; height: 100%; display: block; }
 }
 #controls h2 { font-size: 15px; color: #e0ecff; margin-bottom: 12px;
     font-weight: 600; letter-spacing: 0.5px; }
-/* Drawer-style collapse: the panel translates DOWN when collapsed so
-   only its top handle (~34 px) stays peeking above the viewport bottom.
-   Click the handle to toggle expand / collapse, or drag it UP to reveal
-   the panel gradually. */
+/* Drawer-style collapse: the panel slides DOWN and fully out of view when
+   collapsed. A small pill (#controls-tab) then appears at the bottom-left
+   to bring it back. Click the panel's header to close it, or drag the
+   header down; 'H' toggles either way. */
 #controls { transition: transform 0.28s ease-out; will-change: transform; }
-#controls[data-collapsed="true"] { transform: translateY(calc(100% - 34px)); }
+#controls[data-collapsed="true"] { transform: translateY(calc(100% + 24px)); }
+#controls-tab {
+    position: fixed; bottom: 12px; left: 16px; z-index: 20;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 999px; cursor: pointer; user-select: none;
+    background: rgba(5,8,20,0.82); color: #b0c4de;
+    border: 1px solid rgba(60,90,140,0.4);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; letter-spacing: 0.5px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    transition: background .15s, color .15s, transform .15s;
+}
+#controls-tab:hover { background: rgba(60,90,140,0.45); color: #e0ecff; transform: translateY(-1px); }
+#controls-tab .caret { color: #6a7a99; font-size: 11px; }
 #controls-handle {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin: -16px -20px 8px;    /* absorb panel padding */
@@ -207,10 +221,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <input type="range" id="sl-turbidity" min="0" max="100" value="55">
         <span class="val" id="v-turbidity">0.55</span>
     </div>
-    <div class="ctrl-row" title="Time of day: 0 = sunrise, 0.5 = noon (sun overhead), 1 = sunset. Low sun angles produce warm rim lighting on walls and dramatic reflections on the water.">
+    <div class="ctrl-row" title="Time of day over a full 24 h: 00:00 midnight → 06:00 sunrise → 12:00 noon → 18:00 sunset → 24:00 midnight. The sun sets below the horizon on both sides: twilight afterglow, then a moonlit night sky with stars.">
         <label>Sun</label>
-        <input type="range" id="sl-suntime" min="5" max="95" value="62">
-        <span class="val" id="v-suntime">14:53</span>
+        <input type="range" id="sl-suntime" min="0" max="100" value="57">
+        <span class="val" id="v-suntime">13:41</span>
+    </div>
+    <div class="ctrl-row" title="When ticked, the sun advances with the simulation clock: set the Sun slider to the time of day at the CURRENT frame, then press Play (or scrub, or run a synced fly path) and the sun moves through the day — into night and back — as the flood evolves. Untick to pin the sun where it is.">
+        <label>Sun clock</label>
+        <input type="checkbox" id="ck-sun-follow" style="flex:0 0 auto; margin:0 8px 0 0">
+        <span class="val" id="v-sun-follow" style="flex:1; text-align:left; color:#8899bb">pinned</span>
     </div>
     <div class="ctrl-row" title="Rain intensity: overlay of falling rain streaks. 0 = clear sky, 1 = heavy downpour.">
         <label>Rain</label>
@@ -236,6 +255,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
         <button class="btn-sm" id="cam-fly"
             title="Fly-path recorder — click points on the map to add waypoints, then Play to auto-fly through them cinematically.">🎬 Fly Path</button>
     </div>
+</div>
+
+<!-- Shown only while #controls is collapsed: click to bring the panel back -->
+<div id="controls-tab" hidden title="Show controls (H)" role="button" aria-expanded="false">
+    <span>&#9776; Controls</span><span class="caret">&#9650;</span>
 </div>
 
 <div id="info" style="display:none;">
@@ -637,7 +661,12 @@ void main() {
     //    daylight" — real terrain photos always have blue sky-fill.
     float sky_up = clamp(terrainNormal.y, 0.0, 1.0);   // 1 = up, 0 = side
     vec3  sky_col = vec3(0.42, 0.56, 0.80);            // Rayleigh blue
-    vec3  ambient = vec3(0.18, 0.18, 0.22) + sky_col * sky_up * 0.18;
+    // Day ↔ night: as the sun drops below the horizon the ambient fades
+    // from daylight sky-fill to a dim moonlit blue (same curve as sky-fs).
+    float daylight = smoothstep(-0.12, 0.10, u_sun_dir.y);
+    vec3  ambient_day   = vec3(0.18, 0.18, 0.22) + sky_col * sky_up * 0.18;
+    vec3  ambient_night = vec3(0.030, 0.040, 0.075) + vec3(0.02, 0.03, 0.06) * sky_up;
+    vec3  ambient = mix(ambient_night, ambient_day, daylight);
     // Sun-colour warm-shift at low sun angles (golden hour). At noon
     // (u_sun_dir.y ≈ 1) the sun is neutral-warm white; near the horizon
     // (u_sun_dir.y → 0) it shifts to a saturated orange/red as short
@@ -647,7 +676,7 @@ void main() {
     vec3  sun_horizon = vec3(1.00, 0.55, 0.28);
     vec3  sunCol = mix(sun_horizon, sun_noon, smoothstep(0.05, 0.45, sun_elev));
     // Intensity also drops near horizon (sun looks dimmer at low angle)
-    float sun_intensity = mix(0.55, 1.0, smoothstep(0.02, 0.35, sun_elev));
+    float sun_intensity = mix(0.55, 1.0, smoothstep(0.02, 0.35, sun_elev)) * daylight;
     vec3  lit = base * wall_side_col * (ambient + sunCol * NdotL * dir_boost * sun_intensity) * ao;
 
     // ── Building drop shadows on terrain ──────────────────────────
@@ -778,7 +807,8 @@ void main() {
     float fogAmount = 1.0 - exp(-dist * dist * 0.8);
     vec3 fogNear = vec3(0.62, 0.63, 0.68);       // warm neutral (close)
     vec3 fogFar  = vec3(0.55, 0.66, 0.82);       // Rayleigh-blue (distant)
-    vec3 fogColor = mix(fogNear, fogFar, clamp(dist * 0.9, 0.0, 1.0));
+    vec3 fogColor = mix(fogNear, fogFar, clamp(dist * 0.9, 0.0, 1.0))
+                  * mix(0.08, 1.0, daylight);   // fog goes dark at night too
     lit = mix(lit, fogColor, fogAmount * 0.35);
 
     gl_FragColor = vec4(lit, 1.0);
@@ -971,25 +1001,34 @@ float fbm(vec2 p) {
 // ── Procedural sky color (matches sky-fs) with a real sun disk ──
 vec3 getSkyColor(vec3 ray) {
     float y = ray.y;
-    vec3 zenith  = vec3(0.18, 0.30, 0.65);
-    vec3 horizon = vec3(0.55, 0.60, 0.72);
+    // Day ↔ night blend from sun elevation (same curve as sky-fs/terrain)
+    float daylight = smoothstep(-0.12, 0.10, u_sun_dir.y);
+    vec3 zenith  = mix(vec3(0.010, 0.016, 0.045), vec3(0.18, 0.30, 0.65), daylight);
+    vec3 horizon = mix(vec3(0.035, 0.050, 0.095), vec3(0.55, 0.60, 0.72), daylight);
     float skyMix = smoothstep(-0.02, 0.45, y);
     vec3 col = mix(horizon, zenith, skyMix);
-    // Warm horizon glow — subtle sunset colour at the base of the sky
-    float hGlow = exp(-abs(y) * 8.0);
-    col = mix(col, vec3(0.75, 0.55, 0.35), hGlow * 0.35);
+    // Horizon glow — daytime haze, and a warm twilight afterglow on the
+    // sun's side while the sun sits near/just below the horizon.
+    float hGlow    = exp(-abs(y) * 8.0);
+    float twilight = exp(-abs(u_sun_dir.y) * 6.0);
+    float sunSide  = max(0.0, dot(normalize(vec2(ray.x, ray.z)), normalize(vec2(u_sun_dir.x, u_sun_dir.z))));
+    vec3  glowCol  = mix(vec3(0.95, 0.45, 0.20), vec3(0.75, 0.55, 0.35), daylight);
+    col = mix(col, glowCol, hGlow * (0.35 * daylight + 0.55 * twilight * (0.35 + 0.65 * sunSide)));
     // ── Proper sun in the reflection ──
     //   • sunDisk (pow N high) — the tight bright disk
     //   • sunHalo (pow N mid)  — the soft glow AROUND the disk
     //   • sunFlare (pow N low) — the huge diffuse aura across the sky
     // Together they read as a real reflected sun, not just a highlight.
+    // Fades out as the sun sets below the horizon.
     float sunDot = max(dot(ray, u_sun_dir), 0.0);
     float sunDisk  = smoothstep(0.9990, 0.9997, sunDot);   // sharp disk
     float sunHalo  = pow(sunDot, 220.0);                    // small hot halo
     float sunFlare = pow(sunDot, 12.0);                     // wide warm flare
-    col += vec3(1.6, 1.45, 1.10) * sunDisk;                 // bright hot centre
-    col += vec3(1.0, 0.95, 0.80) * sunHalo * 0.9;
-    col += vec3(1.0, 0.80, 0.55) * sunFlare * 0.30;
+    float sunVis   = smoothstep(-0.03, 0.02, u_sun_dir.y);
+    vec3  sunTint  = mix(vec3(1.0, 0.55, 0.25), vec3(1.0), smoothstep(0.0, 0.3, u_sun_dir.y));
+    col += vec3(1.6, 1.45, 1.10) * sunTint * sunDisk * sunVis;   // bright hot centre
+    col += vec3(1.0, 0.95, 0.80) * sunTint * sunHalo * 0.9 * sunVis;
+    col += vec3(1.0, 0.80, 0.55) * sunFlare * 0.30 * sunVis;
     return col;
 }
 
@@ -1371,10 +1410,15 @@ void main() {
         final_col += plume_col * arrive_amt * plume_mask * 1.1;
     }
 
+    // ── Night: fade the water shade toward a dim moonlit level as the sun
+    //    drops below the horizon (same daylight curve as terrain / sky).
+    float daylight_w = smoothstep(-0.12, 0.10, u_sun_dir.y);
+    final_col *= mix(0.10, 1.0, daylight_w);
+
     // ── Atmospheric fog (match terrain, original 0.35 strength) ──
     float dist = length(v_world_pos - u_eye);
     float fogAmount = 1.0 - exp(-dist * dist * 0.8);
-    vec3 fogColor = vec3(0.62, 0.63, 0.68);
+    vec3 fogColor = vec3(0.62, 0.63, 0.68) * mix(0.08, 1.0, daylight_w);
     final_col = mix(final_col, fogColor, fogAmount * 0.35);
 
     // ── Alpha: Fresnel-modulated transparency ──
@@ -1503,10 +1547,19 @@ void main() {
 
     float y = ray.y;
 
-    // Sky gradient: deep blue zenith → warm haze at horizon
+    // Day ↔ night blend from sun elevation (civil-twilight-ish band).
+    // Shared curve with the terrain and water shaders so everything
+    // darkens together as the sun sets.
+    float daylight = smoothstep(-0.12, 0.10, u_sun_dir.y);
+
+    // Day palette: deep blue zenith → warm haze at horizon
     vec3 zenith  = vec3(0.18, 0.30, 0.65);
     vec3 horizon = vec3(0.55, 0.60, 0.72);
     vec3 ground  = vec3(0.15, 0.13, 0.12);
+    // Night palette: moonless deep blue
+    zenith  = mix(vec3(0.010, 0.016, 0.045), zenith,  daylight);
+    horizon = mix(vec3(0.035, 0.050, 0.095), horizon, daylight);
+    ground  = mix(vec3(0.012, 0.012, 0.018), ground,  daylight);
 
     float skyMix = smoothstep(-0.02, 0.45, y);
     vec3 skyCol = mix(horizon, zenith, skyMix);
@@ -1516,19 +1569,36 @@ void main() {
         skyCol = mix(horizon, ground, smoothstep(0.0, -0.15, y));
     }
 
-    // Atmospheric scattering near horizon (warm orange tint)
+    // Horizon scattering: daytime warm haze, plus a twilight afterglow
+    // that peaks while the sun sits near / just below the horizon and is
+    // strongest on the sun's side of the sky (fades on the opposite side).
     float horizonGlow = exp(-abs(y) * 8.0);
-    vec3 scatterCol = vec3(0.75, 0.55, 0.35);
-    skyCol = mix(skyCol, scatterCol, horizonGlow * 0.35);
+    float twilight    = exp(-abs(u_sun_dir.y) * 6.0);
+    float sunSide     = max(0.0, dot(normalize(vec2(ray.x, ray.z)),
+                                     normalize(vec2(u_sun_dir.x, u_sun_dir.z))));
+    vec3  scatterCol  = mix(vec3(0.95, 0.45, 0.20), vec3(0.75, 0.55, 0.35), daylight);
+    skyCol = mix(skyCol, scatterCol,
+                 horizonGlow * (0.35 * daylight + 0.55 * twilight * (0.35 + 0.65 * sunSide)));
 
-    // Sun disc + glow
-    float sunDot = max(dot(ray, u_sun_dir), 0.0);
+    // Stars — fade in as daylight goes; only above the horizon, and kept
+    // off the very horizon band where haze would hide them anyway.
+    if (y > 0.0 && daylight < 0.6) {
+        vec3  cell = floor(ray * 260.0);
+        float h    = fract(sin(dot(cell, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+        float star = step(0.9975, h) * pow(fract(h * 977.0), 2.0);
+        skyCol += vec3(0.85, 0.90, 1.0) * star * (1.0 - daylight / 0.6) * smoothstep(0.0, 0.15, y);
+    }
+
+    // Sun disc + glow — reddens toward the horizon and is hidden once the
+    // sun has set (both by its own elevation and by the ray dipping below
+    // the horizon line).
+    float sunDot  = max(dot(ray, u_sun_dir), 0.0);
     float sunDisc = smoothstep(0.9994, 0.9998, sunDot);
     float sunGlow = pow(sunDot, 256.0) * 1.5;
     float sunHalo = pow(sunDot, 32.0) * 0.4;
-    vec3 sunColor = vec3(1.0, 0.95, 0.8);
-
-    skyCol += sunColor * (sunDisc * 3.0 + sunGlow + sunHalo);
+    vec3  sunColor = mix(vec3(1.0, 0.55, 0.25), vec3(1.0, 0.95, 0.8), smoothstep(0.0, 0.3, u_sun_dir.y));
+    float sunVis  = smoothstep(-0.03, 0.02, u_sun_dir.y) * smoothstep(-0.03, 0.01, y);
+    skyCol += sunColor * (sunDisc * 3.0 + sunGlow + sunHalo) * sunVis;
 
     gl_FragColor = vec4(skyCol, 1.0);
 }
@@ -2249,10 +2319,17 @@ class FloodViewer3D {
         // shader amplitude, since the prior 1.0 looked too marked. Slider
         // 0..200 → 0..2 (0 = flat, 0.5 = default subtle, 2 = choppy).
         this.waves = 0.5;
-        // Time-of-day: 0 = sunrise (east horizon), 0.5 = noon (overhead),
-        // 1 = sunset (west horizon). Default 0.62 = mid-afternoon (slight
-        // west-of-noon so the reflection has some direction).
-        this.sunTime = 0.62;
+        // Time-of-day as a fraction of 24 h: 0 = midnight, 0.25 = sunrise,
+        // 0.5 = noon, 0.75 = sunset, 1 = midnight. Default 0.57 ≈ 13:41 —
+        // early afternoon, slightly west of noon so reflections have a
+        // direction. The full range reaches night on both ends.
+        this.sunTime = 0.57;
+        // "Sun clock": when true the sun advances with the simulation clock —
+        // effective time = sunTimeBase + simSeconds/86400 (wrapping). The
+        // slider re-bases sunTimeBase so the CURRENT frame shows the
+        // dragged time of day.
+        this.sunFollowSim = false;
+        this.sunTimeBase  = 0.57;
         // Toggles for HWM stain/line, rain overlay, and god-rays post-fx.
         this.showHwm    = 1.0;
         this.rainAmount = 0.0;   // 0 = off, 1 = heavy rain
@@ -2765,7 +2842,20 @@ class FloodViewer3D {
         });
     }
 
-    async loadVelFrame(idx) {
+    // Public entry: dedups concurrent requests for the same frame. Without
+    // this, preload() + fly-sync jumps can request an in-flight frame many
+    // times before it lands, each call decoding the PNG and creating GPU
+    // textures that then leak past the LRU.
+    loadVelFrame(idx) {
+        if (this.frameCache.has(idx)) return Promise.resolve(this.frameCache.get(idx));
+        if (!this._inflight) this._inflight = new Map();
+        if (this._inflight.has(idx)) return this._inflight.get(idx);
+        const p = this._loadVelFrameImpl(idx).finally(() => this._inflight.delete(idx));
+        this._inflight.set(idx, p);
+        return p;
+    }
+
+    async _loadVelFrameImpl(idx) {
         if (this.frameCache.has(idx)) return this.frameCache.get(idx);
         const gl = this.gl;
         const m = this.meta;
@@ -2881,6 +2971,95 @@ class FloodViewer3D {
             return tex;
         } catch (e) {
             return null;
+        }
+    }
+
+    // ── Sun clock helpers ────────────────────────────────────────────
+    // Interpolated simulation time (s) at the current playback position.
+    _simSeconds() {
+        const m = this.meta; if (!m || !m.times) return 0;
+        const fi = Math.max(0, Math.min(m.n_timesteps - 1, this.currentFrame | 0));
+        const t0 = m.times[fi] || 0;
+        const t1 = m.times[Math.min(fi + 1, m.n_timesteps - 1)] || t0;
+        return t0 + (this.timeFrac || 0) * (t1 - t0);
+    }
+    // Time of day (0..1 of 24 h) once the sim clock is added to the base.
+    _effectiveSunTime() {
+        const st = (this.sunTimeBase || 0) + this._simSeconds() / 86400.0;
+        return st - Math.floor(st);
+    }
+    // Keep the Sun slider thumb + label tracking the moving sun. Only
+    // touches the DOM when the displayed value actually changes.
+    _syncSunUI(st) {
+        // Label refreshes every minute of sun time; the slider thumb only
+        // when its integer step (1% ≈ 14.4 min) changes.
+        const txt = fmtClock(st);
+        if (txt !== this._sunUiLastTxt) {
+            this._sunUiLastTxt = txt;
+            const lb = document.getElementById('v-suntime'); if (lb) lb.textContent = txt;
+        }
+        const v = Math.round(st * 100);
+        if (v !== this._sunUiLast) {
+            this._sunUiLast = v;
+            const sl = document.getElementById('sl-suntime'); if (sl) sl.value = v;
+        }
+    }
+
+    // ── Sync-time pre-buffering ──────────────────────────────────────
+    // A time-synced fly path can demand hundreds of sim frames per second
+    // (n_timesteps spread over a few seconds of camera motion) — far more
+    // than the on-the-fly decoder delivers, which is what made synced
+    // playback/recording crawl. So before a synced fly starts we decode
+    // every frame it will touch, holding them all in the cache. If that
+    // exceeds a GPU budget the list is time-thinned (every k-th frame);
+    // the eye can't resolve 300 sim-frames/s anyway.
+    async prebufferSyncFrames(totalDur, onProgress) {
+        const n = this.meta.n_timesteps;
+        const ticks = Math.max(2, Math.ceil(totalDur * 60) + 1);
+        const frames = new Set();
+        for (let i = 0; i < ticks; i++) {
+            const f = Math.min(n - 2, Math.floor((i / (ticks - 1)) * (n - 1)));
+            frames.add(f); frames.add(f + 1);
+        }
+        let list = [...frames].sort((a, b) => a - b);
+        const bytesPerFrame = this.meta.width * this.meta.height * 4;
+        const budgetFrames  = Math.max(16, Math.floor(320e6 / bytesPerFrame));
+        if (list.length > budgetFrames) {
+            const k = Math.ceil(list.length / budgetFrames);
+            list = list.filter((_, i) => i % k === 0);
+            if (list[list.length - 1] !== n - 1) list.push(n - 1);
+        }
+        this._syncFrames = list;
+        if (this._syncCacheMaxSaved === undefined) this._syncCacheMaxSaved = this.frameCacheMax;
+        this.frameCacheMax = Math.max(this.frameCacheMax, list.length + 20);
+        const token = (this._syncBufferToken = {});
+        for (let i = 0; i < list.length; i += 6) {
+            if (this._syncBufferToken !== token) return false;   // cancelled
+            await Promise.all(list.slice(i, i + 6).map(f => this.loadVelFrame(f)));
+            if (onProgress) onProgress(Math.min(list.length, i + 6), list.length);
+        }
+        return this._syncBufferToken === token;
+    }
+
+    // Release the pre-buffer: restore the normal cache limit and evict
+    // frames far from the current one so GPU memory returns to baseline.
+    _endSyncSession() {
+        this._syncBufferToken = null;
+        this._syncFrames = null;
+        if (this._syncCacheMaxSaved !== undefined) {
+            this.frameCacheMax = this._syncCacheMaxSaved;
+            this._syncCacheMaxSaved = undefined;
+        }
+        const gl = this.gl, keep = 20, cur = this.currentFrame;
+        const n = this.meta ? this.meta.n_timesteps : 0;
+        for (const [idx, entry] of [...this.frameCache.entries()]) {
+            const lin = Math.abs(idx - cur);
+            const d = n ? Math.min(lin, n - lin) : lin;
+            if (d > keep) {
+                gl.deleteTexture(entry.velTex);
+                gl.deleteTexture(entry.spawnTex);
+                this.frameCache.delete(idx);
+            }
         }
     }
 
@@ -3050,7 +3229,10 @@ class FloodViewer3D {
     // ── Render loop ──
     render() {
         const now = performance.now();
-        const dt = (now - this._lastT) / 1000;
+        // Clamp the frame delta: after a tab switch / hidden pane, rAF resumes
+        // with a huge gap that would otherwise shoot a fly path (and the sim
+        // clock) straight to the end in a single tick — fatal mid-recording.
+        const dt = Math.max(0, Math.min(0.1, (now - this._lastT) / 1000));
         this._lastT = now;
 
         // Fly-path playback overrides orbit-camera animation. Advances
@@ -3058,10 +3240,52 @@ class FloodViewer3D {
         // (bypassing camera.updateAnimation which handles single-shot
         // animateTo() interpolations). Auto-stops at path end unless Loop.
         if (this._flyPlaying && this._flyWaypoints.length >= 1) {
-            this._flyElapsed = (this._flyElapsed || 0) + dt;
             const totalDur = this._flySegDur * (this._flyWaypoints.length - 1);
-            const done = !this._flyLoop && this._flyElapsed >= totalDur;
-            const pose = this._flyEvalPose(this._flyElapsed);
+            let elapsed = (this._flyElapsed || 0) + dt;
+
+            // Sim-time sync: fly progress 0..1 → simulation frame 0..n-1.
+            // Resolve the frame this tick NEEDS before moving the camera;
+            // if it (or its blend partner) isn't decoded yet, kick off the
+            // load and HOLD the fly this tick. That keeps camera and sim
+            // time locked together in the recording instead of letting the
+            // camera race ahead of the data — and it's what prevents the
+            // render loop's "frame not cached" early-return from spinning
+            // forever with nothing drawn.
+            let syncFrame = null, syncFrac = 0;
+            if (this._flySyncTime && this.meta) {
+                const nFrames = this.meta.n_timesteps;
+                const rawT = totalDur > 0 ? (elapsed / totalDur) : 0;
+                const syncT = this._flyLoop ? (rawT - Math.floor(rawT)) : Math.min(rawT, 1.0);
+                // Map fly progress onto the PRE-BUFFERED frame list when one
+                // exists (prebufferSyncFrames — may be time-thinned to fit GPU
+                // memory); otherwise onto the full frame range.
+                const list = this._syncFrames;
+                if (list && list.length >= 2) {
+                    const pos = syncT * (list.length - 1);
+                    const k = Math.min(list.length - 2, Math.floor(pos));
+                    syncFrame = list[k];
+                    // Cross-fade toward the next buffered frame only when it is
+                    // the immediate neighbour; a thinned list just steps.
+                    syncFrac = (list[k + 1] === syncFrame + 1) ? (pos - k) : 0;
+                } else {
+                    const globalIdx = syncT * (nFrames - 1);
+                    syncFrame = Math.min(nFrames - 2, Math.floor(globalIdx));
+                    syncFrac  = globalIdx - Math.floor(globalIdx);
+                }
+                // Safety net: if a needed frame somehow isn't decoded, load it
+                // and hold the fly this tick rather than letting the render
+                // loop's early-return spin with nothing drawn.
+                if (!this.frameCache.has(syncFrame)) {
+                    this.loadVelFrame(syncFrame);
+                    if (!list) this.preload();
+                    elapsed = this._flyElapsed || 0;
+                    syncFrame = null;
+                }
+            }
+            this._flyElapsed = elapsed;
+
+            const done = !this._flyLoop && elapsed >= totalDur;
+            const pose = this._flyEvalPose(elapsed);
             if (pose) {
                 this.camera._anim = null;   // cancel any lingering animateTo
                 this.camera.theta = pose.theta;
@@ -3071,19 +3295,11 @@ class FloodViewer3D {
                 this.camera.target[1] = pose.target[1];
                 this.camera.target[2] = pose.target[2];
             }
-            // Sim-time sync: fly progress 0..1 → simulation frame 0..n-1.
-            // Overrides the normal time-advance path so the flood animation
-            // is driven entirely by the fly path's pace.
-            if (this._flySyncTime && this.meta) {
-                const rawT = totalDur > 0 ? (this._flyElapsed / totalDur) : 0;
-                const t = this._flyLoop ? (rawT - Math.floor(rawT)) : Math.min(rawT, 1.0);
-                const nFrames = this.meta.n_timesteps;
-                const globalIdx = t * (nFrames - 1);
-                this.currentFrame = Math.min(nFrames - 2, Math.floor(globalIdx));
-                this.timeFrac     = globalIdx - Math.floor(globalIdx);
-                // Update the top-bar Time slider so it visually tracks the sync.
-                const timeSlider = document.getElementById('sl-time');
-                if (timeSlider) timeSlider.value = Math.round(t * 100);
+            if (syncFrame !== null) {
+                this.currentFrame = syncFrame;
+                this.timeFrac     = syncFrac;
+                // (the top-bar Time slider follows currentFrame in the render
+                // loop below — nothing extra to do here)
             }
             if (done) {
                 this._flyPlaying = false;
@@ -3096,6 +3312,7 @@ class FloodViewer3D {
                     this.playing = this._flySavedPlaying;
                     this._flySavedPlaying = undefined;
                 }
+                if (this._flySyncTime) this._endSyncSession();
             }
         } else {
             // Standard orbit-camera animation for single-shot animateTo() calls
@@ -3115,7 +3332,11 @@ class FloodViewer3D {
             document.getElementById('i-fps').textContent = this._fps;
         }
 
-        if (this.playing) {
+        // Normal time advance — suppressed while a time-synced fly path is
+        // driving the clock (the recorder forces playing=true on start, and
+        // without this guard the two would fight over currentFrame).
+        const flySyncDriving = this._flyPlaying && this._flySyncTime;
+        if (this.playing && !flySyncDriving) {
             this.timeFrac += dt * this.speed * 1.5;
             while (this.timeFrac >= 1.0) {
                 this.timeFrac -= 1.0;
@@ -3139,7 +3360,14 @@ class FloodViewer3D {
         const curEntry = this.frameCache.get(fi);
         const nextFi = (fi + 1) % m.n_timesteps;
         const nextEntry = this.frameCache.get(nextFi) || curEntry;
-        if (!curEntry) { requestAnimationFrame(() => this.render()); return; }
+        if (!curEntry) {
+            // Frame not decoded (jumped here via scrub, record-rewind, or a
+            // fly-sync tick). Request it — otherwise nothing ever loads it
+            // and the loop spins forever drawing nothing.
+            this.loadVelFrame(fi);
+            requestAnimationFrame(() => this.render());
+            return;
+        }
 
         const velTex = curEntry.velTex;
         const velTexNext = nextEntry.velTex;
@@ -3261,14 +3489,24 @@ class FloodViewer3D {
         // Shared state for all scene passes
         // ============================================================
         const cw = gl.canvas.width, ch = gl.canvas.height;
-        // Time-of-day: this.sunTime ∈ [0, 1] where 0 = sunrise (east low),
-        // 0.5 = noon (overhead), 1 = sunset (west low). Sun tracks an arc
-        // in the x-y plane; z stays fixed at 0.32 so the light direction
-        // in xz still projects to a natural NE reading in the reflection.
-        const st = (this.sunTime !== undefined) ? this.sunTime : 0.62;
-        const sunTheta = st * Math.PI;                 // 0..π (east to west)
-        const sunX = Math.cos(sunTheta);               // +1 at sunrise, -1 at sunset
-        const sunY = Math.max(0.05, Math.sin(sunTheta)); // never 0 (avoids full black)
+        // Time-of-day: this.sunTime ∈ [0, 1] is a fraction of a full 24 h
+        // day — 0 = midnight, 0.25 = sunrise (east), 0.5 = noon, 0.75 =
+        // sunset (west), 1 = midnight again. The sun sweeps a full circle
+        // so it goes BELOW the horizon on both sides (dusk → night → dawn);
+        // the sky / terrain / water shaders fade to a moonlit night palette
+        // as it does. z stays fixed at 0.32 so the light direction in xz
+        // still projects to a natural NE reading in the reflection.
+        let st = (this.sunTime !== undefined) ? this.sunTime : 0.57;
+        if (this.sunFollowSim && this.meta) {
+            // Sun clock: advance with the simulation's own time (works for
+            // play, scrubbing, and fly-path-synced time alike, since all
+            // of them go through currentFrame/timeFrac).
+            st = this._effectiveSunTime();
+            this._syncSunUI(st);
+        }
+        const sunTheta = st * Math.PI * 2.0 - Math.PI * 0.5;
+        const sunX = Math.cos(sunTheta);               // +1 east (sunrise) … −1 west (sunset)
+        const sunY = Math.sin(sunTheta);               // negative = below the horizon
         const sunZ = 0.32;
         const sunDir = [sunX, sunY, sunZ];
         const sunLen = Math.sqrt(sunDir[0]*sunDir[0]+sunDir[1]*sunDir[1]+sunDir[2]*sunDir[2]);
@@ -3682,6 +3920,15 @@ class FloodViewer3D {
 
 }
 
+// Time-of-day fraction (0..1 of 24 h) → "HH:MM"
+function fmtClock(st) {
+    let hh = Math.floor(st * 24.0);
+    let mm = Math.round((st * 24.0 - hh) * 60);
+    if (mm === 60) { mm = 0; hh += 1; }
+    hh = ((hh % 24) + 24) % 24;
+    return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+}
+
 function fmtTime(s) {
     if (s < 60) return Math.round(s) + 's';
     if (s < 3600) return (s/60).toFixed(1) + ' min';
@@ -3971,15 +4218,34 @@ function showError(stage, detail) {
         document.getElementById('v-rain').textContent = viewer.rainAmount.toFixed(2);
     });
     document.getElementById('sl-suntime').addEventListener('input', e => {
-        // Slider 5..95 → sunTime 0.05..0.95 (avoids the sun being exactly at
-        // horizon, which would black the scene). Map linearly to a human-
-        // readable time: 0.05 = 06:00, 0.5 = 12:00, 0.95 = 18:00.
-        viewer.sunTime = parseInt(e.target.value) / 100;
-        const hoursDecimal = 6.0 + (viewer.sunTime - 0.05) * (12.0 / 0.90);
-        const hh = Math.floor(hoursDecimal);
-        const mm = Math.round((hoursDecimal - hh) * 60);
-        document.getElementById('v-suntime').textContent =
-            String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+        // Slider 0..100 → sunTime 0..1 = fraction of a full 24 h day:
+        // 0 = 00:00 (midnight), 0.25 = 06:00 (sunrise), 0.5 = 12:00 (noon),
+        // 0.75 = 18:00 (sunset), 1 = 24:00. Night is reachable on both ends.
+        const st = parseInt(e.target.value) / 100;
+        viewer.sunTime = st;
+        if (viewer.sunFollowSim) {
+            // Sun clock running: re-base so the CURRENT frame shows the
+            // dragged time of day, then keep advancing from there.
+            const b = st - viewer._simSeconds() / 86400.0;
+            viewer.sunTimeBase = b - Math.floor(b);
+            viewer._sunUiLast = undefined;
+        }
+        document.getElementById('v-suntime').textContent = fmtClock(st);
+    });
+    document.getElementById('ck-sun-follow').addEventListener('change', e => {
+        viewer.sunFollowSim = e.target.checked;
+        const lbl = document.getElementById('v-sun-follow');
+        if (viewer.sunFollowSim) {
+            // Start from the sun as currently shown — no jump on tick.
+            const b = viewer.sunTime - viewer._simSeconds() / 86400.0;
+            viewer.sunTimeBase = b - Math.floor(b);
+            viewer._sunUiLast = undefined;
+            if (lbl) lbl.textContent = 'moving with sim time';
+        } else {
+            // Pin the sun exactly where the clock left it.
+            viewer.sunTime = viewer._effectiveSunTime();
+            if (lbl) lbl.textContent = 'pinned';
+        }
     });
     document.getElementById('sl-exag').addEventListener('input', e => {
         viewer.exaggeration = parseInt(e.target.value) / 1000;
@@ -4060,12 +4326,19 @@ function showError(stage, detail) {
     // or down to open/close gradually; 'H' also toggles.
     const ctrlPanel = document.getElementById('controls');
     const ctrlHandle = document.getElementById('controls-handle');
-    const HANDLE_H = 34;                // px kept visible when collapsed
+    const ctrlTab = document.getElementById('controls-tab');
+    // When collapsed the panel is pushed fully below the viewport (its own
+    // height plus this overshoot, matching the CSS `100% + 24px`), and the
+    // small #controls-tab pill takes over as the way to bring it back.
+    const HIDE_OVERSHOOT = 24;
 
     function setCollapsed(collapsed) {
         ctrlPanel.dataset.collapsed = collapsed ? 'true' : 'false';
         ctrlPanel.style.transform = '';   // let CSS take over the transition
+        ctrlTab.hidden = !collapsed;
+        ctrlTab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     }
+    ctrlTab.addEventListener('click', () => setCollapsed(false));
 
     // Click on the handle toggles — but ONLY if there was no meaningful
     // drag distance. A real drag lands in the drop-based state below.
@@ -4087,7 +4360,7 @@ function showError(stage, detail) {
         const y = (e.touches ? e.touches[0].clientY : e.clientY);
         const dy = y - drag.startY;   // dy > 0 → dragging DOWN → collapse
         drag.moved = Math.max(drag.moved, Math.abs(dy));
-        const closedOffset = drag.panelH - HANDLE_H;   // px when collapsed
+        const closedOffset = drag.panelH + HIDE_OVERSHOOT;   // px when fully hidden
         // Start offset (how much the panel is already translated down)
         const startOff = drag.startCollapsed ? closedOffset : 0;
         const off = Math.max(0, Math.min(closedOffset, startOff + dy));
@@ -4096,7 +4369,7 @@ function showError(stage, detail) {
     function onUp() {
         if (!drag) return;
         const { moved, panelH, startCollapsed } = drag;
-        const closedOffset = panelH - HANDLE_H;
+        const closedOffset = panelH + HIDE_OVERSHOOT;
         drag = null;
         ctrlPanel.style.transition = '';               // restore easing
         ctrlHandle.classList.remove('dragging');
@@ -4255,8 +4528,9 @@ function showError(stage, detail) {
             viewer.playing = viewer._flySavedPlaying;
             viewer._flySavedPlaying = undefined;
         }
+        if (viewer._flySyncTime) viewer._endSyncSession();
     }
-    document.getElementById('fly-play').addEventListener('click', () => {
+    document.getElementById('fly-play').addEventListener('click', async () => {
         const playBtn = document.getElementById('fly-play');
         if (viewer._flyPlaying) {
             viewer._flyPlaying = false;
@@ -4271,17 +4545,23 @@ function showError(stage, detail) {
         viewer._flySegDur = parseInt(document.getElementById('fly-duration').value, 10);
         viewer._flyLoop   = document.getElementById('fly-loop').checked;
         viewer._flySyncTime = document.getElementById('fly-sync-time').checked;
-        viewer._flyElapsed = 0;
-        viewer._flyPlaying = true;
-        // If time-sync requested, rewind the sim to t=0 so the fly path
-        // starts at the beginning of the flood and reaches the end at
-        // the last waypoint.
         if (viewer._flySyncTime) {
+            // Pre-decode every frame the synced fly will touch (see
+            // prebufferSyncFrames) — decoding on the fly starves the loop.
+            const totalDur = viewer._flySegDur * (viewer._flyWaypoints.length - 1);
+            playBtn.disabled = true;
+            const ok = await viewer.prebufferSyncFrames(totalDur, (d, t) => {
+                playBtn.textContent = `⏳ Buffering ${Math.round(100 * d / t)}%`;
+            });
+            playBtn.disabled = false;
+            if (!ok) { playBtn.textContent = '▶ Play'; return; }   // cancelled
             viewer._flySavedPlaying = viewer.playing;
-            viewer.playing = false;         // sim advance is driven manually below
-            viewer.currentFrame = 0;
+            viewer.playing = false;         // sim clock is driven by the fly
+            viewer.currentFrame = viewer._syncFrames[0];
             viewer.timeFrac = 0;
         }
+        viewer._flyElapsed = 0;
+        viewer._flyPlaying = true;
         playBtn.textContent = '⏹ Stop';
     });
 
@@ -4290,30 +4570,43 @@ function showError(stage, detail) {
     // dedicated Record button). Kicks off both fly playback and the video
     // recorder — the recorder's captureIfRecording() auto-stops when the
     // fly ends.
-    document.getElementById('fly-record').addEventListener('click', () => {
+    document.getElementById('fly-record').addEventListener('click', async () => {
+        const recBtn = document.getElementById('fly-record');
         if (viewer._flyWaypoints.length < 2) {
             alert('Add at least 2 waypoints first (use "+ Capture current view").');
             return;
         }
-        // Set up fly playback with sync ON, then start the recorder,
-        // which reads the fly state to know when to auto-stop.
+        if (viewer._flyPlaying || (viewer.recorder && viewer.recorder.recording)) return;
         viewer._flySegDur   = parseInt(document.getElementById('fly-duration').value, 10);
         viewer._flyLoop     = false;                     // one-shot for recording
         viewer._flySyncTime = true;
+        // Pre-decode every frame the recording will show BEFORE the
+        // recorder starts, so the capture never stalls on a decode.
+        const totalDur = viewer._flySegDur * (viewer._flyWaypoints.length - 1);
+        recBtn.disabled = true;
+        const ok = await viewer.prebufferSyncFrames(totalDur, (d, t) => {
+            recBtn.innerHTML = `&#9203; Buffering ${Math.round(100 * d / t)}%`;
+        });
+        recBtn.disabled = false;
+        recBtn.innerHTML = '&#9210; Record fly path';
+        if (!ok) return;                                  // cancelled
+        const originalPlaying = viewer.playing;
         viewer._flyElapsed  = 0;
-        viewer._flySavedPlaying = viewer.playing;
-        viewer.playing      = false;
-        viewer.currentFrame = 0;
+        viewer._flySavedPlaying = originalPlaying;
+        viewer.playing      = false;                     // sim clock is driven by the fly
+        viewer.currentFrame = viewer._syncFrames[0];
         viewer.timeFrac     = 0;
         viewer._flyPlaying  = true;
         document.getElementById('fly-play').textContent = '⏹ Stop';
-        // Toggle the top-bar Record button — it uses the same VideoRecorder
-        // and its captureIfRecording() picks up the fly-driven stop.
-        const topRec = document.getElementById('btn-record');
-        if (topRec) topRec.click();
+        // Start the shared VideoRecorder (same one as the top-bar Record
+        // button). Its captureIfRecording() auto-stops when the fly ends.
+        viewer.recorder.toggle();
+        // The recorder snapshots viewer.playing at start — which we just
+        // forced false — so hand it the ORIGINAL state to restore instead.
+        viewer.recorder.savedPlayState = originalPlaying;
         // Mark the recorder as fly-bound so its stop condition switches
         // from "sim wrapped" to "fly playback ended".
-        if (viewer.recorder) viewer.recorder._flyBound = true;
+        viewer.recorder._flyBound = true;
     });
 
     // Any user input to the canvas (mousedown / wheel) while flying cancels
