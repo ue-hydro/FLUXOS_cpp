@@ -156,13 +156,12 @@ void solver_dry(
             }
             else
             {
+                // Mirror image of solver_wet's dry-neighbour branch, so a
+                // wetting front advances identically towards -irow and +irow.
                 dze = std::fmin(std::fabs(dze), hme);
                 qme = 0.296 * dze * sqrt(gaccl * dze);      // Ritter solution
-                hme = 0.444 * dze;                          // at cell side
-                volrat = dxy * he / dtl;                    // available volume rate per m of cell E
+                volrat = 0.5 * dxy * he / dtl;              // available volume rate per m of cell E
                 qme = -std::fmin(qme, volrat);
-                // Desingularised u (KP-2007) — same regularisation length
-                // as the wet-domain solver so the two are consistent.
                 double ume = qme * desing_inv(hme, 8.0 * hdryl);
                 fe1 = qme;
                 fe2 = qme * ume + 0.5 * gaccl * hme * hme;
@@ -191,12 +190,12 @@ void solver_dry(
             }
             else
             {
+                // Mirror image of solver_wet's dry-neighbour branch.
                 dzn = std::fmin(std::fabs(dzn), hmn);
                 rmn = 0.296 * dzn * sqrt(gaccl * dzn);        // Ritter solution
-                hmn = 0.444 * dzn;                            // at cell side
-                volrat = dxy * hn / dtl;                      // available volume rate per m of cell N
+                volrat = 0.5 * dxy * hn / dtl;                // available volume rate per m of cell N
                 rmn = -std::fmin(rmn, volrat);
-                double vmn = rmn / hmn;
+                double vmn = rmn * desing_inv(hmn, 8.0 * hdryl);
                 fn1 = rmn;
                 fn2 = 0.0;
                 fn3 = rmn * vmn + 0.5 * gaccl * hmn * hmn;
