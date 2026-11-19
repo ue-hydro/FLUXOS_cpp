@@ -176,6 +176,10 @@ public:
     // When wl_bc_enabled == false none of the other members are touched
     // and wl_bc_mask stays unallocated, so default runs are unchanged.
     // ------------------------------------------------------------------
+    // Manning bed friction, regular mesh (optional modset key MANNING_N,
+    // s m^-1/3). 0 = off: no bed-shear term, exactly the legacy behaviour.
+    double manning_n = 0.0;
+
     bool wl_bc_enabled = false;
     std::string wl_bc_file;
     std::vector<double> wl_bc_t, wl_bc_level;          // series [s], [m]

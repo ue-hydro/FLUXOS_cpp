@@ -60,6 +60,33 @@ bool read_modset(
         ds.h_min_print = ds.master_MODSET["OUTPUT"]["H_MIN_TO_PRINT"];
         *ks_input = ds.master_MODSET["ROUGNESS_HEIGHT"];
 
+        // Optional Manning bed friction (regular mesh). Absent or 0 = off.
+        auto exist_manning = ds.master_MODSET.find("MANNING_N");
+        if (exist_manning != ds.master_MODSET.end()) {
+            if (!exist_manning->is_number()) {
+                msg = "MANNING_N must be a number (s m^-1/3), e.g. 0.035";
+                std::cout << msg << std::endl;
+                logFLUXOSfile << msg + "\n";
+                return true;
+            }
+            ds.manning_n = exist_manning->get<double>();
+            if (!(ds.manning_n >= 0.0) || ds.manning_n > 1.0) {
+                msg = "MANNING_N must be between 0 and 1 (got " + std::to_string(ds.manning_n) + ")";
+                std::cout << msg << std::endl;
+                logFLUXOSfile << msg + "\n";
+                return true;
+            }
+#ifdef USE_CUDA
+            if (ds.manning_n > 0.0) {
+                msg = "MANNING_N is not implemented in the CUDA build; use the CPU/OpenMP build";
+                std::cout << msg << std::endl;
+                logFLUXOSfile << msg + "\n";
+                return true;
+            }
+#endif
+            logFLUXOSfile << "Manning n (regular mesh bed friction) = " + std::to_string(ds.manning_n) + "\n";
+        }
+
         ///////////////
         // Modules
         ///////////////
@@ -74,6 +101,13 @@ bool read_modset(
         auto exist_mesh_type = ds.master_MODSET.find("MESH_TYPE");
         if (exist_mesh_type != ds.master_MODSET.end()) {
             ds.mesh_type = ds.master_MODSET["MESH_TYPE"];
+        }
+        if (ds.manning_n > 0.0 && ds.mesh_type == "triangular") {
+            msg = "MANNING_N applies to the regular mesh only; the triangular mesh "
+                  "uses ROUGNESS_HEIGHT as its Manning n. Remove MANNING_N or set MESH_TYPE regular.";
+            std::cout << msg << std::endl;
+            logFLUXOSfile << msg + "\n";
+            return true;
         }
 
 #ifdef USE_TRIMESH

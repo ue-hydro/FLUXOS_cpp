@@ -21,10 +21,36 @@ The master configuration is JSON file that provides FLUXOS with information and 
         - full path to the snowmelt/rainfall timeseries
     *   - ``INFLOW_FILE`` (optional)
         - full pa/rainfall timeseries
+    *   - ``MANNING_N`` (optional, regular mesh)
+        - Manning roughness coefficient n (s m\ :sup:`-1/3`) for bed friction, e.g. 0.03 for a natural channel and 0.04-0.08 for floodplains. Absent or ``0`` = no bed friction (legacy behaviour). See below.
     *   - ``EXTERNAL_MODULES`` => ``ADE_TRANSPORT`` => ``STATUS``
         - activate 2D advection-dispersion solver
     *   - ``EXTERNAL_MODULES`` => ``ADE_TRANSPORT`` => ``D_COEF``
         - dispersion coefficient
+
+Bed Friction — regular mesh (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Without ``MANNING_N`` the regular-mesh solver has **no bed friction**:
+``ROUGNESS_HEIGHT`` only sets the depth below which a cell counts as dry and a
+floor on the depth used to compute velocities. Setting ``"MANNING_N": 0.03``
+adds the Manning bed-shear term
+
+.. math::
+
+   \frac{\partial \mathbf{q}}{\partial t} = \dots - g\,n^2\,\frac{|\mathbf{q}|\,\mathbf{q}}{h^{7/3}}
+
+applied point-implicitly every step (``q_new = q / (1 + dt g n² |q| / h^{7/3})``),
+which is unconditionally stable and never reverses the flow. It also sets the
+shear velocity ``u* = √g n |u| / h^{1/6}``, which drives the existing eddy-viscosity
+term. With ``MANNING_N`` the momentum smoothing uses the face discharge rather than
+the legacy face volume (``fe1·dt``), whose effect depended on the time step. One
+uniform value applies to the whole domain. The CUDA build refuses the key, and
+``MESH_TYPE: "triangular"`` rejects it because that mesh uses ``ROUGNESS_HEIGHT``
+as its Manning n.
+
+Test case: ``Working_example/manning_friction_test`` (normal depth reproduced
+within ±3.5 %).
 
 Water-Level (Stage) Boundary — regular mesh (optional)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

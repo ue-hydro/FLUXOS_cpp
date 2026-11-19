@@ -93,6 +93,10 @@ void hydrodynamics_calc(
     // Pre-compute constants
     const double dtl_div_3600 = dtl / 3600.0;
     const double inv_dxy = 1.0 / dxy;
+    const double manning_n = ds.manning_n;
+    const double gn2 = ds.gacc * manning_n * manning_n;
+    const double sqrt_g = std::sqrt(ds.gacc);
+    const double qxf_scale = (manning_n > 0.0) ? 1.0 : dtl;
 
 #ifdef USE_MPI
     // Exchange ghost cells for input fields before computation
@@ -222,8 +226,15 @@ void hydrodynamics_calc(
                         dqy_ref(irow, icol) += 0.5 * ds.gacc * (hn_s * hn_s - hs_s * hs_s) * inv_dxy * dtl;
                     }
 
-                    qxf_ref(irow, icol) = fe1_p * dtl;
-                    qyf_ref(irow, icol) = fn1_p * dtl;
+                    // Face discharges for the momentum smoothing below. The legacy
+                    // form stores fe1*dt (a volume, m2) and blends it into q (m2/s),
+                    // which scales q by ~(0.8 + 0.2 dt) per step: damping for
+                    // dt < 1 s, amplifying for dt > 1 s. Bed friction slows the flow
+                    // so the CFL step grows past 1 s, so with MANNING_N the
+                    // unit-consistent face discharge fe1 is used. Without it the
+                    // legacy form is kept (results unchanged).
+                    qxf_ref(irow, icol) = fe1_p * qxf_scale;
+                    qyf_ref(irow, icol) = fn1_p * qxf_scale;
                 }
                 else
                 {
@@ -277,6 +288,25 @@ void hydrodynamics_calc(
                     const double qyf_s = qyf_ref(irow, icol - 1);
                     const double qyf_p = qyf_ref(irow, icol);
                     qy_ref(irow, icol) = 0.1 * qyf_s + 0.8 * qy_ref(irow, icol) + 0.1 * qyf_p;
+
+                    // Manning bed friction (MANNING_N > 0 only), point-implicit:
+                    //   dq/dt = -g n^2 |q| q / h^(7/3)   (= -g h S_f, S_f = n^2|u|u/h^(4/3))
+                    //   q_new = q* / (1 + dt g n^2 |q*| / h^(7/3))
+                    // Unconditionally stable, never reverses the flow. Also sets the
+                    // shear velocity u* = sqrt(g) n |u| / h^(1/6), which feeds the
+                    // existing eddy-viscosity term (cvdef u* h) in solver_wet.
+                    if(manning_n > 0.0)
+                    {
+                        const double qxp = qx_ref(irow, icol);
+                        const double qyp = qy_ref(irow, icol);
+                        const double qmag = std::sqrt(qxp * qxp + qyp * qyp);
+                        const double hf = std::fmax(hp, hdry);
+                        const double cfric = gn2 * qmag / std::pow(hf, 7.0 / 3.0);
+                        const double ffac = 1.0 / (1.0 + dtl * cfric);
+                        qx_ref(irow, icol) = qxp * ffac;
+                        qy_ref(irow, icol) = qyp * ffac;
+                        us_ref(irow, icol) = sqrt_g * manning_n * (qmag * ffac / hf) / std::pow(hf, 1.0 / 6.0);
+                    }
 
                     ldry_ref(irow, icol) = 0.0f;
                 }

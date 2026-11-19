@@ -67,6 +67,11 @@ estuary tide. See [`wikipage/source/Master.rst`](wikipage/source/Master.rst) and
 [`Working_example/water_level_bc_test`](Working_example/water_level_bc_test). Not available in CUDA or
 triangular-mesh runs.
 
+**Bed friction (regular mesh).** Add `"MANNING_N": 0.03` (s m^-1/3) to the modset to
+enable Manning bed friction. Without it the regular-mesh solver has none
+(`ROUGNESS_HEIGHT` is only a dry-depth threshold). See
+[`Working_example/manning_friction_test`](Working_example/manning_friction_test).
+
 ## Workflow
 
 ```
