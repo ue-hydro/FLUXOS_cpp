@@ -308,6 +308,9 @@ int main(int argc, char* argv[])
     // unless BOUNDARY_CONDITIONS.WATER_LEVEL is enabled). The volume this
     // first fill adds is counted in the BC balance like any later step.
     apply_water_level_bc(ds, nchem);
+    // Simulation clock: GlobVar::tim was never initialised, so runs
+    // started from whatever was on the stack (intermittent hangs).
+    ds.tim = static_cast<double>(timstart);
     print_next = timstart;
     print_next = print_next + ds.print_step;
 
