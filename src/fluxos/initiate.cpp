@@ -58,7 +58,6 @@ unsigned int initiation(
 
      // INTERPOLATE ELEVATIONS OF THE BOUNDARIES
     for(irow=0;irow<=NROWS1;irow++){
-      zbs1[irow]=(*ds.zb).at(irow,1);
       (*ds.zb).at(irow,0) = (*ds.zb).at(irow,1);
       (*ds.zb).at(irow,NCOLS1) = (*ds.zb).at(irow,ds.NCOLS);
     }
@@ -69,6 +68,13 @@ unsigned int initiation(
 
     (*ds.zb).at(0,NCOLS1) = (*ds.zb).at(1,ds.NCOLS);
     (*ds.zb).at(NROWS1,NCOLS1) = (*ds.zb).at(ds.NROWS,ds.NCOLS);
+
+    // Column-1 buffer for the vertex averaging below. It must be filled AFTER
+    // the ghost rows: filling it first left zbs1[NROWS1] = 0 (unset ghost),
+    // which lowered the bed of the north-west corner cell (NROWS,1) by 1/4.
+    for(irow=0;irow<=NROWS1;irow++){
+      zbs1[irow]=(*ds.zb).at(irow,1);
+    }
     
     // INTERPOLATE CELL VERTICES TO CELL CENTER
     for(icol=1;icol<=ds.NCOLS;icol++){

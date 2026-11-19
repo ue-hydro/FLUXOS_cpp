@@ -16,6 +16,7 @@
         "H_MIN_TO_PRINT": 0.001
     },
     "ROUGNESS_HEIGHT": 0.005,
+    "MANNING_N": 0.03,
     "EXTERNAL_MODULES": {
         "ADE_TRANSPORT": {
             "STATUS": false,

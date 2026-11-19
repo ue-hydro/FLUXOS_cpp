@@ -62,6 +62,7 @@ base = {
     },
     "OUTPUT": {"OUTPUT_FOLDER": "Results_no_bc", "PRINT_STEP": 300, "H_MIN_TO_PRINT": 0.001},
     "ROUGNESS_HEIGHT": 0.005,
+    "MANNING_N": 0.03,                 # bed friction (without it the tide sloshes undamped)
     "EXTERNAL_MODULES": {"ADE_TRANSPORT": {"STATUS": False, "D_COEF": 0.5}},
 }
 with open(os.path.join(here, "modset_no_bc.json"), "w") as f:

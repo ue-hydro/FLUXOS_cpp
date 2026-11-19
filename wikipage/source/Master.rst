@@ -21,6 +21,8 @@ The master configuration is JSON file that provides FLUXOS with information and 
         - full path to the snowmelt/rainfall timeseries
     *   - ``INFLOW_FILE`` (optional)
         - full pa/rainfall timeseries
+    *   - ``COURANT_NUMBER`` (optional)
+        - Courant number for the adaptive time step. Default ``0.5`` on the regular mesh (the unsplit 2-D scheme needs <= 0.5; the legacy value 1 caused grid-scale oscillations at bed steps such as channel banks) and ``1`` on the triangular mesh. Range (0, 1].
     *   - ``MANNING_N`` (optional, regular mesh)
         - Manning roughness coefficient n (s m\ :sup:`-1/3`) for bed friction, e.g. 0.03 for a natural channel and 0.04-0.08 for floodplains. Absent or ``0`` = no bed friction (legacy behaviour). See below.
     *   - ``EXTERNAL_MODULES`` => ``ADE_TRANSPORT`` => ``STATUS``

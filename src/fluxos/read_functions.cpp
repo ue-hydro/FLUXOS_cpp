@@ -102,6 +102,26 @@ bool read_modset(
         if (exist_mesh_type != ds.master_MODSET.end()) {
             ds.mesh_type = ds.master_MODSET["MESH_TYPE"];
         }
+        // Courant number. The regular-mesh scheme is unsplit 2-D and explicit:
+        // with the per-direction dt = CFL dx / (|u| + c) it needs CFL <= 0.5
+        // (the two directional Courant numbers add up). The legacy value 1
+        // produced grid-scale oscillations next to bed steps such as channel
+        // banks. The triangular mesh keeps its own default of 1.
+        {
+            ds.cfl = (ds.mesh_type == "triangular") ? 1.0 : 0.5;
+            auto exist_cfl = ds.master_MODSET.find("COURANT_NUMBER");
+            if (exist_cfl != ds.master_MODSET.end()) {
+                if (!exist_cfl->is_number() || exist_cfl->get<double>() <= 0.0
+                    || exist_cfl->get<double>() > 1.0) {
+                    msg = "COURANT_NUMBER must be a number in (0, 1]";
+                    std::cout << msg << std::endl;
+                    logFLUXOSfile << msg + "\n";
+                    return true;
+                }
+                ds.cfl = exist_cfl->get<double>();
+            }
+            logFLUXOSfile << "Courant number = " + std::to_string(ds.cfl) + "\n";
+        }
         if (ds.manning_n > 0.0 && ds.mesh_type == "triangular") {
             msg = "MANNING_N applies to the regular mesh only; the triangular mesh "
                   "uses ROUGNESS_HEIGHT as its Manning n. Remove MANNING_N or set MESH_TYPE regular.";

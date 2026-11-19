@@ -3,7 +3,7 @@
 
 Closed 31 x 41 basin (10 m cells) with a west-east channel that is symmetric
 north/south (after initiate's half-cell zb averaging: bed rows 14-16, 4.0 m
-banks at rows 13 and 17, 5.0 m floodplain). 2 m3/s enters the channel centre
+banks at rows 13 and 17, 5.0 m floodplain). 6 m3/s enters the channel centre
 line. Overbank water must reach both floodplains alike: run, then
 `python3 banks.py outb`. Inflow is given every 10 s so the dry-start step
 does not dump a whole forcing interval into one cell (keep < 2000 rows: the
@@ -20,7 +20,7 @@ with open("bank.asc","w") as f:
     for r in range(NR,0,-1): f.write(" ".join(f"{zb(r,c):.2f}" for c in range(1,NC+1))+"\n")
 with open("qb.csv","w") as f:
     f.write("0,0,0\n")
-    for t in range(0,7201,10): f.write(f"{t},2.0,0\n")
+    for t in range(0,7201,10): f.write(f"{t},6.0,0\n")
 m={"DEM_FILE":"bank.asc","SIM_DATETIME_START":"2026-01-01 00:00:00","RESTART":False,
    "INFLOW_FILE":{"FILENAME":"qb.csv","DISCHARGE_LOCATION":{"X_COORDINATE":XLL+215,"Y_COORDINATE":YLL+155}},
    "OUTPUT":{"OUTPUT_FOLDER":"outb","PRINT_STEP":1200,"H_MIN_TO_PRINT":0.0001},

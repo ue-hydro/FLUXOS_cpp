@@ -171,7 +171,10 @@ void solver_wet(
     // has a dry neighbour (a dry icol-neighbour must not disable it on
     // the irow face, or fronts spread asymmetrically).
     bool lroe_e = true, lroe_n = true;
-    double volrat;
+    // Available volume rate per metre of face; caps the edge-weir outflow
+    // below. Was left uninitialised for cells without a dry neighbour
+    // (undefined behaviour: the edge outflow was capped by stack garbage).
+    double volrat = 0.5 * dx * hp / dtl;
 
     // CELLS WITH SOME DRY NEIGHBOURS
     if(lde == 1.0f) {

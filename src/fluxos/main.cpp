@@ -187,7 +187,7 @@ int main(int argc, char* argv[])
     // #######################################################
     // Input/read data
     // #######################################################
-    ds.cfl = 1; // Courant condition
+    ds.cfl = 1; // Courant number; reset in read_modset (COURANT_NUMBER, default 0.5 regular mesh)
     ds.ntim = 0;// maximum time step (seconds)
     ds.cvdef = 0.07; // for turbulent stress calc
     ds.nuem = 1.793e-6; // molecular dynamic viscosity (for turbulent stress calc)

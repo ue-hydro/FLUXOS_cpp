@@ -19,24 +19,27 @@ Each run takes ~1 min with 4 OpenMP threads.
 
 ## What to expect
 
+The modsets use `"MANNING_N": 0.03` (bed friction) and the default Courant number 0.5.
+
 `expected_stage_along_channel.png`: water surface at x = 15, 95, 395, 795 and
-1145 m along the channel centreline. Stage next to the boundary follows the
-imposed level; upstream the tide arrives progressively later and damped.
+1145 m along the channel centreline (closed case). The stage next to the boundary
+follows the imposed level; upstream the tide arrives later and slightly damped
+(e.g. at t = 9000 s the tide is 4.50 m and the closed upstream end 4.58 m).
 
 `check_propagation.py` also prints a domain volume budget:
 
     residual = storage(t) − (Q_in·t + vol_net_m3)
 
-where `vol_net_m3` comes from `water_level_bc_balance.csv`. The residual is the
-volume leaving through the *other* (legacy weir) domain edges. In the closed
-case it is ≈ −17 200 m³, and an instrumented build showed it is exactly the
-north-edge weir outflow (fe_1 at irow = NROWS). So the BC ledger closes the
-budget exactly; the loss is a pre-existing solver behaviour (see below).
+where `vol_net_m3` comes from `water_level_bc_balance.csv`. In the closed case
+the residual is within ±1 m³ at every print step: the boundary ledger closes the
+budget. No water reaches the 6.5 m floodplain.
 
-## Known pre-existing solver behaviour (not caused by the BC)
+## History
 
-Without any boundary condition, the unmodified solver (master 65ce73d) moves
-overbank water only to the north (+irow) side of this symmetric channel:
-1402 wet cells north vs 0 south after 4 h. With the tide, this shows up as a
-water surface ≈ 2 m higher on the north bank than on the south bank near the
-boundary, and as outflow over the north edge. Worth investigating separately.
+Earlier versions of this test showed water on the floodplain, a north-edge weir
+loss of ≈ 17 000 m³ and a north/south asymmetry. These came from the solver, not
+from the boundary:
+- a north-biased solver (fixed on `fix/solver-symmetry`);
+- the legacy Courant number 1, which drove a grid-scale oscillation between the
+  channel banks and the channel. The banks spilled onto the floodplain, which
+  then drained over the north-edge weir. The default is now 0.5 (`COURANT_NUMBER`).
