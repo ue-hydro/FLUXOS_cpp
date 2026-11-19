@@ -60,6 +60,13 @@ cd .. && ./build/bin/fluxos Working_example/modset.json
 
 Requires CMake ≥ 3.18, C++17, Armadillo, nlohmann/json (bundled), HDF5, OpenMP.
 
+**Tidal / sea-level boundary (regular mesh).** An optional
+`BOUNDARY_CONDITIONS.WATER_LEVEL` block in the modset imposes a time series of
+water level (`t_seconds,level_m` CSV) on a domain edge or edge segment, e.g. an
+estuary tide. See [`wikipage/source/Master.rst`](wikipage/source/Master.rst) and the test case in
+[`Working_example/water_level_bc_test`](Working_example/water_level_bc_test). Not available in CUDA or
+triangular-mesh runs.
+
 ## Workflow
 
 ```

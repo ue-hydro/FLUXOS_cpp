@@ -56,6 +56,7 @@ using json = nlohmann::json;
 #include "solver_drydomain.h"
 #include "solver_wetdomain.h"
 #include "hydrodynamics_calc.h"
+#include "water_level_bc.h"
 #include "ADEsolver_calc.h"
 #include "write_results.h"
 #include "mpi_domain.h"
@@ -245,6 +246,13 @@ int main(int argc, char* argv[])
     ds.arbase = ds.dxy * ds.dxy;
 
     // #######################################################
+    // Water-level (stage) boundary — optional, regular mesh only
+    // #######################################################
+    errflag = read_water_level_bc(ds, logFLUXOSfile);
+    if (errflag)
+        exit(EXIT_FAILURE);
+
+    // #######################################################
     // Read soil type map (regular mesh)
     // #######################################################
     if (soil_config.enabled) {
@@ -295,6 +303,11 @@ int main(int argc, char* argv[])
         nchem,
         logFLUXOSfile);
     ds.hdry = (*ds.ks).at(1,1);  // temporary but basically saying that nothing will move until it reaches roughness height
+
+    // Impose the initial water level on the stage-boundary cells (no-op
+    // unless BOUNDARY_CONDITIONS.WATER_LEVEL is enabled). The volume this
+    // first fill adds is counted in the BC balance like any later step.
+    apply_water_level_bc(ds, nchem);
     print_next = timstart;
     print_next = print_next + ds.print_step;
 
@@ -577,6 +590,9 @@ int main(int argc, char* argv[])
             apply_soil_infiltration(ds, soil_config);
         }
 
+        // Water-level (stage) boundary: re-impose level(t) on BC cells
+        apply_water_level_bc(ds, nchem);
+
 #ifdef USE_CUDA
         // Copy forcing-modified fields back to GPU
         cuda_mem.copy_all_to_device(ds);
@@ -782,6 +798,7 @@ int main(int argc, char* argv[])
 
             if(outwritestatus == true)
             {
+                write_water_level_bc_balance(ds, std::round(print_next));
                 std::cout << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << elapsed_seconds.count()/60 << std::endl;
                 logFLUXOSfile << "Saved: '" << print_next << ".txt' || time step (min): " << std::to_string(ds.print_step/60) << " || Time elapsed (min): " << std::to_string(elapsed_seconds.count()/60) + "\n";
                 print_next = print_next + ds.print_step;

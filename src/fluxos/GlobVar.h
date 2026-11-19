@@ -170,6 +170,24 @@ public:
     // Mesh type: "regular" (default) or "triangular"
     std::string mesh_type = "regular";
 
+    // ------------------------------------------------------------------
+    // Time-varying water-level (stage) boundary — regular mesh only.
+    // Configured by BOUNDARY_CONDITIONS.WATER_LEVEL (see water_level_bc.h).
+    // When wl_bc_enabled == false none of the other members are touched
+    // and wl_bc_mask stays unallocated, so default runs are unchanged.
+    // ------------------------------------------------------------------
+    bool wl_bc_enabled = false;
+    std::string wl_bc_file;
+    std::vector<double> wl_bc_t, wl_bc_level;          // series [s], [m]
+    std::vector<unsigned int> wl_bc_irow, wl_bc_icol;  // BC cells
+    std::vector<unsigned int> wl_bc_irow_in, wl_bc_icol_in; // interior neighbour
+    std::unique_ptr<arma::Mat<float>> wl_bc_mask;      // 1 = WL BC cell
+    bool wl_bc_zero_velocity = false;                  // VELOCITY: "zero"
+    double wl_bc_level_now = 0.0;                      // last imposed level [m]
+    double wl_bc_vol_cum = 0.0;  // net volume added by the BC [m3] (+ = into domain)
+    double wl_bc_vol_in = 0.0;   // gross volume added   [m3]
+    double wl_bc_vol_out = 0.0;  // gross volume removed [m3]
+
 #ifdef USE_TRIMESH
     // Triangular mesh configuration
     std::string mesh_file;          // path to mesh file (e.g., .msh)

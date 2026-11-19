@@ -26,6 +26,61 @@ The master configuration is JSON file that provides FLUXOS with information and 
     *   - ``EXTERNAL_MODULES`` => ``ADE_TRANSPORT`` => ``D_COEF``
         - dispersion coefficient
 
+Water-Level (Stage) Boundary — regular mesh (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Imposes a time-varying water surface elevation (e.g. an estuary tide or a
+sea-level forecast) on part or all of a domain edge. When the key is absent
+or ``STATUS`` is ``false`` the model behaves exactly as before.
+
+.. code-block:: json
+
+    "BOUNDARY_CONDITIONS": {
+        "WATER_LEVEL": {
+            "STATUS": true,
+            "FILENAME": "sado_mouth_level.csv",
+            "EDGE": "west",
+            "VELOCITY": "zero_gradient"
+        }
+    }
+
+.. list-table:: ``BOUNDARY_CONDITIONS`` => ``WATER_LEVEL``
+
+    *   - ``STATUS``
+        - ``true`` to enable
+    *   - ``FILENAME``
+        - CSV with ``t_seconds,level_m`` rows (a header line is allowed). Same time base as ``INFLOW_FILE`` (seconds from the simulation start); linear interpolation in time, first/last value held outside the series. Levels are in the DEM's vertical datum.
+    *   - ``EDGE``
+        - ``"west"``, ``"east"``, ``"south"``, ``"north"``; a list of edges (``["west", "south"]``); or a list of segments ``{"EDGE": "west", "FROM": 10, "TO": 40}`` (1-based cell index along the edge: rows counted from the south for west/east, columns from the west for south/north) or ``{"EDGE": "west", "FROM_COORD": 4285000, "TO_COORD": 4286200}`` (northing for west/east, easting for south/north)
+    *   - ``VELOCITY`` (optional)
+        - ``"zero_gradient"`` (default: velocity copied from the first interior cell) or ``"zero"``
+    *   - ``COMMENT`` (optional)
+        - free text; any other key is rejected
+
+Every time step, after the inflow/meteo forcing, the boundary cells get
+``h = max(level(t) - zb, 0)``. They exchange water with the interior through
+the normal cell-face fluxes (the legacy edge weir is switched off on them), so
+high water flows into the domain and the domain drains into the boundary when
+the level is lower. NODATA cells on the edge are skipped. The net volume the
+boundary adds (+) or removes (−) is written at every print step to
+``<OUTPUT_FOLDER>/water_level_bc_balance.csv``
+(``t_s,level_m,vol_in_m3,vol_out_m3,vol_net_m3``). Use ``vol_net_m3`` in budgets;
+the gross columns include exchange between neighbouring boundary cells.
+
+Limitations: regular mesh only; the CUDA build and ``MESH_TYPE: "triangular"``
+refuse the option with an error; MPI builds are untested. ADE concentration on
+boundary cells is copied from the interior (no external solute input).
+``INFLOW_FILE`` or ``METEO_FILE`` is still required and sets the simulation
+length.
+
+.. note::
+
+   The DEM reader treats an elevation of exactly ``0`` as NODATA and takes the
+   absolute value of negative elevations. For estuaries with beds below the
+   datum, shift the DEM and the level series by the same positive offset.
+
+Test case: ``Working_example/water_level_bc_test`` (see its ``README.md``).
+
 Triangular Mesh Configuration (optional)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

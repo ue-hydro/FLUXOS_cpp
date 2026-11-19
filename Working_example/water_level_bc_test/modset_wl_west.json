@@ -1,0 +1,32 @@
+{
+    "COMMENT": "Synthetic tidal channel - WATER_LEVEL boundary test",
+    "DEM_FILE": "channel_10m.asc",
+    "SIM_DATETIME_START": "2026-01-01 00:00:00",
+    "RESTART": false,
+    "INFLOW_FILE": {
+        "FILENAME": "river_inflow.csv",
+        "DISCHARGE_LOCATION": {
+            "X_COORDINATE": 501175.0,
+            "Y_COORDINATE": 4000155.0
+        }
+    },
+    "OUTPUT": {
+        "OUTPUT_FOLDER": "Results_wl_west",
+        "PRINT_STEP": 300,
+        "H_MIN_TO_PRINT": 0.001
+    },
+    "ROUGNESS_HEIGHT": 0.005,
+    "EXTERNAL_MODULES": {
+        "ADE_TRANSPORT": {
+            "STATUS": false,
+            "D_COEF": 0.5
+        }
+    },
+    "BOUNDARY_CONDITIONS": {
+        "WATER_LEVEL": {
+            "STATUS": true,
+            "FILENAME": "tide_level.csv",
+            "EDGE": "west"
+        }
+    }
+}

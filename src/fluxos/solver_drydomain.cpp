@@ -211,13 +211,22 @@ void solver_dry(
     }
 
     // BOUNDARY CONDITIONS (WEIR DISCHARGE RATE)
-    if(icol == 1 || icol == NCOLSl)
-    {
-        fn1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
-    }
-    if(irow == 1 || irow == NROWSl)
-    {
-        fe1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
+    // Water-level (stage) BC cells: no legacy weir override; their faces
+    // to the interior use the normal fluxes and the OUTER face carries
+    // nothing (the cell state is re-imposed every step, water_level_bc.cpp).
+    const bool wl_cell = ds.wl_bc_enabled && (*ds.wl_bc_mask)(irow, icol) != 0.0f;
+    if(wl_cell) {
+        if(icol == NCOLSl) { fn1 = 0.0; fn2 = 0.0; fn3 = 0.0; }
+        if(irow == NROWSl) { fe1 = 0.0; fe2 = 0.0; fe3 = 0.0; }
+    } else {
+        if(icol == 1 || icol == NCOLSl)
+        {
+            fn1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
+        }
+        if(irow == 1 || irow == NROWSl)
+        {
+            fe1 = std::fmin(volrat, sqrt(gaccl) * pow(std::fmax(hp, 0.0), 1.5));
+        }
     }
 
     // SAVE MASS AND MOMENTUM FLUXES
