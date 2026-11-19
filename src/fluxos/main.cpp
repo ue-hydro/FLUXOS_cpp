@@ -295,6 +295,9 @@ int main(int argc, char* argv[])
         nchem,
         logFLUXOSfile);
     ds.hdry = (*ds.ks).at(1,1);  // temporary but basically saying that nothing will move until it reaches roughness height
+    // Simulation clock: GlobVar::tim was never initialised, so runs
+    // started from whatever was on the stack (intermittent hangs).
+    ds.tim = static_cast<double>(timstart);
     print_next = timstart;
     print_next = print_next + ds.print_step;
 

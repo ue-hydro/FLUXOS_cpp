@@ -156,11 +156,9 @@ void solver_wet(
     double qmn = 0.5 * (qp + qn);
     double rmn = 0.5 * (rp + rn);
 
-    // Hydrostatic pressure source correction for cell P
-    // Mismatch between original cell depth and reconstructed face depth
-    // S = 0.5 * g * (h_orig^2 - h_recon^2)
-    const double src_e = 0.5 * gaccl * (hp * hp - hp_e * hp_e);
-    const double src_n = 0.5 * gaccl * (hp * hp - hp_n * hp_n);
+    // The hydrostatic-reconstruction bed-slope source is applied per cell
+    // in hydrodynamics_calc (it cannot live in the shared face flux: the
+    // two cells sharing a face need different corrections).
 
     double dze = ze - zp;
     double dqe = qe - qp;
@@ -169,7 +167,10 @@ void solver_wet(
     double drn = rn - rp;
     double dqn = qn - qp;
 
-    bool lroe = true;
+    // Roe dissipation is switched off per face direction when that face
+    // has a dry neighbour (a dry icol-neighbour must not disable it on
+    // the irow face, or fronts spread asymmetrically).
+    bool lroe_e = true, lroe_n = true;
     double volrat;
 
     // CELLS WITH SOME DRY NEIGHBOURS
@@ -194,7 +195,7 @@ void solver_wet(
             rme = 0.0;
             hme = 0.0;
         }
-        lroe = false;
+        lroe_e = false;
     }
 
     if(ldn == 1.0f) {
@@ -218,7 +219,7 @@ void solver_wet(
             rmn = 0.0;
             hmn = 0.0;
         }
-        lroe = false;
+        lroe_n = false;
     }
 
     // CALC TURBULENT STRESS
@@ -274,8 +275,8 @@ void solver_wet(
     double fe1r = 0.0, fe2r = 0.0, fe3r = 0.0;
     double fn1r = 0.0, fn2r = 0.0, fn3r = 0.0;
 
-    if(lroe) {
-        if(hme > hdryl) {
+    {
+        if(lroe_e && hme > hdryl) {
             double dzea = fabs(dze);
             if(dzea > 0.5 * hme) {
                 double dhea = fabs(he - hp);
@@ -302,7 +303,7 @@ void solver_wet(
             fe3r = -(a31 * dze + a32 * dqe + a33 * dre) * cc;
         }
 
-        if(ldp == 0.0f && hmn > hdryl) {
+        if(lroe_n && ldp == 0.0f && hmn > hdryl) {
             double dzna = fabs(dzn);
             double dhna = fabs(hn - hp);
             dzna = fmin(dzna, dhna);
@@ -332,15 +333,13 @@ void solver_wet(
     const double fe2p = 0.5 * gaccl * (hme * hme);
     const double fn3p = 0.5 * gaccl * (hmn * hmn);
 
-    // SUM OF ALL FLUXES (include hydrostatic pressure source correction)
-    // The src_e/src_n terms absorb the bed-slope source from hydrostatic
-    // reconstruction into the momentum flux (Audusse et al. 2004)
+    // SUM OF ALL FLUXES (bed-slope source: see hydrodynamics_calc)
     double fe1 = fe1c + fe1r;
-    double fe2 = fe2c + fe2r + fe2p - src_e;
+    double fe2 = fe2c + fe2r + fe2p;
     double fe3 = fe3c + fe3r;
     double fn1 = fn1c + fn1r;
     double fn2 = fn2c + fn2r;
-    double fn3 = fn3c + fn3r + fn3p - src_n;
+    double fn3 = fn3c + fn3r + fn3p;
 
     // BOUNDARY CONDITIONS (WEIR DISCHARGE RATE)
     if(icol == 1 || icol == NCOLSl) {

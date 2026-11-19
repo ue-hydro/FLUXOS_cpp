@@ -207,6 +207,21 @@ void hydrodynamics_calc(
 
                     dqy_ref(irow, icol) = ((fe3_w - fe3_p) * inv_dxy + (fn3_s - fn3_p) * inv_dxy) * dtl;
 
+                    // Hydrostatic-reconstruction bed-slope source, applied per
+                    // cell (Audusse et al. 2004): 0.5 g (h_e*^2 - h_w*^2) with
+                    // h_f* = max(0, z_p - max(zb_p, zb_f)). Keeps lake-at-rest
+                    // balanced against steps/walls on every side.
+                    {
+                        const double zp  = z_ref(irow, icol);
+                        const double zbp = zb_ref(irow, icol);
+                        const double he_s = std::fmax(0.0, zp - std::fmax(zbp, zb_ref(irow + 1, icol)));
+                        const double hw_s = std::fmax(0.0, zp - std::fmax(zbp, zb_ref(irow - 1, icol)));
+                        const double hn_s = std::fmax(0.0, zp - std::fmax(zbp, zb_ref(irow, icol + 1)));
+                        const double hs_s = std::fmax(0.0, zp - std::fmax(zbp, zb_ref(irow, icol - 1)));
+                        dqx_ref(irow, icol) += 0.5 * ds.gacc * (he_s * he_s - hw_s * hw_s) * inv_dxy * dtl;
+                        dqy_ref(irow, icol) += 0.5 * ds.gacc * (hn_s * hn_s - hs_s * hs_s) * inv_dxy * dtl;
+                    }
+
                     qxf_ref(irow, icol) = fe1_p * dtl;
                     qyf_ref(irow, icol) = fn1_p * dtl;
                 }
