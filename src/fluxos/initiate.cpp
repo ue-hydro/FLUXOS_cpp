@@ -145,7 +145,7 @@ unsigned int initiation(
     }
     
     // Allocate memory for conc_SW
-    arma::Mat<double> domain_xy(ds.MROWS,ds.MCOLS);
+    arma::Mat<double> domain_xy(ds.MROWS,ds.MCOLS,arma::fill::zeros);
     for(int ichem=0;ichem<nchem;ichem++){
       (*ds.conc_SW).push_back(domain_xy);
     }
